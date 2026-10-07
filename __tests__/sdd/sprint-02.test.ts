@@ -7,16 +7,18 @@
  */
 
 import { createElement } from 'react';
-import ReactTestRenderer, { act } from 'react-test-renderer';
+import ReactTestRenderer, { act, ReactTestInstance } from 'react-test-renderer';
 import { clearAllMockStorages } from '@react-native-async-storage/async-storage/jest';
+import App from '../../App';
 import { CrecemosProvider, useCrecemos } from '@context/CrecemosProvider';
 import { calcularCierre, nuevoCierre } from '@dominio/cierre';
+import { fechaLocal } from '@dominio/fecha';
 import { inicialesAvatar } from '@dominio/perfil';
 import { cambiarPrecio, requiereRevision } from '@dominio/producto';
 import { PRODUCTOS_POR_DEFECTO } from '@dominio/productosPorDefecto';
 import type { Producto } from '@dominio/tipos';
 import { validarProducto } from '@dominio/validacion';
-import { listarCierres } from '@storage/repositorio';
+import { guardarCierre, listarCierres, listarProductos } from '@storage/repositorio';
 
 const producto = (id: string): Producto => {
   const p = PRODUCTOS_POR_DEFECTO.find(x => x.id === id);
@@ -41,6 +43,33 @@ const montarProvider = async () => {
   });
   // Siempre el contexto vigente: cada acción re-renderiza el Provider.
   return () => contexto;
+};
+
+// La app real, manejada por testID como lo haría una persona (e9). Copia mínima del
+// montarApp de sprint-01.test.ts: los tests no se importan entre sí.
+// Se desmonta en afterEach junto con `montada`.
+const montarApp = async () => {
+  let app!: ReactTestRenderer.ReactTestRenderer;
+  await act(async () => {
+    app = ReactTestRenderer.create(createElement(App));
+  });
+  montada = app;
+
+  const esHost = (n: ReactTestInstance, nombre: string) => (n.type as unknown) === nombre;
+  const nodo = (testID: string, prop: 'onPress' | 'onChangeText') =>
+    app.root.findAll(n => n.props.testID === testID && typeof n.props[prop] === 'function')[0];
+  const tocar = (testID: string) =>
+    act(async () => {
+      await nodo(testID, 'onPress').props.onPress();
+    });
+  const escribir = (testID: string, texto: string) =>
+    act(async () => {
+      nodo(testID, 'onChangeText').props.onChangeText(texto);
+    });
+  const textos = () =>
+    app.root.findAll(n => esHost(n, 'Text')).map(n => [n.props.children].flat().join(''));
+
+  return { app, esHost, tocar, escribir, textos };
 };
 
 describe('SPEC-02: Perfil y productos con precio vigente', () => {
@@ -194,10 +223,58 @@ describe('SPEC-02: Perfil y productos con precio vigente', () => {
   });
 
   // @spec02_e9 — e2e: cambiar el precio no toca ayer
-  it('spec02_e9 e2e cambiar el precio no toca ayer', () => {
+  it('spec02_e9 e2e cambiar el precio no toca ayer', async () => {
     // Given: la app con el anticucho a S/ 10.00 y un cierre de ayer con 18 anticuchos vendidos
     // When: se cambia el precio a S/ 11.00 desde Perfil y se registra hoy un cierre con 10 anticuchos vendidos
     // Then: el cierre de ayer muestra S/ 180.00 de venta y el de hoy muestra S/ 110.00
-    throw new Error('Rojo: no implementado');
+    const hoy = fechaLocal(new Date());
+    const ayer = fechaLocal(new Date(Date.now() - 24 * 60 * 60 * 1000));
+    expect(ayer).not.toBe(hoy);
+    // El cierre de ayer se siembra ANTES de montar la app, con el anticucho a S/ 10.00.
+    await guardarCierre(
+      nuevoCierre(
+        {
+          fecha: ayer,
+          lineas: [{ productoId: 'p-anticucho', preparadas: 18, sobrantes: 0 }],
+          montoYape: 0,
+          gastos: [],
+        },
+        PRODUCTOS_POR_DEFECTO,
+        null,
+        new Date(),
+      ),
+    );
+
+    const { tocar, escribir, textos } = await montarApp();
+
+    // Desde Inicio al Perfil, y ahí, el precio del anticucho a S/ 11.00.
+    await tocar('abrir-perfil');
+    await tocar('cambiar-precio-p-anticucho');
+    await escribir('precio-input', '11');
+    await tocar('guardar-precio');
+    await tocar('perfil-atras');
+
+    // Hoy: 10 anticuchos preparados, ninguno sobrante; la pantalla ya muestra el precio nuevo.
+    await tocar('tab-cerrar-dia');
+    expect(textos()).toContain('a S/ 11.00');
+    await escribir('preparadas-p-anticucho', '10');
+    await escribir('sobrantes-p-anticucho', '0');
+    await tocar('guardar-dia');
+
+    // Inicio muestra la venta de hoy.
+    expect(textos()).toContain('+ S/ 110.00');
+
+    // Ayer se verifica en los datos: el Historial llega en el Sprint-03.
+    const cierres = await listarCierres();
+    expect(cierres).toHaveLength(2);
+    const cierreDeAyer = cierres.find(c => c.fecha === ayer)!;
+    const cierreDeHoy = cierres.find(c => c.fecha === hoy)!;
+    expect(calcularCierre(cierreDeAyer).venta).toBe(180);
+    expect(cierreDeAyer.lineas[0].precioUnitario).toBe(10);
+    expect(calcularCierre(cierreDeHoy).venta).toBe(110);
+    expect(cierreDeHoy.lineas[0].precioUnitario).toBe(11);
+
+    // Cambiar un precio no borra productos: siguen los cuatro.
+    expect(await listarProductos()).toHaveLength(4);
   });
 });

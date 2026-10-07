@@ -26,3 +26,9 @@ export const fechaEnPalabras = (fecha: FechaNegocio): string => {
   const diaSemana = new Date(anio, mes - 1, dia).getDay();
   return `${DIAS[diaSemana]} ${dia} de ${MESES[mes - 1]}`;
 };
+
+/** "15 de julio" (sin día de la semana): para fechas de referencia, como "Precio actualizado el …". */
+export const fechaCorta = (fecha: FechaNegocio): string => {
+  const [, mes, dia] = fecha.split('-').map(Number);
+  return `${dia} de ${MESES[mes - 1]}`;
+};
