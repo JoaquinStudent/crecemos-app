@@ -46,7 +46,18 @@ const montarApp = async () => {
   const interruptor = (testID: string) =>
     app.root.findAll(n => n.props.testID === testID && 'value' in n.props)[0];
 
-  return { tocar, escribir, cambiarInterruptor, existe, textos, textoDe, interruptor };
+  const scrollDelPerfil = () => app.root.findAll(n => n.props.testID === 'perfil-scroll')[0];
+
+  return {
+    tocar,
+    escribir,
+    cambiarInterruptor,
+    existe,
+    textos,
+    textoDe,
+    interruptor,
+    scrollDelPerfil,
+  };
 };
 
 const haceDias = (dias: number) => fechaLocal(new Date(Date.now() - dias * 24 * 60 * 60 * 1000));
@@ -200,5 +211,17 @@ describe('Perfil y hoja "Cambiar precio"', () => {
 
     expect((await obtenerPerfil())?.aceptaYape).toBe(false);
     expect(interruptor('switch-yape-ajeno').props.disabled).toBe(true);
+  });
+
+  // GUARDA, no verificación: Jest no ve el diseño ni el teclado. Esta prueba solo evita que
+  // alguien quite la configuración que hace que el teclado de iOS no tape la fila que se
+  // edita en "Mis datos" (defecto hallado en el simulador, iPhone 17e). Que el campo con su
+  // "Guardar" y "Cancelar" queden sobre el teclado se comprueba a mano, en las tres filas.
+  it('guarda: el ScrollView del Perfil ajusta su relleno al teclado', async () => {
+    const { tocar, scrollDelPerfil } = await montarApp();
+    await tocar('abrir-perfil');
+
+    expect(scrollDelPerfil().props.automaticallyAdjustKeyboardInsets).toBe(true);
+    expect(scrollDelPerfil().props.keyboardShouldPersistTaps).toBe('handled');
   });
 });

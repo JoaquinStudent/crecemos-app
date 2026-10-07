@@ -1,9 +1,9 @@
 // src/screens/PerfilScreen.tsx
 // "Mi perfil" (mock 07, sin foto): quién es, cómo le pagan y qué vende.
 // Es la pantalla que hace posible el insight: sin precio y costo no hay "Te deja".
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { ChevronLeft, Clock, TriangleAlert } from 'lucide-react-native';
@@ -40,9 +40,25 @@ export const PerfilScreen = () => {
 
   const hoy = fechaLocal(new Date());
 
+  // El teclado de iOS tapaba la fila que se edita, con su "Guardar" y "Cancelar", y
+  // `automaticallyAdjustKeyboardInsets` solo no alcanzaba: al abrir la edición se lleva la
+  // fila al borde de arriba de la pantalla, así el campo y sus botones quedan sobre el teclado.
+  const insets = useSafeAreaInsets();
+  const scrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
+  const filas = useRef<Partial<Record<CampoDato, React.ComponentRef<typeof View> | null>>>({});
+  const verFila = (campo: CampoDato) => {
+    const fila = filas.current[campo];
+    const interior = scrollRef.current?.getInnerViewRef?.();
+    if (!fila || !interior) return;
+    fila.measureLayout(interior, (_x, y) =>
+      scrollRef.current?.scrollTo({ y: Math.max(0, y - insets.top - spacing.lg), animated: true }),
+    );
+  };
+
   const editar = (campo: CampoDato) => {
     setBorrador(perfil[campo] ?? '');
     setEditando(campo);
+    verFila(campo);
   };
 
   const guardarDato = async (campo: CampoDato) => {
@@ -57,7 +73,15 @@ export const PerfilScreen = () => {
 
   return (
     <View style={styles.pantalla}>
-      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.scroll}>
+      <ScrollView
+        ref={scrollRef}
+        keyboardShouldPersistTaps="handled"
+        // iOS: suma al final el alto del teclado y sube el campo enfocado a la vista, para
+        // que la fila que se edita no quede tapada. Android ya reduce la ventana (adjustResize).
+        automaticallyAdjustKeyboardInsets
+        contentContainerStyle={styles.scroll}
+        testID="perfil-scroll"
+      >
         <SafeAreaView edges={['top']} style={styles.encabezado}>
           <Pressable
             accessibilityRole="button"
@@ -91,7 +115,13 @@ export const PerfilScreen = () => {
             <Text variant="h3">Mis datos</Text>
             <View style={styles.tarjeta}>
               {DATOS.map(({ campo, etiqueta, ayuda }, i) => (
-                <View key={campo} style={[styles.filaDato, i > 0 && styles.separador]}>
+                <View
+                  key={campo}
+                  ref={fila => {
+                    filas.current[campo] = fila;
+                  }}
+                  style={[styles.filaDato, i > 0 && styles.separador]}
+                >
                   {editando === campo ? (
                     <View style={styles.edicion}>
                       <Input
