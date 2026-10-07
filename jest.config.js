@@ -8,6 +8,11 @@ module.exports = {
   // no le dio permiso a watchman, la suite (y la compuerta) se cuelga.
   watchman: false,
   setupFiles: ['<rootDir>/jest.setup.js'],
+  // El preset solo transforma react-native y @react-native(-community). AsyncStorage 3
+  // publica su mock como ESM (lib/module/jest), asi que tambien hay que transformarlo.
+  transformIgnorePatterns: [
+    'node_modules/(?!((jest-)?react-native|@react-native(-community|-async-storage)?)/)',
+  ],
   moduleNameMapper: {
     // lucide publica ESM (.mjs) para React Native; en Jest se usa su build CommonJS.
     '^lucide-react-native$': '<rootDir>/node_modules/lucide-react-native/dist/cjs/lucide-react-native.js',

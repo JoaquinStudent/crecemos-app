@@ -6,10 +6,12 @@
  * La tarea del sprint es ponerlos en verde sin relajar ninguna aserción.
  */
 
+import { clearAllMockStorages } from '@react-native-async-storage/async-storage/jest';
 import { calcularCierre, nuevoCierre } from '@dominio/cierre';
 import { PRODUCTOS_POR_DEFECTO } from '@dominio/productosPorDefecto';
 import type { Cierre, DatosCierre, Gasto, LineaCierre } from '@dominio/tipos';
 import { validarCierre } from '@dominio/validacion';
+import { guardarCierre, listarCierres } from '@storage/repositorio';
 
 const anticucho = (preparadas: number, sobrantes: number): LineaCierre => ({
   productoId: 'p-anticucho',
@@ -38,7 +40,15 @@ const datosCon = (
   montoYape = 0,
 ): DatosCierre => ({ lineas, gastos, montoYape });
 
+// 2026-10-06 a las 20:00 en Lima (UTC-5): la fecha local del cierre es 2026-10-06.
+const noche6deOctubre = new Date('2026-10-06T20:00:00-05:00');
+
 describe('SPEC-01: Flujo mínimo de punta a punta — cerrar el día y ver cuánto te queda', () => {
+  // Cada escenario arranca con el almacenamiento vacío.
+  beforeEach(() => {
+    clearAllMockStorages();
+  });
+
   // @spec01_e1 — Calcula la venta de un producto
   it('spec01_e1 calcula la venta de un producto', () => {
     // Given: un cierre con una línea de "Anticucho" a S/ 10.00, con 20 preparadas y 2 sobrantes
@@ -80,19 +90,47 @@ describe('SPEC-01: Flujo mínimo de punta a punta — cerrar el día y ver cuán
   });
 
   // @spec01_e4 — Guarda y recupera un cierre con precio copiado
-  it('spec01_e4 guarda y recupera un cierre con precio copiado', () => {
+  it('spec01_e4 guarda y recupera un cierre con precio copiado', async () => {
     // Given: el almacenamiento vacío y un cierre del 2026-10-06 con una línea de anticucho a S/ 10.00 y costo S/ 8.20
     // When: se guarda el cierre y luego se listan los cierres
     // Then: la lista tiene 1 cierre con fecha 2026-10-06 y su línea conserva precio unitario 10 y costo unitario 8.2
-    throw new Error('Rojo: no implementado');
+    const cierre = nuevoCierre(
+      datosCon([{ productoId: 'p-anticucho', preparadas: 20, sobrantes: 2 }]),
+      PRODUCTOS_POR_DEFECTO,
+      null,
+      noche6deOctubre,
+    );
+
+    await guardarCierre(cierre);
+    const cierres = await listarCierres();
+
+    expect(cierres).toHaveLength(1);
+    expect(cierres[0].fecha).toBe('2026-10-06');
+    expect(cierres[0].lineas[0].precioUnitario).toBe(10);
+    expect(cierres[0].lineas[0].costoUnitario).toBe(8.2);
   });
 
   // @spec01_e5 — Un cierre por fecha
-  it('spec01_e5 un cierre por fecha', () => {
+  it('spec01_e5 un cierre por fecha', async () => {
     // Given: ya existe un cierre del 2026-10-06 con 18 anticuchos vendidos
     // When: se guarda otro cierre con la misma fecha y 15 anticuchos vendidos
     // Then: la lista tiene 1 solo cierre del 2026-10-06 y sus vendidas de anticucho son 15
-    throw new Error('Rojo: no implementado');
+    const cierreDe = (preparadas: number, sobrantes: number) =>
+      nuevoCierre(
+        datosCon([{ productoId: 'p-anticucho', preparadas, sobrantes }]),
+        PRODUCTOS_POR_DEFECTO,
+        null,
+        noche6deOctubre,
+      );
+    await guardarCierre(cierreDe(20, 2)); // 18 vendidas
+
+    await guardarCierre(cierreDe(20, 5)); // 15 vendidas
+    const cierres = await listarCierres();
+
+    const delDia = cierres.filter(c => c.fecha === '2026-10-06');
+    expect(cierres).toHaveLength(1);
+    expect(delDia).toHaveLength(1);
+    expect(calcularCierre(delDia[0]).vendidasPorProducto['p-anticucho']).toBe(15);
   });
 
   // @spec01_e6 — Rechaza sobrantes mayores que preparadas
