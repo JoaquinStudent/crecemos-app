@@ -26,6 +26,8 @@ export const calcularCierre = (c: Cierre): ResumenCierre => {
 export const crearId = (): string =>
   'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, caracter => {
     const r = Math.floor(Math.random() * 16);
+    // Los bits de variante del UUID v4 (10xx) se fijan con operaciones de bits.
+    // eslint-disable-next-line no-bitwise
     return (caracter === 'x' ? r : (r & 0x3) | 0x8).toString(16);
   });
 
