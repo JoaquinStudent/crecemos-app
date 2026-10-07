@@ -2,11 +2,15 @@
  * Tests del Sprint-01. Generados desde sdd/spec/Sprint-01/SPEC.md
  * Nombre obligatorio: 'spec<NN>_e<K> <descripcion>'. Ver sdd/domain.md
  *
- * ROJOS A PROPÓSITO (LEY 1 · SDD): el contrato existe antes que el código.
- * La tarea del sprint es ponerlos en verde sin relajar ninguna aserción.
+ * En verde. e1–e9 ejercitan el dominio y el repositorio; e10 recorre la app real
+ * (App → CrecemosProvider → navegación → pantallas → repositorio) tocando la
+ * interfaz por testID, sin llamar al dominio. Ninguna aserción se relajó.
  */
 
+import { createElement } from 'react';
+import ReactTestRenderer, { act, ReactTestInstance } from 'react-test-renderer';
 import { clearAllMockStorages } from '@react-native-async-storage/async-storage/jest';
+import App from '../../App';
 import { calcularCierre, nuevoCierre } from '@dominio/cierre';
 import { PRODUCTOS_POR_DEFECTO } from '@dominio/productosPorDefecto';
 import type { Cierre, DatosCierre, Gasto, LineaCierre } from '@dominio/tipos';
@@ -200,10 +204,57 @@ describe('SPEC-01: Flujo mínimo de punta a punta — cerrar el día y ver cuán
   });
 
   // @spec01_e10 — e2e: cerrar el día y verlo en Inicio
-  it('spec01_e10 e2e cerrar el dia y verlo en inicio', () => {
+  it('spec01_e10 e2e cerrar el dia y verlo en inicio', async () => {
     // Given: la app recién instalada, con los 4 productos por defecto y el anticucho a S/ 10.00
     // When: se registra un cierre con 20 anticuchos preparados, 2 sobrantes y S/ 110.00 de mercadería, y se abre Inicio
     // Then: Inicio muestra "Te queda" con el monto "S/ 70.00"
-    throw new Error('Rojo: no implementado');
+    let app!: ReactTestRenderer.ReactTestRenderer;
+    await act(async () => {
+      app = ReactTestRenderer.create(createElement(App));
+    });
+
+    // Componente nativo ('Text', 'TextInput') y no el componente de React que lo envuelve.
+    const esHost = (n: ReactTestInstance, nombre: string) => (n.type as unknown) === nombre;
+    // El primer nodo con ese testID que reacciona al toque o al texto.
+    const nodo = (testID: string, prop: 'onPress' | 'onChangeText') =>
+      app.root.findAll(n => n.props.testID === testID && typeof n.props[prop] === 'function')[0];
+    const tocar = (testID: string) =>
+      act(async () => {
+        await nodo(testID, 'onPress').props.onPress();
+      });
+    const escribir = (testID: string, texto: string) =>
+      act(async () => {
+        nodo(testID, 'onChangeText').props.onChangeText(texto);
+      });
+    const textos = () =>
+      app.root.findAll(n => esHost(n, 'Text')).map(n => [n.props.children].flat().join(''));
+
+    await tocar('tab-cerrar-dia');
+    // Los 4 productos por defecto, con el anticucho a S/ 10.00.
+    const campos = app.root.findAll(
+      n => esHost(n, 'TextInput') && String(n.props.testID).startsWith('preparadas-'),
+    );
+    expect(campos).toHaveLength(4);
+    expect(textos()).toContain('a S/ 10.00');
+
+    await escribir('preparadas-p-anticucho', '20');
+    await escribir('sobrantes-p-anticucho', '2');
+    await escribir('monto-gasto', '110');
+    await tocar('agregar-gasto'); // la categoría Mercadería viene marcada
+    await tocar('guardar-dia');
+
+    // Guardar lleva a Inicio, que muestra el resultado del cierre guardado.
+    const tabInicio = app.root.findAll(
+      n => n.props.testID === 'tab-inicio' && n.props.accessibilityState,
+    )[0];
+    expect(tabInicio.props.accessibilityState.selected).toBe(true);
+    const teQueda = app.root.findAll(
+      n => esHost(n, 'Text') && n.props.testID === 'inicio-te-queda',
+    )[0];
+    expect(textos()).toContain('Te queda');
+    expect(teQueda.props.children).toBe('S/ 70.00');
+    expect(await listarCierres()).toHaveLength(1);
+
+    await act(async () => app.unmount());
   });
 });
