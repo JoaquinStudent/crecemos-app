@@ -6,13 +6,48 @@
  * La tarea del sprint es ponerlos en verde sin relajar ninguna aserción.
  */
 
+import { calcularCierre, nuevoCierre } from '@dominio/cierre';
+import { PRODUCTOS_POR_DEFECTO } from '@dominio/productosPorDefecto';
+import type { Cierre, DatosCierre, Gasto, LineaCierre } from '@dominio/tipos';
+import { validarCierre } from '@dominio/validacion';
+
+const anticucho = (preparadas: number, sobrantes: number): LineaCierre => ({
+  productoId: 'p-anticucho',
+  nombre: 'Anticucho',
+  preparadas,
+  sobrantes,
+  precioUnitario: 10,
+  costoUnitario: 8.2,
+});
+
+const cierreCon = (lineas: LineaCierre[], gastos: Gasto[] = [], montoYape = 0): Cierre => ({
+  id: 'c-1',
+  fecha: '2026-10-06',
+  lineas,
+  montoYape,
+  yapePendiente: false,
+  gastos,
+  abreCiclo: false,
+  creadoEn: '2026-10-06T22:30:00.000Z',
+  actualizadoEn: '2026-10-06T22:30:00.000Z',
+});
+
+const datosCon = (
+  lineas: DatosCierre['lineas'],
+  gastos: Gasto[] = [],
+  montoYape = 0,
+): DatosCierre => ({ lineas, gastos, montoYape });
+
 describe('SPEC-01: Flujo mínimo de punta a punta — cerrar el día y ver cuánto te queda', () => {
   // @spec01_e1 — Calcula la venta de un producto
   it('spec01_e1 calcula la venta de un producto', () => {
     // Given: un cierre con una línea de "Anticucho" a S/ 10.00, con 20 preparadas y 2 sobrantes
     // When: se calcula el resumen del cierre
     // Then: las porciones vendidas del anticucho son 18 y la venta del cierre es S/ 180.00
-    throw new Error('Rojo: no implementado');
+    const resumen = calcularCierre(cierreCon([anticucho(20, 2)]));
+
+    expect(resumen.vendidasPorProducto['p-anticucho']).toBe(18);
+    expect(resumen.venta).toBe(180);
   });
 
   // @spec01_e2 — Calcula cuánto te queda en el día
@@ -20,7 +55,16 @@ describe('SPEC-01: Flujo mínimo de punta a punta — cerrar el día y ver cuán
     // Given: un cierre con venta de S/ 200.00 y gastos de mercadería S/ 110.00 y movilidad S/ 12.00
     // When: se calcula el resumen del cierre
     // Then: el gasto total es S/ 122.00 y "te queda" es S/ 78.00
-    throw new Error('Rojo: no implementado');
+    const resumen = calcularCierre(
+      cierreCon([anticucho(20, 0)], [
+        { categoria: 'mercaderia', monto: 110 },
+        { categoria: 'movilidad', monto: 12 },
+      ]),
+    );
+
+    expect(resumen.venta).toBe(200);
+    expect(resumen.gastoTotal).toBe(122);
+    expect(resumen.teQueda).toBe(78);
   });
 
   // @spec01_e3 — Separa efectivo y Yape
@@ -28,7 +72,11 @@ describe('SPEC-01: Flujo mínimo de punta a punta — cerrar el día y ver cuán
     // Given: un cierre con venta de S/ 200.00 y S/ 50.00 cobrados por Yape
     // When: se calcula el resumen del cierre
     // Then: el efectivo es S/ 150.00 y el Yape del día es S/ 50.00
-    throw new Error('Rojo: no implementado');
+    const resumen = calcularCierre(cierreCon([anticucho(20, 0)], [], 50));
+
+    expect(resumen.venta).toBe(200);
+    expect(resumen.efectivo).toBe(150);
+    expect(resumen.montoYape).toBe(50);
   });
 
   // @spec01_e4 — Guarda y recupera un cierre con precio copiado
@@ -52,7 +100,15 @@ describe('SPEC-01: Flujo mínimo de punta a punta — cerrar el día y ver cuán
     // Given: una línea con 10 preparadas y 12 sobrantes
     // When: se valida el cierre
     // Then: la validación falla con el mensaje "No te pueden sobrar más de los que preparaste"
-    throw new Error('Rojo: no implementado');
+    const resultado = validarCierre(
+      datosCon([{ productoId: 'p-anticucho', preparadas: 10, sobrantes: 12 }]),
+      PRODUCTOS_POR_DEFECTO,
+    );
+
+    expect(resultado).toEqual({
+      ok: false,
+      errores: { 'lineas.0.sobrantes': 'No te pueden sobrar más de los que preparaste' },
+    });
   });
 
   // @spec01_e7 — Rechaza un cierre vacío
@@ -60,7 +116,15 @@ describe('SPEC-01: Flujo mínimo de punta a punta — cerrar el día y ver cuán
     // Given: un cierre sin porciones vendidas y sin gastos
     // When: se valida el cierre
     // Then: la validación falla con el mensaje "Anota al menos una venta o un gasto"
-    throw new Error('Rojo: no implementado');
+    const resultado = validarCierre(
+      datosCon([{ productoId: 'p-anticucho', preparadas: 0, sobrantes: 0 }]),
+      PRODUCTOS_POR_DEFECTO,
+    );
+
+    expect(resultado).toEqual({
+      ok: false,
+      errores: { cierre: 'Anota al menos una venta o un gasto' },
+    });
   });
 
   // @spec01_e8 — Rechaza Yape mayor que la venta
@@ -68,7 +132,15 @@ describe('SPEC-01: Flujo mínimo de punta a punta — cerrar el día y ver cuán
     // Given: un cierre con venta de S/ 100.00 y S/ 150.00 por Yape
     // When: se valida el cierre
     // Then: la validación falla con el mensaje "El Yape no puede ser más que lo que vendiste"
-    throw new Error('Rojo: no implementado');
+    const resultado = validarCierre(
+      datosCon([{ productoId: 'p-anticucho', preparadas: 10, sobrantes: 0 }], [], 150),
+      PRODUCTOS_POR_DEFECTO,
+    );
+
+    expect(resultado).toEqual({
+      ok: false,
+      errores: { montoYape: 'El Yape no puede ser más que lo que vendiste' },
+    });
   });
 
   // @spec01_e9 — La fecha del cierre es la fecha local
@@ -76,7 +148,17 @@ describe('SPEC-01: Flujo mínimo de punta a punta — cerrar el día y ver cuán
     // Given: el reloj marca martes 2026-10-06 a las 22:30 en Lima, que en UTC ya es 2026-10-07 03:30
     // When: se crea un cierre con la fecha de hoy
     // Then: la fecha del cierre es 2026-10-06 y no 2026-10-07
-    throw new Error('Rojo: no implementado');
+    const ahora = new Date('2026-10-07T03:30:00Z');
+
+    const cierre = nuevoCierre(
+      datosCon([{ productoId: 'p-anticucho', preparadas: 20, sobrantes: 2 }]),
+      PRODUCTOS_POR_DEFECTO,
+      null,
+      ahora,
+    );
+
+    expect(cierre.fecha).toBe('2026-10-06');
+    expect(cierre.fecha).not.toBe('2026-10-07');
   });
 
   // @spec01_e10 — e2e: cerrar el día y verlo en Inicio

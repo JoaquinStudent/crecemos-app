@@ -1,7 +1,7 @@
 // src/components/molecules/AmountInput/AmountInput.tsx
 import React, { forwardRef } from 'react';
 import { Input, InputProps, InputRef } from '@components/atoms/Input';
-import { sanitizeAmount } from '@utils/budget';
+import { sanitizeAmount } from '@dominio/formato';
 
 export interface AmountInputProps
   extends Omit<InputProps, 'value' | 'onChangeText' | 'keyboardType' | 'prefix'> {
