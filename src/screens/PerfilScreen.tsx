@@ -14,14 +14,13 @@ import { Icon } from '@components/atoms/Icon';
 import { Input } from '@components/atoms/Input';
 import { CambiarPrecioSheet } from '@components/organisms/CambiarPrecioSheet';
 import { fechaLocal } from '@dominio/fecha';
-import { formatoSoles } from '@dominio/formato';
+import { formatoFechaCorta, formatoSoles } from '@dominio/formato';
 import { inicialesAvatar } from '@dominio/perfil';
 import { validarNumeroYape } from '@dominio/validacion';
 import { requiereRevision, teDeja } from '@dominio/producto';
 import type { Perfil, Producto } from '@dominio/tipos';
 import { useCrecemos } from '@context/CrecemosProvider';
 import type { RootStackParamList } from '@navigation/RootStack';
-import { fechaCorta } from './fechaEnPalabras';
 
 type CampoDato =
   | 'nombre'
@@ -325,7 +324,7 @@ const TarjetaProducto = ({
         <View style={styles.actualizado}>
           <Icon icon={Clock} size="sm" color="textMuted" />
           <Text variant="caption" color="textMuted" style={styles.actualizadoTexto}>
-            Precio actualizado el {fechaCorta(producto.actualizadoEn)}
+            Precio actualizado el {formatoFechaCorta(producto.actualizadoEn)}
           </Text>
         </View>
         <Button

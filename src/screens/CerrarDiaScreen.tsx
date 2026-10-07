@@ -14,11 +14,10 @@ import { CantidadInput } from '@components/molecules/CantidadInput';
 import { ChipGroup, ChipOption } from '@components/molecules/ChipGroup';
 import { calcularCierre, nuevoCierre } from '@dominio/cierre';
 import { fechaLocal } from '@dominio/fecha';
-import { formatoSoles, parseAmount } from '@dominio/formato';
+import { formatoFecha, formatoSoles, parseAmount } from '@dominio/formato';
 import type { CategoriaGasto, DatosCierre, Gasto } from '@dominio/tipos';
 import { useCrecemos } from '@context/CrecemosProvider';
 import type { TabsParamList } from '@navigation/Tabs';
-import { fechaEnPalabras } from './fechaEnPalabras';
 
 const CATEGORIAS: readonly ChipOption<CategoriaGasto>[] = [
   { value: 'mercaderia', label: 'Mercadería' },
@@ -114,7 +113,7 @@ export const CerrarDiaScreen = () => {
           <View>
             <Text variant="h1">Cerrar mi día</Text>
             <Text variant="label" color="textMuted">
-              {fechaEnPalabras(fechaLocal(new Date()))}
+              {formatoFecha(fechaLocal(new Date()))}
             </Text>
           </View>
 

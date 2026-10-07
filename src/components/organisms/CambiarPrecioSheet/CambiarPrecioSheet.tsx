@@ -21,11 +21,10 @@ import { Text } from '@components/atoms/Text';
 import { Button } from '@components/atoms/Button';
 import { Icon } from '@components/atoms/Icon';
 import { AmountInput } from '@components/molecules/AmountInput';
-import { formatoSoles, parseAmount, redondearSoles } from '@dominio/formato';
+import { formatoFechaCorta, formatoSoles, parseAmount, redondearSoles } from '@dominio/formato';
 import { teDeja } from '@dominio/producto';
 import type { Producto } from '@dominio/tipos';
 import { useCrecemos } from '@context/CrecemosProvider';
-import { fechaCorta } from '@screens/fechaEnPalabras';
 
 export interface CambiarPrecioSheetProps {
   /** El producto a cambiar; la hoja se muestra mientras `visible` sea verdadero. */
@@ -96,7 +95,7 @@ const Contenido = ({ producto, onClose }: { producto: Producto; onClose: () => v
             </Text>
             <Text variant="label" color="textMuted">
               Precio actual: {formatoSoles(producto.precioVenta)} desde el{' '}
-              {fechaCorta(producto.actualizadoEn)}
+              {formatoFechaCorta(producto.actualizadoEn)}
             </Text>
           </View>
 

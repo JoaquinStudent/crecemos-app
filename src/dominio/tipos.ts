@@ -75,3 +75,18 @@ export interface ResumenCierre {
   teQueda: number;
   vendidasPorProducto: Record<string, number>;
 }
+
+/** Cierres desde uno marcado "hoy compré mercadería" hasta el anterior al siguiente marcado. */
+export interface Ciclo {
+  inicio: FechaNegocio;
+  fin: FechaNegocio;
+  cierres: Cierre[];
+}
+
+export interface ResumenCiclo {
+  venta: number;
+  capital: number;
+  teQueda: number;
+  capitalRecuperadoEn?: FechaNegocio;
+  faltaParaCapital: number;
+}

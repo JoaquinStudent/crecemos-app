@@ -6,13 +6,68 @@
  * La tarea del sprint es ponerlos en verde sin relajar ninguna aserción.
  */
 
+import { calcularCierre, nuevoCierre } from '@dominio/cierre';
+import { agruparCiclos, resumirCiclo, textoCapital } from '@dominio/ciclo';
+import { formatoFecha, formatoSoles, sobranteSoles, textoSobrante } from '@dominio/formato';
+import { mensajeBorrar } from '@dominio/historial';
+import { PRODUCTOS_POR_DEFECTO } from '@dominio/productosPorDefecto';
+import type { Ciclo, Cierre, FechaNegocio, Gasto, LineaCierre } from '@dominio/tipos';
+
+// Mediodía del 2026-10-07 en Lima: solo alimenta el instante de creación; la fecha de cada cierre es explícita.
+const ahora = new Date('2026-10-07T12:00:00-05:00');
+
+const linea = (nombre: string, vendidas: number, precioUnitario: number): LineaCierre => ({
+  productoId: `p-${nombre.toLowerCase()}`,
+  nombre,
+  preparadas: vendidas,
+  sobrantes: 0,
+  precioUnitario,
+  costoUnitario: 0,
+});
+
+interface Opciones {
+  lineas?: LineaCierre[];
+  gastos?: Gasto[];
+  abreCiclo?: boolean;
+}
+
+// Cierre armado a mano: la fecha es explícita y el reloj no decide nada.
+const cierreDe = (fecha: FechaNegocio, { lineas = [], gastos = [], abreCiclo = false }: Opciones = {}): Cierre => ({
+  id: `c-${fecha}`,
+  fecha,
+  lineas,
+  montoYape: 0,
+  yapePendiente: false,
+  gastos,
+  abreCiclo,
+  creadoEn: ahora.toISOString(),
+  actualizadoEn: ahora.toISOString(),
+});
+
+const cicloDe = (cierres: Cierre[]): Ciclo => ({
+  inicio: cierres[0].fecha,
+  fin: cierres[cierres.length - 1].fecha,
+  cierres,
+});
+
 describe('SPEC-03: Historial y ciclos de compra', () => {
   // @spec03_e1 — Agrupa cierres en ciclos de compra
   it('spec03_e1 agrupa cierres en ciclos de compra', () => {
     // Given: cierres del 1, 2, 3 y 4 de octubre de 2026, con "hoy compré mercadería" marcado el 1 y el 3
     // When: se agrupan en ciclos
     // Then: resultan 2 ciclos, el primero con los cierres del 1 y 2, y el segundo con los del 3 y 4
-    throw new Error('Rojo: no implementado');
+    const c1 = cierreDe('2026-10-01', { abreCiclo: true });
+    const c2 = cierreDe('2026-10-02');
+    const c3 = cierreDe('2026-10-03', { abreCiclo: true });
+    const c4 = cierreDe('2026-10-04');
+
+    const ciclos = agruparCiclos([c1, c2, c3, c4]);
+
+    expect(ciclos).toHaveLength(2);
+    expect(ciclos[0].cierres.map(c => c.fecha)).toEqual(['2026-10-01', '2026-10-02']);
+    expect(ciclos[1].cierres.map(c => c.fecha)).toEqual(['2026-10-03', '2026-10-04']);
+    expect([ciclos[0].inicio, ciclos[0].fin]).toEqual(['2026-10-01', '2026-10-02']);
+    expect([ciclos[1].inicio, ciclos[1].fin]).toEqual(['2026-10-03', '2026-10-04']);
   });
 
   // @spec03_e2 — Capital y te queda del ciclo
@@ -20,7 +75,22 @@ describe('SPEC-03: Historial y ciclos de compra', () => {
     // Given: un ciclo con gastos de mercadería por S/ 220.00, otros gastos por S/ 24.00 y venta total de S/ 412.00
     // When: se resume el ciclo
     // Then: el capital es S/ 244.00 y "te queda" es S/ 168.00
-    throw new Error('Rojo: no implementado');
+    // 40 anticuchos a S/ 10.00 + 6 chichas a S/ 2.00 = S/ 412.00
+    const dia = cierreDe('2026-10-05', {
+      abreCiclo: true,
+      lineas: [linea('Anticucho', 40, 10), linea('Chicha', 6, 2)],
+      gastos: [
+        { categoria: 'mercaderia', monto: 220 },
+        { categoria: 'carbon', monto: 14 },
+        { categoria: 'movilidad', monto: 10 },
+      ],
+    });
+
+    const resumen = resumirCiclo(cicloDe([dia]));
+
+    expect(resumen.venta).toBe(412);
+    expect(resumen.capital).toBe(244);
+    expect(resumen.teQueda).toBe(168);
   });
 
   // @spec03_e3 — Cuándo recuperó su capital
@@ -28,7 +98,20 @@ describe('SPEC-03: Historial y ciclos de compra', () => {
     // Given: un ciclo con capital de S/ 244.00, venta de S/ 180.00 el 2026-10-05 y de S/ 232.00 el 2026-10-06
     // When: se calcula la recuperación del capital
     // Then: el capital se recuperó el 2026-10-06
-    throw new Error('Rojo: no implementado');
+    // Capital S/ 244.00 (todo el día 5); venta S/ 180.00 el 5 y S/ 232.00 el 6.
+    const dia5 = cierreDe('2026-10-05', {
+      abreCiclo: true,
+      lineas: [linea('Anticucho', 18, 10)],
+      gastos: [{ categoria: 'mercaderia', monto: 244 }],
+    });
+    const dia6 = cierreDe('2026-10-06', { lineas: [linea('Rachi', 29, 8)] });
+
+    const resumen = resumirCiclo(cicloDe([dia5, dia6]));
+
+    expect(resumen.capital).toBe(244);
+    expect(resumen.capitalRecuperadoEn).toBe('2026-10-06');
+    expect(resumen.faltaParaCapital).toBe(0);
+    expect(textoCapital(resumen)).toBe('Recuperaste tu capital el martes 6 de octubre');
   });
 
   // @spec03_e4 — Todavía no recupera su capital
@@ -36,7 +119,19 @@ describe('SPEC-03: Historial y ciclos de compra', () => {
     // Given: un ciclo en curso con capital de S/ 244.00 y venta de S/ 180.00 en su único día
     // When: se calcula la recuperación del capital
     // Then: falta S/ 64.00 y el texto es "Te falta S/ 64.00 para recuperar tu capital"
-    throw new Error('Rojo: no implementado');
+    const unico = cierreDe('2026-10-06', {
+      abreCiclo: true,
+      lineas: [linea('Anticucho', 18, 10)],
+      gastos: [{ categoria: 'mercaderia', monto: 244 }],
+    });
+
+    const resumen = resumirCiclo(cicloDe([unico]));
+
+    expect(resumen.capital).toBe(244);
+    expect(resumen.venta).toBe(180);
+    expect(resumen.capitalRecuperadoEn).toBeUndefined();
+    expect(resumen.faltaParaCapital).toBe(64);
+    expect(textoCapital(resumen)).toBe('Te falta S/ 64.00 para recuperar tu capital');
   });
 
   // @spec03_e5 — Historial por día, del más reciente al más antiguo
@@ -60,7 +155,19 @@ describe('SPEC-03: Historial y ciclos de compra', () => {
     // Given: el cierre del martes 6 de octubre con "te queda" de S/ 168.00
     // When: se pide la confirmación para borrarlo
     // Then: el mensaje es "¿Borrar el cierre del martes 6 de octubre? Se van a restar S/ 168.00 de tu ciclo."
-    throw new Error('Rojo: no implementado');
+    // 40 anticuchos a S/ 10.00 + 6 chichas a S/ 2.00 = S/ 412.00, menos S/ 244.00 de gastos = S/ 168.00
+    const martes = cierreDe('2026-10-06', {
+      lineas: [linea('Anticucho', 40, 10), linea('Chicha', 6, 2)],
+      gastos: [
+        { categoria: 'mercaderia', monto: 220 },
+        { categoria: 'otro', monto: 24 },
+      ],
+    });
+    expect(calcularCierre(martes).teQueda).toBe(168);
+
+    expect(mensajeBorrar(martes)).toBe(
+      '¿Borrar el cierre del martes 6 de octubre? Se van a restar S/ 168.00 de tu ciclo.',
+    );
   });
 
   // @spec03_e8 — Lo que sobró, en soles
@@ -68,7 +175,19 @@ describe('SPEC-03: Historial y ciclos de compra', () => {
     // Given: una línea de "Rachi" con 16 preparadas, 5 sobrantes y costo de S/ 7.60 por porción
     // When: se calcula el sobrante en soles
     // Then: el sobrante es S/ 38.00 y el texto es "Te sobró S/ 38.00 en rachi"
-    throw new Error('Rojo: no implementado');
+    const rachi = PRODUCTOS_POR_DEFECTO.find(p => p.id === 'p-rachi');
+    expect(rachi?.costoUnitario).toBe(7.6);
+    const cierre = nuevoCierre(
+      { fecha: '2026-10-06', lineas: [{ productoId: 'p-rachi', preparadas: 16, sobrantes: 5 }], montoYape: 0, gastos: [] },
+      PRODUCTOS_POR_DEFECTO,
+      null,
+      ahora,
+    );
+    const lineaRachi = cierre.lineas[0];
+    expect(lineaRachi).toMatchObject({ nombre: 'Rachi', preparadas: 16, sobrantes: 5, costoUnitario: 7.6 });
+
+    expect(sobranteSoles(lineaRachi)).toBe(38);
+    expect(textoSobrante(lineaRachi)).toBe('Te sobró S/ 38.00 en rachi');
   });
 
   // @spec03_e9 — Fechas y montos en palabras de Freddy
@@ -76,7 +195,8 @@ describe('SPEC-03: Historial y ciclos de compra', () => {
     // Given: la fecha 2026-10-06 y el monto 1240
     // When: se formatean para la pantalla
     // Then: la fecha se muestra como "Martes 6 de octubre" y el monto como "S/ 1,240.00"
-    throw new Error('Rojo: no implementado');
+    expect(formatoFecha('2026-10-06')).toBe('Martes 6 de octubre');
+    expect(formatoSoles(1240)).toBe('S/ 1,240.00');
   });
 
   // @spec03_e10 — e2e: ver el ciclo después de dos cierres
