@@ -6,12 +6,17 @@
  * La tarea del sprint es ponerlos en verde sin relajar ninguna aserción.
  */
 
+import { createElement } from 'react';
+import ReactTestRenderer, { act } from 'react-test-renderer';
+import { clearAllMockStorages } from '@react-native-async-storage/async-storage/jest';
+import { CrecemosProvider, useCrecemos } from '@context/CrecemosProvider';
 import { calcularCierre, nuevoCierre } from '@dominio/cierre';
 import { inicialesAvatar } from '@dominio/perfil';
 import { cambiarPrecio, requiereRevision } from '@dominio/producto';
 import { PRODUCTOS_POR_DEFECTO } from '@dominio/productosPorDefecto';
 import type { Producto } from '@dominio/tipos';
 import { validarProducto } from '@dominio/validacion';
+import { listarCierres } from '@storage/repositorio';
 
 const producto = (id: string): Producto => {
   const p = PRODUCTOS_POR_DEFECTO.find(x => x.id === id);
@@ -22,7 +27,32 @@ const producto = (id: string): Producto => {
 // Mediodía del 2026-10-07 en Lima: solo alimenta el instante de creación; la fecha del cierre es explícita.
 const ahora = new Date('2026-10-07T12:00:00-05:00');
 
+// El Provider real con una sonda que expone su contexto, sin pasar por la interfaz.
+// Se desmonta en afterEach: si una aserción falla, no queda vivo tras el test.
+let montada: ReactTestRenderer.ReactTestRenderer | null = null;
+const montarProvider = async () => {
+  let contexto!: ReturnType<typeof useCrecemos>;
+  const Sonda = () => {
+    contexto = useCrecemos();
+    return null;
+  };
+  await act(async () => {
+    montada = ReactTestRenderer.create(createElement(CrecemosProvider, null, createElement(Sonda)));
+  });
+  // Siempre el contexto vigente: cada acción re-renderiza el Provider.
+  return () => contexto;
+};
+
 describe('SPEC-02: Perfil y productos con precio vigente', () => {
+  beforeEach(() => {
+    clearAllMockStorages();
+  });
+  afterEach(async () => {
+    const app = montada;
+    montada = null;
+    if (app) await act(async () => app.unmount());
+  });
+
   // @spec02_e1 — Cambiar el precio registra desde cuándo rige
   it('spec02_e1 cambiar el precio registra desde cuando rige', () => {
     // Given: el producto "Anticucho" a S/ 10.00, actualizado el 2026-07-15
@@ -114,11 +144,42 @@ describe('SPEC-02: Perfil y productos con precio vigente', () => {
   });
 
   // @spec02_e7 — Con Yape ajeno, el Yape nace por cobrar
-  it('spec02_e7 con yape ajeno el yape nace por cobrar', () => {
+  it('spec02_e7 con yape ajeno el yape nace por cobrar', async () => {
     // Given: un perfil con la opción "El Yape no está a mi nombre" activada
     // When: se registra un cierre con S/ 50.00 por Yape
     // Then: el cierre queda guardado con el Yape marcado como por cobrar
-    throw new Error('Rojo: no implementado');
+    const contexto = await montarProvider();
+    const cierreDelDia = (fecha: string) => ({
+      fecha,
+      lineas: [
+        { productoId: 'p-anticucho', preparadas: 20, sobrantes: 2 },
+      ],
+      montoYape: 50,
+      gastos: [],
+    });
+
+    await act(async () => {
+      await contexto().guardarPerfil({ yapeAjeno: true });
+    });
+    await act(async () => {
+      await contexto().guardarDia(cierreDelDia('2026-10-06'));
+    });
+    const [conYapeAjeno] = await listarCierres();
+    expect(conYapeAjeno.fecha).toBe('2026-10-06');
+    expect(conYapeAjeno.montoYape).toBe(50);
+    expect(conYapeAjeno.yapePendiente).toBe(true);
+
+    // Comprobación inversa: con el Yape a su nombre, el cierre no queda por cobrar.
+    await act(async () => {
+      await contexto().guardarPerfil({ yapeAjeno: false });
+    });
+    await act(async () => {
+      await contexto().guardarDia(cierreDelDia('2026-10-07'));
+    });
+    const cierres = await listarCierres();
+    const aSuNombre = cierres.find(c => c.fecha === '2026-10-07');
+    expect(aSuNombre?.montoYape).toBe(50);
+    expect(aSuNombre?.yapePendiente).toBe(false);
   });
 
   // @spec02_e8 — Rechaza un precio de venta de cero
