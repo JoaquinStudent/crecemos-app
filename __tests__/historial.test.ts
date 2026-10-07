@@ -1,14 +1,15 @@
 /**
  * Pruebas de apoyo del dominio del historial y de la edición de un día
- * (no son escenarios del SPEC): armarHistorial y editarCierre.
+ * (no son escenarios del SPEC): armarHistorial, editarCierre, mensajeBorrar y mercaderiaDelCiclo.
  */
 
 import { calcularCierre, editarCierre, nuevoCierre } from '@dominio/cierre';
 import { ETIQUETA_GASTO } from '@dominio/categorias';
-import { armarHistorial } from '@dominio/historial';
+import { mercaderiaDelCiclo } from '@dominio/ciclo';
+import { armarHistorial, mensajeBorrar } from '@dominio/historial';
 import { cambiarPrecio } from '@dominio/producto';
 import { PRODUCTOS_POR_DEFECTO } from '@dominio/productosPorDefecto';
-import type { Cierre, DatosCierre, Gasto, LineaCierre, Perfil } from '@dominio/tipos';
+import type { Ciclo, Cierre, DatosCierre, Gasto, LineaCierre, Perfil } from '@dominio/tipos';
 
 const ahora = new Date('2026-10-07T12:00:00-05:00');
 
@@ -390,5 +391,120 @@ describe('editarCierre', () => {
     expect(editado.lineas).not.toBe(original.lineas);
     expect(JSON.stringify(original)).toBe(copiaOriginal);
     expect(JSON.stringify(datos)).toBe(copiaDatos);
+  });
+});
+
+describe('mensajeBorrar', () => {
+  it('con te queda positivo dice cuanto se resta del ciclo', () => {
+    const dia = cierreDe('2026-10-06', {
+      lineas: [linea('Anticucho', 40, 10)],
+      gastos: [{ categoria: 'mercaderia', monto: 232 }],
+    });
+    expect(mensajeBorrar(dia)).toBe(
+      '¿Borrar el cierre del martes 6 de octubre? Se van a restar S/ 168.00 de tu ciclo.',
+    );
+  });
+
+  it('con te queda negativo dice cuanto se suma, sin signo menos', () => {
+    // 10 × S/ 10.00 − S/ 120.00 = −S/ 20.00
+    const dia = cierreDe('2026-10-06', {
+      lineas: [linea('Anticucho', 10, 10)],
+      gastos: [{ categoria: 'mercaderia', monto: 120 }],
+    });
+    expect(calcularCierre(dia).teQueda).toBe(-20);
+    expect(mensajeBorrar(dia)).toBe(
+      '¿Borrar el cierre del martes 6 de octubre? Se van a sumar S/ 20.00 a tu ciclo.',
+    );
+  });
+
+  it('con te queda en cero dice que el ciclo no cambia', () => {
+    const dia = cierreDe('2026-10-05', {
+      lineas: [linea('Anticucho', 10, 10)],
+      gastos: [{ categoria: 'mercaderia', monto: 100 }],
+    });
+    expect(calcularCierre(dia).teQueda).toBe(0);
+    expect(mensajeBorrar(dia)).toBe(
+      '¿Borrar el cierre del lunes 5 de octubre? Lo que te queda del ciclo no cambia.',
+    );
+  });
+
+  it('un te queda de centavos de diferencia cuenta como cero', () => {
+    // 0.1 + 0.2 − 0.3: en punto flotante no es 0, pero a dos decimales sí.
+    const dia = cierreDe('2026-10-05', {
+      gastos: [
+        { categoria: 'gas', monto: 0.1 },
+        { categoria: 'gas', monto: 0.2 },
+      ],
+      lineas: [{ ...linea('Chicha', 1, 0.3), costoUnitario: 0 }],
+    });
+    expect(mensajeBorrar(dia)).toContain('Lo que te queda del ciclo no cambia.');
+  });
+});
+
+describe('mercaderiaDelCiclo', () => {
+  const lineaCon = (
+    nombre: string,
+    preparadas: number,
+    sobrantes: number,
+    costoUnitario: number,
+  ): LineaCierre => ({
+    productoId: `p-${nombre.toLowerCase()}`,
+    nombre,
+    preparadas,
+    sobrantes,
+    precioUnitario: 10,
+    costoUnitario,
+  });
+  const cicloDe = (cierres: Cierre[]): Ciclo => ({
+    inicio: cierres[0].fecha,
+    fin: cierres[cierres.length - 1].fecha,
+    cierres,
+  });
+
+  it('suma por producto las lineas de todos los dias del ciclo', () => {
+    const dia1 = cierreDe('2026-10-05', {
+      lineas: [lineaCon('Rachi', 16, 5, 7.6), lineaCon('Anticucho', 20, 2, 8.2)],
+    });
+    const dia2 = cierreDe('2026-10-06', {
+      lineas: [lineaCon('Anticucho', 20, 0, 8.2), lineaCon('Rachi', 10, 1, 7.6)],
+    });
+
+    expect(mercaderiaDelCiclo(cicloDe([dia1, dia2]))).toEqual([
+      { productoId: 'p-anticucho', nombre: 'Anticucho', preparadas: 40, vendidas: 38, sobranteSoles: 16.4 },
+      { productoId: 'p-rachi', nombre: 'Rachi', preparadas: 26, vendidas: 20, sobranteSoles: 45.6 },
+    ]);
+  });
+
+  it('el orden es por nombre de producto, no por el orden en que aparecen', () => {
+    const dia = cierreDe('2026-10-05', {
+      lineas: [lineaCon('Rachi', 5, 0, 7.6), lineaCon('Chicha', 5, 0, 1.6), lineaCon('Anticucho', 5, 0, 8.2)],
+    });
+
+    expect(mercaderiaDelCiclo(cicloDe([dia])).map(m => m.nombre)).toEqual([
+      'Anticucho',
+      'Chicha',
+      'Rachi',
+    ]);
+  });
+
+  it('un ciclo sin lineas no tiene mercaderia', () => {
+    expect(mercaderiaDelCiclo(cicloDe([cierreDe('2026-10-05', { gastos: [{ categoria: 'gas', monto: 5 }] })]))).toEqual([]);
+  });
+
+  it('no deja un producto vendido sin sobrantes con sobrante en soles', () => {
+    const dia = cierreDe('2026-10-05', { lineas: [lineaCon('Rachi', 9, 0, 7.6)] });
+    expect(mercaderiaDelCiclo(cicloDe([dia]))[0]).toMatchObject({ vendidas: 9, sobranteSoles: 0 });
+  });
+
+  it('redondea el sobrante a dos decimales y no muta el ciclo', () => {
+    const dia = cierreDe('2026-10-05', {
+      lineas: [lineaCon('Anticucho', 3, 1, 0.1), lineaCon('Anticucho', 3, 1, 0.2)],
+    });
+    const ciclo = cicloDe([dia]);
+    const copia = JSON.stringify(ciclo);
+
+    // 1 × 0.1 + 1 × 0.2 = 0.30000000000000004 → 0.3
+    expect(mercaderiaDelCiclo(ciclo)[0].sobranteSoles).toBe(0.3);
+    expect(JSON.stringify(ciclo)).toBe(copia);
   });
 });

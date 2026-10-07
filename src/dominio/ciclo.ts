@@ -1,7 +1,7 @@
 // src/dominio/ciclo.ts
 import { calcularCierre } from './cierre';
-import { formatoFecha, formatoSoles, redondearSoles } from './formato';
-import type { Cierre, Ciclo, ResumenCiclo } from './tipos';
+import { formatoFecha, formatoSoles, redondearSoles, sobranteSoles } from './formato';
+import type { Cierre, Ciclo, MercaderiaProducto, ResumenCiclo } from './tipos';
 
 /**
  * Agrupa los cierres en ciclos de compra, en orden cronológico. Un ciclo nuevo
@@ -55,3 +55,27 @@ export const textoCapital = (r: ResumenCiclo): string =>
   r.capitalRecuperadoEn === undefined
     ? `Te falta ${formatoSoles(r.faltaParaCapital)} para recuperar tu capital`
     : `Recuperaste tu capital el ${formatoFecha(r.capitalRecuperadoEn).toLowerCase()}`;
+
+/**
+ * Por producto, lo preparado, lo vendido y lo que costó lo que sobró (D10: no es caja),
+ * sumado en todos los días del ciclo. Ordenado por nombre; el nombre es el de la línea
+ * más reciente. No muta el ciclo.
+ */
+export const mercaderiaDelCiclo = (ciclo: Ciclo): MercaderiaProducto[] => {
+  const porProducto = new Map<string, MercaderiaProducto>();
+  for (const cierre of ciclo.cierres) {
+    for (const linea of cierre.lineas) {
+      const previo = porProducto.get(linea.productoId);
+      porProducto.set(linea.productoId, {
+        productoId: linea.productoId,
+        nombre: linea.nombre,
+        preparadas: (previo?.preparadas ?? 0) + linea.preparadas,
+        vendidas: (previo?.vendidas ?? 0) + linea.preparadas - linea.sobrantes,
+        sobranteSoles: (previo?.sobranteSoles ?? 0) + sobranteSoles(linea),
+      });
+    }
+  }
+  return [...porProducto.values()]
+    .map(m => ({ ...m, sobranteSoles: redondearSoles(m.sobranteSoles) }))
+    .sort((a, b) => a.nombre.localeCompare(b.nombre) || a.productoId.localeCompare(b.productoId));
+};

@@ -18,6 +18,8 @@ export interface ChipGroupProps<T extends string> {
   value: T | '';
   onChange: (value: T) => void;
   error?: string;
+  /** Si se pasa, cada chip lleva el testID `<prefijo>-<value>`. */
+  testIDPrefix?: string;
 }
 
 export const ChipGroup = <T extends string>({
@@ -26,6 +28,7 @@ export const ChipGroup = <T extends string>({
   value,
   onChange,
   error,
+  testIDPrefix,
 }: ChipGroupProps<T>) => (
   <View>
     {label ? (
@@ -44,6 +47,7 @@ export const ChipGroup = <T extends string>({
             accessibilityRole="radio"
             accessibilityState={{ selected, checked: selected }}
             accessibilityLabel={option.label}
+            testID={testIDPrefix ? `${testIDPrefix}-${option.value}` : undefined}
             style={({ pressed }) => [
               styles.chip,
               selected && styles.chipSelected,

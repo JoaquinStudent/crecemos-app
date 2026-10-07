@@ -4,10 +4,17 @@ import { ETIQUETA_GASTO } from './categorias';
 import { formatoFecha, formatoSoles, redondearSoles } from './formato';
 import type { Cierre, FiltroHistorial, GrupoDia, Movimiento } from './tipos';
 
-/** La confirmación para borrar, con la consecuencia en soles. */
-export const mensajeBorrar = (c: Cierre): string =>
-  `¿Borrar el cierre del ${formatoFecha(c.fecha).toLowerCase()}? ` +
-  `Se van a restar ${formatoSoles(calcularCierre(c).teQueda)} de tu ciclo.`;
+/**
+ * La confirmación para borrar, con la consecuencia en soles: si el día le dejaba plata se
+ * resta del ciclo; si lo dejaba en rojo, se suma; si quedó en cero, el ciclo no cambia.
+ */
+export const mensajeBorrar = (c: Cierre): string => {
+  const teQueda = calcularCierre(c).teQueda;
+  const pregunta = `¿Borrar el cierre del ${formatoFecha(c.fecha).toLowerCase()}? `;
+  if (teQueda > 0) return `${pregunta}Se van a restar ${formatoSoles(teQueda)} de tu ciclo.`;
+  if (teQueda < 0) return `${pregunta}Se van a sumar ${formatoSoles(-teQueda)} a tu ciclo.`;
+  return `${pregunta}Lo que te queda del ciclo no cambia.`;
+};
 
 const ETIQUETA_VENTA = 'Venta del día';
 

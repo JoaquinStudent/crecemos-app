@@ -6,12 +6,17 @@
  * La tarea del sprint es ponerlos en verde sin relajar ninguna aserción.
  */
 
+import { createElement } from 'react';
+import ReactTestRenderer, { act, ReactTestInstance } from 'react-test-renderer';
+import { clearAllMockStorages } from '@react-native-async-storage/async-storage/jest';
+import App from '../../App';
 import { calcularCierre, nuevoCierre } from '@dominio/cierre';
 import { agruparCiclos, resumirCiclo, textoCapital } from '@dominio/ciclo';
 import { formatoFecha, formatoSoles, sobranteSoles, textoSobrante } from '@dominio/formato';
 import { armarHistorial, mensajeBorrar } from '@dominio/historial';
 import { PRODUCTOS_POR_DEFECTO } from '@dominio/productosPorDefecto';
 import type { Ciclo, Cierre, FechaNegocio, Gasto, LineaCierre } from '@dominio/tipos';
+import { listarCierres } from '@storage/repositorio';
 
 // Mediodía del 2026-10-07 en Lima: solo alimenta el instante de creación; la fecha de cada cierre es explícita.
 const ahora = new Date('2026-10-07T12:00:00-05:00');
@@ -49,6 +54,73 @@ const cicloDe = (cierres: Cierre[]): Ciclo => ({
   fin: cierres[cierres.length - 1].fecha,
   cierres,
 });
+
+
+// La app real, manejada por testID como lo haría una persona (e10). Copia mínima del
+// montarApp de sprint-01.test.ts: los tests no se importan entre sí. Si el testID no
+// existe, el error lo dice (sin esto sería un "undefined.props" que no explica nada).
+// Se desmonta en el `finally` del propio test.
+const montarApp = async () => {
+  let app!: ReactTestRenderer.ReactTestRenderer;
+  await act(async () => {
+    app = ReactTestRenderer.create(createElement(App));
+  });
+
+  // Componente nativo ('Text', 'View', 'TextInput') y no el componente de React que lo envuelve.
+  const esHost = (n: ReactTestInstance, nombre: string) => (n.type as unknown) === nombre;
+  const nodo = (testID: string, prop: 'onPress' | 'onChangeText' | 'onValueChange') => {
+    const encontrado = app.root.findAll(
+      n => n.props.testID === testID && typeof n.props[prop] === 'function',
+    )[0];
+    if (!encontrado) throw new Error(`No hay nada con testID "${testID}" que responda a ${prop}`);
+    return encontrado;
+  };
+  const tocar = (testID: string) =>
+    act(async () => {
+      await nodo(testID, 'onPress').props.onPress();
+    });
+  const escribir = (testID: string, texto: string) =>
+    act(async () => {
+      nodo(testID, 'onChangeText').props.onChangeText(texto);
+    });
+  const cambiarInterruptor = (testID: string, valor: boolean) =>
+    act(async () => {
+      await nodo(testID, 'onValueChange').props.onValueChange(valor);
+    });
+  const textoCompleto = (n: ReactTestInstance | string): string =>
+    typeof n === 'string' ? n : n.children.map(textoCompleto).join('');
+  const textos = () => app.root.findAll(n => esHost(n, 'Text')).map(textoCompleto);
+  const textoDe = (testID: string) => {
+    const encontrado = app.root.findAll(n => esHost(n, 'Text') && n.props.testID === testID)[0];
+    if (!encontrado) throw new Error(`No hay ningún texto con testID "${testID}"`);
+    return textoCompleto(encontrado);
+  };
+  const cuantos = (prefijo: string) =>
+    app.root.findAll(n => esHost(n, 'View') && String(n.props.testID ?? '').startsWith(prefijo))
+      .length;
+
+  return { app, tocar, escribir, cambiarInterruptor, textos, textoDe, cuantos };
+};
+
+// Solo el reloj es falso. Sin esto los dos cierres caerían en la misma fecha (hoy) y el
+// segundo reemplazaría al primero (D9). Se dejan reales todos los demás temporizadores:
+// la app y el almacenamiento esperan promesas y timers de verdad.
+const SIN_FALSEAR = [
+  'hrtime',
+  'nextTick',
+  'performance',
+  'queueMicrotask',
+  'requestAnimationFrame',
+  'cancelAnimationFrame',
+  'requestIdleCallback',
+  'cancelIdleCallback',
+  'setImmediate',
+  'clearImmediate',
+  'setInterval',
+  'clearInterval',
+  'setTimeout',
+  'clearTimeout',
+] as const;
 
 describe('SPEC-03: Historial y ciclos de compra', () => {
   // @spec03_e1 — Agrupa cierres en ciclos de compra
@@ -237,10 +309,58 @@ describe('SPEC-03: Historial y ciclos de compra', () => {
   });
 
   // @spec03_e10 — e2e: ver el ciclo después de dos cierres
-  it('spec03_e10 e2e ver el ciclo despues de dos cierres', () => {
+  it('spec03_e10 e2e ver el ciclo despues de dos cierres', async () => {
     // Given: la app sin datos, con el anticucho a S/ 10.00
     // When: se registra un cierre marcado "hoy compré mercadería" con S/ 150.00 de gasto y 20 anticuchos vendidos, luego otro al día siguiente con 15 vendidos, y se abre Resumen
     // Then: Resumen muestra el ciclo con capital "S/ 150.00" y "te queda" "S/ 200.00", e Historial muestra 2 grupos
-    throw new Error('Rojo: no implementado');
+    clearAllMockStorages();
+    // El martes 6 de octubre de 2026 a las 8 p.m. en Lima; el día siguiente se mueve el reloj.
+    jest.useFakeTimers({ doNotFake: [...SIN_FALSEAR], now: new Date('2026-10-06T20:00:00-05:00') });
+    let app: ReactTestRenderer.ReactTestRenderer | null = null;
+    try {
+      const montada = await montarApp();
+      app = montada.app;
+      const { tocar, escribir, cambiarInterruptor, textos, textoDe, cuantos } = montada;
+
+      // Día 1: compró mercadería (S/ 150.00) y vendió 20 anticuchos a S/ 10.00.
+      await tocar('tab-cerrar-dia');
+      await cambiarInterruptor('hoy-compre-mercaderia', true);
+      await escribir('preparadas-p-anticucho', '20');
+      await escribir('sobrantes-p-anticucho', '0');
+      await escribir('monto-gasto', '150');
+      await tocar('agregar-gasto'); // la categoría Mercadería viene marcada
+      await tocar('guardar-dia');
+      expect(textoDe('inicio-te-queda')).toBe('S/ 50.00');
+
+      // Día 2: otro día, 15 anticuchos vendidos y nada de compra.
+      jest.setSystemTime(new Date('2026-10-07T20:00:00-05:00'));
+      await tocar('tab-cerrar-dia');
+      await escribir('preparadas-p-anticucho', '15');
+      await escribir('sobrantes-p-anticucho', '0');
+      await tocar('guardar-dia');
+      expect(textoDe('inicio-te-queda')).toBe('S/ 150.00');
+
+      // Resumen: un ciclo de 2 días. Venta 350.00 − capital 150.00 = te queda 200.00.
+      await tocar('tab-resumen');
+      expect(textoDe('resumen-capital')).toBe('Capital S/ 150.00');
+      expect(textoDe('resumen-te-queda')).toBe('S/ 200.00');
+      expect(textos()).toContain('Te queda');
+
+      // Historial: un grupo por cada día.
+      await tocar('tab-historial');
+      expect(cuantos('dia-')).toBe(2);
+      expect(textos()).toContain('Miércoles 7 de octubre');
+      expect(textos()).toContain('Martes 6 de octubre');
+
+      const cierres = await listarCierres();
+      expect(cierres.map(c => [c.fecha, c.abreCiclo]).sort()).toEqual([
+        ['2026-10-06', true],
+        ['2026-10-07', false],
+      ]);
+    } finally {
+      const abierta = app;
+      if (abierta) await act(async () => abierta.unmount());
+      jest.useRealTimers();
+    }
   });
 });

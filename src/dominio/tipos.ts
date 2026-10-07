@@ -91,6 +91,15 @@ export interface ResumenCiclo {
   faltaParaCapital: number;
 }
 
+/** Lo de un producto sumado en todo un ciclo: porciones y lo que costó lo que sobró. */
+export interface MercaderiaProducto {
+  productoId: string;
+  nombre: string;
+  preparadas: number;
+  vendidas: number;
+  sobranteSoles: number;
+}
+
 export type FiltroHistorial = 'todo' | 'ingresos' | 'gastos' | 'porCobrar';
 
 /** Una fila del historial. Monto positivo = ingreso; negativo = gasto. */
