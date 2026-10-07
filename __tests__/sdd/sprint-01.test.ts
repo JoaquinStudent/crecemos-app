@@ -47,10 +47,47 @@ const datosCon = (
 // 2026-10-06 a las 20:00 en Lima (UTC-5): la fecha local del cierre es 2026-10-06.
 const noche6deOctubre = new Date('2026-10-06T20:00:00-05:00');
 
+// La app real, manejada por testID como lo haría una persona (e10 y e11).
+// Se desmonta en afterEach: si una aserción falla, la app no queda viva tras el test.
+let montada: ReactTestRenderer.ReactTestRenderer | null = null;
+const montarApp = async () => {
+  let app!: ReactTestRenderer.ReactTestRenderer;
+  await act(async () => {
+    app = ReactTestRenderer.create(createElement(App));
+  });
+  montada = app;
+
+  // Componente nativo ('Text', 'TextInput') y no el componente de React que lo envuelve.
+  const esHost = (n: ReactTestInstance, nombre: string) => (n.type as unknown) === nombre;
+  // El primer nodo con ese testID que reacciona al toque o al texto.
+  const nodo = (testID: string, prop: 'onPress' | 'onChangeText') =>
+    app.root.findAll(n => n.props.testID === testID && typeof n.props[prop] === 'function')[0];
+  const tocar = (testID: string) =>
+    act(async () => {
+      await nodo(testID, 'onPress').props.onPress();
+    });
+  const escribir = (testID: string, texto: string) =>
+    act(async () => {
+      nodo(testID, 'onChangeText').props.onChangeText(texto);
+    });
+  const textos = () =>
+    app.root.findAll(n => esHost(n, 'Text')).map(n => [n.props.children].flat().join(''));
+  const teQuedaEnInicio = () =>
+    app.root.findAll(n => esHost(n, 'Text') && n.props.testID === 'inicio-te-queda')[0].props
+      .children;
+
+  return { app, esHost, tocar, escribir, textos, teQuedaEnInicio };
+};
+
 describe('SPEC-01: Flujo mínimo de punta a punta — cerrar el día y ver cuánto te queda', () => {
   // Cada escenario arranca con el almacenamiento vacío.
   beforeEach(() => {
     clearAllMockStorages();
+  });
+  afterEach(async () => {
+    const app = montada;
+    montada = null;
+    if (app) await act(async () => app.unmount());
   });
 
   // @spec01_e1 — Calcula la venta de un producto
@@ -208,26 +245,7 @@ describe('SPEC-01: Flujo mínimo de punta a punta — cerrar el día y ver cuán
     // Given: la app recién instalada, con los 4 productos por defecto y el anticucho a S/ 10.00
     // When: se registra un cierre con 20 anticuchos preparados, 2 sobrantes y S/ 110.00 de mercadería, y se abre Inicio
     // Then: Inicio muestra "Te queda" con el monto "S/ 70.00"
-    let app!: ReactTestRenderer.ReactTestRenderer;
-    await act(async () => {
-      app = ReactTestRenderer.create(createElement(App));
-    });
-
-    // Componente nativo ('Text', 'TextInput') y no el componente de React que lo envuelve.
-    const esHost = (n: ReactTestInstance, nombre: string) => (n.type as unknown) === nombre;
-    // El primer nodo con ese testID que reacciona al toque o al texto.
-    const nodo = (testID: string, prop: 'onPress' | 'onChangeText') =>
-      app.root.findAll(n => n.props.testID === testID && typeof n.props[prop] === 'function')[0];
-    const tocar = (testID: string) =>
-      act(async () => {
-        await nodo(testID, 'onPress').props.onPress();
-      });
-    const escribir = (testID: string, texto: string) =>
-      act(async () => {
-        nodo(testID, 'onChangeText').props.onChangeText(texto);
-      });
-    const textos = () =>
-      app.root.findAll(n => esHost(n, 'Text')).map(n => [n.props.children].flat().join(''));
+    const { app, esHost, tocar, escribir, textos } = await montarApp();
 
     await tocar('tab-cerrar-dia');
     // Los 4 productos por defecto, con el anticucho a S/ 10.00.
@@ -254,7 +272,25 @@ describe('SPEC-01: Flujo mínimo de punta a punta — cerrar el día y ver cuán
     expect(textos()).toContain('Te queda');
     expect(teQueda.props.children).toBe('S/ 70.00');
     expect(await listarCierres()).toHaveLength(1);
+  });
 
-    await act(async () => app.unmount());
+  // @spec01_e11 — Un gasto escrito se guarda aunque no se toque "Agregar gasto"
+  it('spec01_e11 un gasto escrito se guarda sin tocar agregar gasto', async () => {
+    // Given: la app recién instalada; en Cerrar mi día, 20 anticuchos preparados y 2 sobrantes, y S/ 110.00 escritos en el monto del gasto con "Mercadería" marcada, sin tocar "Agregar gasto"
+    // When: se toca "Guardar mi día"
+    // Then: Inicio muestra "Te queda" con el monto "S/ 70.00" y el cierre guardado tiene un solo gasto, de mercadería, por S/ 110.00
+    const { tocar, escribir, textos, teQuedaEnInicio } = await montarApp();
+    await tocar('tab-cerrar-dia');
+    await escribir('preparadas-p-anticucho', '20');
+    await escribir('sobrantes-p-anticucho', '2');
+    await escribir('monto-gasto', '110'); // Mercadería viene marcada; no se toca "Agregar gasto"
+
+    await tocar('guardar-dia');
+
+    expect(textos()).toContain('Te queda');
+    expect(teQuedaEnInicio()).toBe('S/ 70.00');
+    const cierres = await listarCierres();
+    expect(cierres).toHaveLength(1);
+    expect(cierres[0].gastos).toEqual([{ categoria: 'mercaderia', monto: 110 }]);
   });
 });

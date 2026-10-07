@@ -54,6 +54,9 @@ export const CerrarDiaScreen = () => {
     .filter(
       id => (cantidades[id]?.preparadas ?? '') !== '' || (cantidades[id]?.sobrantes ?? '') !== '',
     );
+  // Un monto escrito y no agregado también cuenta (spec01_e11): con el teclado
+  // abierto, "Agregar gasto" queda tapado. Agregarlo vacía el campo, así que no se duplica.
+  const pendiente = parseAmount(montoGasto);
   const datos: DatosCierre = {
     lineas: ids.map(id => ({
       productoId: id,
@@ -61,7 +64,7 @@ export const CerrarDiaScreen = () => {
       sobrantes: enteroDe(cantidades[id].sobrantes),
     })),
     montoYape: parseAmount(yape),
-    gastos,
+    gastos: pendiente > 0 ? [...gastos, { categoria, monto: pendiente }] : gastos,
     abreCiclo: false,
   };
   const teQueda = calcularCierre(nuevoCierre(datos, productos, null, new Date())).teQueda;
