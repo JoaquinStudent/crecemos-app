@@ -213,6 +213,53 @@ describe('Perfil y hoja "Cambiar precio"', () => {
     expect(interruptor('switch-yape-ajeno').props.disabled).toBe(true);
   });
 
+  it('pide el número de Yape en los dos casos, solo con 9 dígitos', async () => {
+    const { tocar, escribir, existe, textoDe } = await montarApp();
+    await tocar('abrir-perfil');
+
+    await tocar('editar-yapeNumero');
+    await escribir('input-yapeNumero', '98-76 x');
+    await tocar('guardar-yapeNumero');
+    expect(existe('input-yapeNumero')).toBe(true);
+    expect(await obtenerPerfil()).toBeNull();
+
+    await escribir('input-yapeNumero', '987654321');
+    await tocar('guardar-yapeNumero');
+    expect(textoDe('valor-yapeNumero')).toBe('987654321');
+    expect((await obtenerPerfil())?.yapeNumero).toBe('987654321');
+  });
+
+  it('con el Yape ajeno pide de quién es y qué es para él; sin ajeno no los muestra', async () => {
+    const { tocar, escribir, cambiarInterruptor, existe, textoDe } = await montarApp();
+    await tocar('abrir-perfil');
+    expect(existe('editar-yapeTitular')).toBe(false);
+    expect(existe('editar-yapeParentesco')).toBe(false);
+
+    await cambiarInterruptor('switch-yape-ajeno', true);
+    await tocar('editar-yapeTitular');
+    await escribir('input-yapeTitular', 'persona de prueba');
+    await tocar('guardar-yapeTitular');
+    await tocar('editar-yapeParentesco');
+    await escribir('input-yapeParentesco', 'hermana');
+    await tocar('guardar-yapeParentesco');
+
+    expect(textoDe('valor-yapeTitular')).toBe('persona de prueba');
+    expect(textoDe('valor-yapeParentesco')).toBe('hermana');
+    const perfil = await obtenerPerfil();
+    expect(perfil?.yapeTitular).toBe('persona de prueba');
+    expect(perfil?.yapeParentesco).toBe('hermana');
+  });
+
+  it('sin "Acepto Yape" no pide ningún dato de Yape', async () => {
+    const { tocar, cambiarInterruptor, existe } = await montarApp();
+    await tocar('abrir-perfil');
+    expect(existe('editar-yapeNumero')).toBe(true);
+
+    await cambiarInterruptor('switch-acepta-yape', false);
+
+    expect(existe('editar-yapeNumero')).toBe(false);
+  });
+
   // GUARDA, no verificación: Jest no ve el diseño ni el teclado. Esta prueba solo evita que
   // alguien quite la configuración que hace que el teclado de iOS no tape la fila que se
   // edita en "Mis datos" (defecto hallado en el simulador, iPhone 17e). Que el campo con su

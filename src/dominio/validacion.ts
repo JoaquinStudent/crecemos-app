@@ -11,6 +11,7 @@ export const MENSAJES = {
   enteras: 'Anota porciones enteras',
   precio: 'El precio tiene que ser mayor a cero',
   costo: 'El costo no puede ser negativo',
+  numeroYape: 'El número de Yape tiene 9 dígitos',
 } as const;
 
 export type ResultadoValidacion = { ok: true } | { ok: false; errores: Record<string, string> };
@@ -97,3 +98,7 @@ export const validarProducto = (datos: {
   }
   return { ok: false, errores };
 };
+
+/** Vacío vale (borrar el número); si hay algo, tienen que ser 9 dígitos. Devuelve el mensaje o null. */
+export const validarNumeroYape = (numero: string): string | null =>
+  numero === '' || /^\d{9}$/.test(numero) ? null : MENSAJES.numeroYape;

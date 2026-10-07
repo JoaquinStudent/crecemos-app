@@ -16,25 +16,55 @@ import { CambiarPrecioSheet } from '@components/organisms/CambiarPrecioSheet';
 import { fechaLocal } from '@dominio/fecha';
 import { formatoSoles } from '@dominio/formato';
 import { inicialesAvatar } from '@dominio/perfil';
+import { validarNumeroYape } from '@dominio/validacion';
 import { requiereRevision, teDeja } from '@dominio/producto';
 import type { Perfil, Producto } from '@dominio/tipos';
 import { useCrecemos } from '@context/CrecemosProvider';
 import type { RootStackParamList } from '@navigation/RootStack';
 import { fechaCorta } from './fechaEnPalabras';
 
-type CampoDato = 'nombre' | 'negocio' | 'ubicacion';
+type CampoDato =
+  | 'nombre'
+  | 'negocio'
+  | 'ubicacion'
+  | 'yapeNumero'
+  | 'yapeTitular'
+  | 'yapeParentesco';
 
-const DATOS: readonly { campo: CampoDato; etiqueta: string; ayuda: string }[] = [
+interface DatoEditable {
+  campo: CampoDato;
+  etiqueta: string;
+  ayuda: string;
+}
+
+const DATOS: readonly DatoEditable[] = [
   { campo: 'nombre', etiqueta: 'Mi nombre', ayuda: 'Escribe tu nombre' },
   { campo: 'negocio', etiqueta: 'Mi negocio', ayuda: 'Escribe el nombre de tu negocio' },
   { campo: 'ubicacion', etiqueta: 'Dónde vendo', ayuda: 'Escribe dónde vendes' },
 ];
+
+const YAPE_NUMERO: DatoEditable = {
+  campo: 'yapeNumero',
+  etiqueta: 'Número de Yape',
+  ayuda: 'Escribe el número donde recibes Yape',
+};
+const YAPE_TITULAR: DatoEditable = {
+  campo: 'yapeTitular',
+  etiqueta: '¿De quién es el Yape?',
+  ayuda: 'Escribe el nombre de quien lo tiene',
+};
+const YAPE_PARENTESCO: DatoEditable = {
+  campo: 'yapeParentesco',
+  etiqueta: '¿Quién es para ti?',
+  ayuda: 'Por ejemplo: hermana, esposa, amigo',
+};
 
 export const PerfilScreen = () => {
   const { perfil, productos, guardarPerfil } = useCrecemos();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList, 'Perfil'>>();
   const [editando, setEditando] = useState<CampoDato | null>(null);
   const [borrador, setBorrador] = useState('');
+  const [errorBorrador, setErrorBorrador] = useState<string | undefined>();
   const [enHoja, setEnHoja] = useState<Producto | null>(null);
   const [hojaVisible, setHojaVisible] = useState(false);
 
@@ -57,11 +87,20 @@ export const PerfilScreen = () => {
 
   const editar = (campo: CampoDato) => {
     setBorrador(perfil[campo] ?? '');
+    setErrorBorrador(undefined);
     setEditando(campo);
     verFila(campo);
   };
 
+  const cambiarBorrador = (campo: CampoDato, texto: string) =>
+    setBorrador(campo === 'yapeNumero' ? texto.replace(/\D/g, '') : texto);
+
   const guardarDato = async (campo: CampoDato) => {
+    const error = campo === 'yapeNumero' ? validarNumeroYape(borrador.trim()) : null;
+    if (error) {
+      setErrorBorrador(error);
+      return;
+    }
     await guardarPerfil({ [campo]: borrador.trim() } as Partial<Perfil>);
     setEditando(null);
   };
@@ -70,6 +109,66 @@ export const PerfilScreen = () => {
     setEnHoja(producto);
     setHojaVisible(true);
   };
+
+  const filaDato = ({ campo, etiqueta, ayuda }: DatoEditable, separada: boolean) => (
+    <View
+      key={campo}
+      ref={fila => {
+        filas.current[campo] = fila;
+      }}
+      style={[styles.filaDato, separada && styles.separador]}
+    >
+      {editando === campo ? (
+        <View style={styles.edicion}>
+          <Input
+            label={etiqueta}
+            value={borrador}
+            onChangeText={texto => cambiarBorrador(campo, texto)}
+            error={errorBorrador}
+            autoFocus
+            autoCapitalize={campo === 'yapeNumero' ? 'none' : 'words'}
+            keyboardType={campo === 'yapeNumero' ? 'phone-pad' : 'default'}
+            maxLength={campo === 'yapeNumero' ? 9 : undefined}
+            testID={`input-${campo}`}
+          />
+          <View style={styles.acciones}>
+            <Button
+              title="Guardar"
+              variant="outline"
+              onPress={() => guardarDato(campo)}
+              testID={`guardar-${campo}`}
+            />
+            <Button
+              title="Cancelar"
+              variant="ghost"
+              onPress={() => setEditando(null)}
+              testID={`cancelar-${campo}`}
+            />
+          </View>
+        </View>
+      ) : (
+        <View style={styles.dato}>
+          <View style={styles.datoTexto}>
+            <Text variant="label" color="textMuted">
+              {etiqueta}
+            </Text>
+            {perfil[campo] ? (
+              <Text testID={`valor-${campo}`}>{perfil[campo]}</Text>
+            ) : (
+              <Text color="textMuted">{ayuda}</Text>
+            )}
+          </View>
+          <Button
+            title="Editar"
+            variant="ghost"
+            onPress={() => editar(campo)}
+            accessibilityLabel={`Editar ${etiqueta.toLowerCase()}`}
+            testID={`editar-${campo}`}
+          />
+        </View>
+      )}
+    </View>
+  );
 
   return (
     <View style={styles.pantalla}>
@@ -114,62 +213,7 @@ export const PerfilScreen = () => {
           <View style={styles.seccion}>
             <Text variant="h3">Mis datos</Text>
             <View style={styles.tarjeta}>
-              {DATOS.map(({ campo, etiqueta, ayuda }, i) => (
-                <View
-                  key={campo}
-                  ref={fila => {
-                    filas.current[campo] = fila;
-                  }}
-                  style={[styles.filaDato, i > 0 && styles.separador]}
-                >
-                  {editando === campo ? (
-                    <View style={styles.edicion}>
-                      <Input
-                        label={etiqueta}
-                        value={borrador}
-                        onChangeText={setBorrador}
-                        autoFocus
-                        autoCapitalize="words"
-                        testID={`input-${campo}`}
-                      />
-                      <View style={styles.acciones}>
-                        <Button
-                          title="Guardar"
-                          variant="outline"
-                          onPress={() => guardarDato(campo)}
-                          testID={`guardar-${campo}`}
-                        />
-                        <Button
-                          title="Cancelar"
-                          variant="ghost"
-                          onPress={() => setEditando(null)}
-                          testID={`cancelar-${campo}`}
-                        />
-                      </View>
-                    </View>
-                  ) : (
-                    <View style={styles.dato}>
-                      <View style={styles.datoTexto}>
-                        <Text variant="label" color="textMuted">
-                          {etiqueta}
-                        </Text>
-                        {perfil[campo] ? (
-                          <Text testID={`valor-${campo}`}>{perfil[campo]}</Text>
-                        ) : (
-                          <Text color="textMuted">{ayuda}</Text>
-                        )}
-                      </View>
-                      <Button
-                        title="Editar"
-                        variant="ghost"
-                        onPress={() => editar(campo)}
-                        accessibilityLabel={`Editar ${etiqueta.toLowerCase()}`}
-                        testID={`editar-${campo}`}
-                      />
-                    </View>
-                  )}
-                </View>
-              ))}
+              {DATOS.map((dato, i) => filaDato(dato, i > 0))}
             </View>
           </View>
 
@@ -209,6 +253,17 @@ export const PerfilScreen = () => {
                   Lo anotamos como pendiente por cobrar hasta que lo recibas.
                 </Text>
               </View>
+              {perfil.aceptaYape ? (
+                <View style={styles.separador}>
+                  {filaDato(YAPE_NUMERO, false)}
+                  {perfil.yapeAjeno ? (
+                    <>
+                      {filaDato(YAPE_TITULAR, true)}
+                      {filaDato(YAPE_PARENTESCO, true)}
+                    </>
+                  ) : null}
+                </View>
+              ) : null}
             </View>
           </View>
 
