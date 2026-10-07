@@ -11,6 +11,11 @@ export interface Perfil {
   fotoUri?: string;
   aceptaYape: boolean;
   yapeAjeno: boolean;
+  /** Número donde recibe Yape: 9 dígitos. Se guarda solo en el teléfono. */
+  yapeNumero?: string;
+  /** Si el Yape no está a su nombre: de quién es y qué es para Freddy (hermana, esposa…). */
+  yapeTitular?: string;
+  yapeParentesco?: string;
   actualizadoEn: Instante;
 }
 

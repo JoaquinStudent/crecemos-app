@@ -8,7 +8,7 @@ import { StatusBar } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { CrecemosProvider } from '@context/CrecemosProvider';
-import { Tabs } from '@navigation/Tabs';
+import { RootStack } from '@navigation/RootStack';
 
 function App() {
   return (
@@ -16,7 +16,7 @@ function App() {
       <StatusBar barStyle="dark-content" />
       <CrecemosProvider>
         <NavigationContainer>
-          <Tabs />
+          <RootStack />
         </NavigationContainer>
       </CrecemosProvider>
     </SafeAreaProvider>

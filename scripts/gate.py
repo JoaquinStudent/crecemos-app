@@ -110,7 +110,10 @@ def failed_test_names(runner: str, out: str):
         names += re.findall(r"::(\w+)\s+(?:FAILED|ERROR)", out)
         names += re.findall(r"^(?:FAILED|ERROR)\s+\S+::(\w+)", out, re.M)
     elif runner == "npm":
-        names += re.findall(r"[x✕✗]\s+(\w+)", out)
+        # Solo el simbolo de fallo de Jest, al inicio de la linea. Antes aceptaba tambien una
+        # "x" suelta y "\s" cruzaba saltos de linea: el final de "provider.test.tsx" mas el
+        # nombre del describe de la linea siguiente se leia como un test fallido.
+        names += re.findall(r"^[ \t]*[✕✗×][ \t]+(\w+)", out, re.M)
     elif runner == "go":
         names += re.findall(r"^--- FAIL:\s+(\w+)", out, re.M)
     return sorted(set(names))

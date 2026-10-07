@@ -9,6 +9,9 @@ export const MENSAJES = {
   vacio: 'Anota al menos una venta o un gasto',
   yape: 'El Yape no puede ser más que lo que vendiste',
   enteras: 'Anota porciones enteras',
+  precio: 'El precio tiene que ser mayor a cero',
+  costo: 'El costo no puede ser negativo',
+  numeroYape: 'El número de Yape tiene 9 dígitos',
 } as const;
 
 export type ResultadoValidacion = { ok: true } | { ok: false; errores: Record<string, string> };
@@ -76,3 +79,26 @@ export const validarCierre = (datos: DatosCierre, productos: Producto[]): Result
   }
   return { ok: false, errores };
 };
+
+const esquemaProducto = z.object({
+  precioVenta: z.number().gt(0, MENSAJES.precio),
+  costoUnitario: z.number().min(0, MENSAJES.costo),
+});
+
+/** Valida el formulario "Cambiar precio" (decisión propuesta: no estaba en el contrato). */
+export const validarProducto = (datos: {
+  precioVenta: number;
+  costoUnitario: number;
+}): ResultadoValidacion => {
+  const resultado = esquemaProducto.safeParse(datos);
+  if (resultado.success) return { ok: true };
+  const errores: Record<string, string> = {};
+  for (const issue of resultado.error.issues) {
+    errores[issue.path.join('.')] ??= issue.message;
+  }
+  return { ok: false, errores };
+};
+
+/** Vacío vale (borrar el número); si hay algo, tienen que ser 9 dígitos. Devuelve el mensaje o null. */
+export const validarNumeroYape = (numero: string): string | null =>
+  numero === '' || /^\d{9}$/.test(numero) ? null : MENSAJES.numeroYape;
