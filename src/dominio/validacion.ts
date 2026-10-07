@@ -9,6 +9,8 @@ export const MENSAJES = {
   vacio: 'Anota al menos una venta o un gasto',
   yape: 'El Yape no puede ser más que lo que vendiste',
   enteras: 'Anota porciones enteras',
+  precio: 'El precio tiene que ser mayor a cero',
+  costo: 'El costo no puede ser negativo',
 } as const;
 
 export type ResultadoValidacion = { ok: true } | { ok: false; errores: Record<string, string> };
@@ -73,6 +75,25 @@ export const validarCierre = (datos: DatosCierre, productos: Producto[]): Result
   for (const issue of resultado.error.issues) {
     const campo = issue.path.join('.') || 'cierre';
     errores[campo] ??= issue.message;
+  }
+  return { ok: false, errores };
+};
+
+const esquemaProducto = z.object({
+  precioVenta: z.number().gt(0, MENSAJES.precio),
+  costoUnitario: z.number().min(0, MENSAJES.costo),
+});
+
+/** Valida el formulario "Cambiar precio" (decisión propuesta: no estaba en el contrato). */
+export const validarProducto = (datos: {
+  precioVenta: number;
+  costoUnitario: number;
+}): ResultadoValidacion => {
+  const resultado = esquemaProducto.safeParse(datos);
+  if (resultado.success) return { ok: true };
+  const errores: Record<string, string> = {};
+  for (const issue of resultado.error.issues) {
+    errores[issue.path.join('.')] ??= issue.message;
   }
   return { ok: false, errores };
 };
