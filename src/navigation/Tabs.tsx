@@ -4,7 +4,7 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { ChartColumn, ClipboardCheck, History, House } from 'lucide-react-native';
-import { colors, typography } from '@theme';
+import { colors } from '@theme';
 import { InicioScreen } from '@screens/InicioScreen';
 import { CerrarDiaScreen } from '@screens/CerrarDiaScreen';
 import { HistorialScreen } from '@screens/HistorialScreen';
@@ -42,8 +42,10 @@ export const Tabs = () => (
       tabBarLabelPosition: 'below-icon',
       tabBarActiveTintColor: colors.primary,
       tabBarInactiveTintColor: colors.textMuted,
-      tabBarLabelStyle: { fontSize: typography.label.fontSize, fontWeight: '600' },
-      tabBarItemStyle: { minHeight: 48 },
+      // Con 4 pestañas, "Cerrar mi día" a 15 px se cortaba en "Cerrar mi…": 14 px es el mínimo
+      // de la regla de UX y sin relleno lateral la etiqueta cabe entera.
+      tabBarLabelStyle: { fontSize: 14, fontWeight: '600' },
+      tabBarItemStyle: { minHeight: 48, paddingHorizontal: 0 },
     }}
   >
     <Tab.Screen

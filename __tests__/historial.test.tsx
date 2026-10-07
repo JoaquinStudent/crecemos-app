@@ -616,6 +616,9 @@ describe('Editar un día desde Historial', () => {
     const app = await montarApp();
     await abrirEdicion(app);
 
+    // La tarjeta dice el precio de ese día, no el de hoy (el mismo S/ 10.00 que se va a conservar).
+    expect(app.textos()).toContain('a S/ 10.00');
+    expect(app.textos()).not.toContain('a S/ 12.00');
     expect(app.textoDe('cerrar-te-queda')).toBe('S/ 186.00');
     await app.escribir('preparadas-p-anticucho', '30');
     expect(app.textoDe('cerrar-te-queda')).toBe('S/ 286.00'); // 30 × S/ 10.00, no × S/ 12.00
@@ -623,6 +626,20 @@ describe('Editar un día desde Historial', () => {
 
     const editado = (await listarCierres()).find(c => c.fecha === '2026-10-05')!;
     expect(editado.lineas[0].precioUnitario).toBe(10);
+  });
+
+  it('salir de la edición por la barra de pestañas la cancela: al volver el formulario está vacío', async () => {
+    await sembrarTresDias();
+    const app = await montarApp();
+    await abrirEdicion(app);
+    expect(app.textos()).toContain('Editando el lunes 5 de octubre');
+
+    await app.tocar('tab-inicio');
+    await app.tocar('tab-cerrar-dia');
+
+    expect(app.textos()).not.toContain('Editando el lunes 5 de octubre');
+    expect(app.textos()).toContain('Guardar mi día');
+    expect(app.valorDe('preparadas-p-anticucho')).toBe('');
   });
 
   it('un error al guardar la edición se muestra y no cambia nada', async () => {

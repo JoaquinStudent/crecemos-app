@@ -95,6 +95,20 @@ export const CerrarDiaScreen = () => {
     if (fecha !== undefined) navigation.setParams({ fecha: undefined });
   }, [fecha, hayOriginal, navigation, precargar, vaciar]);
 
+  // Salir de la edición por la barra de pestañas la cancela: volver a "Cerrar mi día" no debe
+  // retomar una edición vieja y dejar a Freddy cambiando, sin darse cuenta, un día que no es hoy.
+  useEffect(
+    () =>
+      navigation.addListener('blur', () => {
+        if (fecha !== undefined) navigation.setParams({ fecha: undefined });
+      }),
+    [fecha, navigation],
+  );
+
+  // Al editar un día se muestra el precio con que se vendió ese día, no el de hoy (D2).
+  const precioDe = (productoId: string, vigente: number) =>
+    original?.lineas.find(l => l.productoId === productoId)?.precioUnitario ?? vigente;
+
   // Solo van al cierre los productos en los que anotó algo; `ids` guarda el
   // producto de cada línea para ubicar los errores ('lineas.0.sobrantes').
   const ids = activos
@@ -190,7 +204,7 @@ export const CerrarDiaScreen = () => {
                 <Text variant="bodyStrong">
                   {p.nombre}{' '}
                   <Text variant="label" color="textMuted">
-                    a {formatoSoles(p.precioVenta)}
+                    a {formatoSoles(precioDe(p.id, p.precioVenta))}
                   </Text>
                 </Text>
                 <View style={styles.fila}>
