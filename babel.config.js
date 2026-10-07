@@ -19,6 +19,7 @@ module.exports = {
           '@navigation': './src/navigation',
           '@storage': './src/storage',
           '@types': './src/types',
+          '@dominio': './src/dominio',
         },
       },
     ],

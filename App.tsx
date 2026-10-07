@@ -1,19 +1,24 @@
 /**
- * Sample React Native App
- * https://github.com/facebook/react-native
+ * Crecemos: cuadra tu día, crece tu negocio.
  *
  * @format
  */
 
-import { BudgetScreen } from '@screens/BudgetScreen';
 import { StatusBar } from 'react-native';
+import { NavigationContainer } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { CrecemosProvider } from '@context/CrecemosProvider';
+import { Tabs } from '@navigation/Tabs';
 
 function App() {
   return (
     <SafeAreaProvider>
       <StatusBar barStyle="dark-content" />
-      <BudgetScreen />
+      <CrecemosProvider>
+        <NavigationContainer>
+          <Tabs />
+        </NavigationContainer>
+      </CrecemosProvider>
     </SafeAreaProvider>
   );
 }
