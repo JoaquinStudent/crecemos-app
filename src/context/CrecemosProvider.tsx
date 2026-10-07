@@ -9,13 +9,14 @@ import React, {
   useMemo,
   useReducer,
 } from 'react';
-import { nuevoCierre } from '@dominio/cierre';
+import { editarCierre, nuevoCierre } from '@dominio/cierre';
 import { fechaLocal } from '@dominio/fecha';
 import { PERFIL_POR_DEFECTO } from '@dominio/perfil';
 import { cambiarPrecio } from '@dominio/producto';
 import type { Cierre, DatosCierre, Perfil, Producto } from '@dominio/tipos';
 import { ResultadoValidacion, validarCierre, validarProducto } from '@dominio/validacion';
 import {
+  eliminarCierre,
   guardarCierre,
   guardarPerfil as guardarPerfilRepo,
   guardarProducto,
@@ -35,7 +36,8 @@ type Accion =
   | { tipo: 'cargado'; cierres: Cierre[]; productos: Producto[]; perfil: Perfil }
   | { tipo: 'perfilGuardado'; perfil: Perfil }
   | { tipo: 'productoGuardado'; producto: Producto }
-  | { tipo: 'cierreGuardado'; cierre: Cierre };
+  | { tipo: 'cierreGuardado'; cierre: Cierre }
+  | { tipo: 'cierreEliminado'; id: string };
 
 const estadoInicial: Estado = {
   cierres: [],
@@ -67,12 +69,16 @@ const reducer = (estado: Estado, accion: Accion): Estado => {
         ...estado,
         cierres: [...estado.cierres.filter(c => c.fecha !== accion.cierre.fecha), accion.cierre],
       };
+    case 'cierreEliminado':
+      return { ...estado, cierres: estado.cierres.filter(c => c.id !== accion.id) };
   }
 };
 
 interface ContextoCrecemos extends Estado {
   /** Valida, arma y guarda el cierre del día. Devuelve los errores si no pasa. */
   guardarDia: (datos: DatosCierre) => Promise<ResultadoValidacion>;
+  /** Borra el cierre con ese id. */
+  eliminarDia: (id: string) => Promise<void>;
   guardarPerfil: (parcial: Partial<Perfil>) => Promise<void>;
   /** Valida y cambia precio y costo desde hoy. Devuelve los errores si no pasa. */
   cambiarPrecioProducto: (
@@ -105,13 +111,24 @@ export const CrecemosProvider = ({ children }: { children: React.ReactNode }) =>
     async (datos: DatosCierre): Promise<ResultadoValidacion> => {
       const resultado = validarCierre(datos, estado.productos);
       if (!resultado.ok) return resultado;
-      const cierre = nuevoCierre(datos, estado.productos, estado.perfil, new Date());
+      const ahora = new Date();
+      // Un día ya cerrado se edita (conserva id y precios viejos, P13); si no, se crea.
+      const fecha = datos.fecha ?? fechaLocal(ahora);
+      const existente = estado.cierres.find(c => c.fecha === fecha);
+      const cierre = existente
+        ? editarCierre(existente, datos, estado.productos, estado.perfil, ahora)
+        : nuevoCierre(datos, estado.productos, estado.perfil, ahora);
       await guardarCierre(cierre);
       dispatch({ tipo: 'cierreGuardado', cierre });
       return resultado;
     },
-    [estado.productos, estado.perfil],
+    [estado.cierres, estado.productos, estado.perfil],
   );
+
+  const eliminarDia = useCallback(async (id: string): Promise<void> => {
+    await eliminarCierre(id);
+    dispatch({ tipo: 'cierreEliminado', id });
+  }, []);
 
   const guardarPerfil = useCallback(
     async (parcial: Partial<Perfil>): Promise<void> => {
@@ -141,8 +158,8 @@ export const CrecemosProvider = ({ children }: { children: React.ReactNode }) =>
   );
 
   const valor = useMemo(
-    () => ({ ...estado, guardarDia, guardarPerfil, cambiarPrecioProducto }),
-    [estado, guardarDia, guardarPerfil, cambiarPrecioProducto],
+    () => ({ ...estado, guardarDia, eliminarDia, guardarPerfil, cambiarPrecioProducto }),
+    [estado, guardarDia, eliminarDia, guardarPerfil, cambiarPrecioProducto],
   );
 
   return <Contexto.Provider value={valor}>{children}</Contexto.Provider>;

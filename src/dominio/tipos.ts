@@ -75,3 +75,48 @@ export interface ResumenCierre {
   teQueda: number;
   vendidasPorProducto: Record<string, number>;
 }
+
+/** Cierres desde uno marcado "hoy compré mercadería" hasta el anterior al siguiente marcado. */
+export interface Ciclo {
+  inicio: FechaNegocio;
+  fin: FechaNegocio;
+  cierres: Cierre[];
+}
+
+export interface ResumenCiclo {
+  venta: number;
+  capital: number;
+  teQueda: number;
+  capitalRecuperadoEn?: FechaNegocio;
+  faltaParaCapital: number;
+}
+
+/** Lo de un producto sumado en todo un ciclo: porciones y lo que costó lo que sobró. */
+export interface MercaderiaProducto {
+  productoId: string;
+  nombre: string;
+  preparadas: number;
+  vendidas: number;
+  sobranteSoles: number;
+}
+
+export type FiltroHistorial = 'todo' | 'ingresos' | 'gastos' | 'porCobrar';
+
+/** Una fila del historial. Monto positivo = ingreso; negativo = gasto. */
+export interface Movimiento {
+  tipo: 'venta' | 'gasto';
+  etiqueta: string;
+  /** `null` en los gastos. */
+  metodo: 'Efectivo' | 'Yape' | null;
+  monto: number;
+  porCobrar: boolean;
+}
+
+/** Los movimientos de un día (un cierre) con su neto. */
+export interface GrupoDia {
+  fecha: FechaNegocio;
+  titulo: string;
+  neto: number;
+  cierreId: string;
+  movimientos: Movimiento[];
+}

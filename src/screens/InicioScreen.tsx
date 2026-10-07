@@ -10,12 +10,11 @@ import { colors, radius, spacing } from '@theme';
 import { Text } from '@components/atoms/Text';
 import { Button } from '@components/atoms/Button';
 import { calcularCierre } from '@dominio/cierre';
-import { formatoSoles } from '@dominio/formato';
+import { formatoFecha, formatoSoles } from '@dominio/formato';
 import { inicialesAvatar } from '@dominio/perfil';
 import { useCrecemos } from '@context/CrecemosProvider';
 import type { RootStackParamList } from '@navigation/RootStack';
 import type { TabsParamList } from '@navigation/Tabs';
-import { fechaEnPalabras } from './fechaEnPalabras';
 
 type InicioNavigation = CompositeNavigationProp<
   BottomTabNavigationProp<TabsParamList, 'Inicio'>,
@@ -89,7 +88,7 @@ const ResumenDelDia = ({
 }) => (
   <View style={styles.tarjeta}>
     <Text variant="label" color="textMuted">
-      Tu último día · {fechaEnPalabras(fecha)}
+      Tu último día · {formatoFecha(fecha)}
     </Text>
     <Text variant="bodyStrong" style={styles.separado}>
       Te queda
