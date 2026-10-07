@@ -64,3 +64,39 @@ export const nuevoCierre = (
     actualizadoEn: instante,
   };
 };
+
+/**
+ * Reemplaza un día conservando su id, su creación y su fecha. Las líneas de
+ * productos que ya estaban conservan nombre, precio y costo con que se cerró el
+ * día: solo los productos nuevos copian los vigentes (D2).
+ */
+export const editarCierre = (
+  original: Cierre,
+  datos: DatosCierre,
+  productos: Producto[],
+  perfil: Perfil | null,
+  ahora: Date,
+): Cierre => {
+  const nuevo = nuevoCierre({ ...datos, fecha: original.fecha }, productos, perfil, ahora);
+  const lineas = nuevo.lineas.map(linea => {
+    const previa = original.lineas.find(l => l.productoId === linea.productoId);
+    return previa
+      ? {
+          ...linea,
+          nombre: previa.nombre,
+          precioUnitario: previa.precioUnitario,
+          costoUnitario: previa.costoUnitario,
+        }
+      : linea;
+  });
+  const conservaYape = datos.montoYape > 0 && original.montoYape > 0;
+  const editado: Cierre = {
+    ...nuevo,
+    id: original.id,
+    creadoEn: original.creadoEn,
+    lineas,
+    yapePendiente: conservaYape ? original.yapePendiente : nuevo.yapePendiente,
+  };
+  if (conservaYape && original.cobradoEn !== undefined) editado.cobradoEn = original.cobradoEn;
+  return editado;
+};

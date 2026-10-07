@@ -9,7 +9,7 @@
 import { calcularCierre, nuevoCierre } from '@dominio/cierre';
 import { agruparCiclos, resumirCiclo, textoCapital } from '@dominio/ciclo';
 import { formatoFecha, formatoSoles, sobranteSoles, textoSobrante } from '@dominio/formato';
-import { mensajeBorrar } from '@dominio/historial';
+import { armarHistorial, mensajeBorrar } from '@dominio/historial';
 import { PRODUCTOS_POR_DEFECTO } from '@dominio/productosPorDefecto';
 import type { Ciclo, Cierre, FechaNegocio, Gasto, LineaCierre } from '@dominio/tipos';
 
@@ -139,7 +139,32 @@ describe('SPEC-03: Historial y ciclos de compra', () => {
     // Given: cierres del 4, 5 y 6 de octubre de 2026
     // When: se arma el historial sin filtro
     // Then: el primer grupo se titula "Martes 6 de octubre", el último "Domingo 4 de octubre", y cada grupo muestra su neto en soles
-    throw new Error('Rojo: no implementado');
+    // Neto del 4: 10 × S/ 10.00 − S/ 60.00 = S/ 40.00 · del 5: 20 × S/ 10.00 − S/ 14.00 = S/ 186.00 · del 6: S/ 412.00 − S/ 244.00 = S/ 168.00
+    const dia4 = cierreDe('2026-10-04', {
+      lineas: [linea('Anticucho', 10, 10)],
+      gastos: [{ categoria: 'mercaderia', monto: 60 }],
+    });
+    const dia5 = cierreDe('2026-10-05', {
+      lineas: [linea('Anticucho', 20, 10)],
+      gastos: [{ categoria: 'carbon', monto: 14 }],
+    });
+    const dia6 = cierreDe('2026-10-06', {
+      lineas: [linea('Anticucho', 40, 10), linea('Chicha', 6, 2)],
+      gastos: [
+        { categoria: 'mercaderia', monto: 220 },
+        { categoria: 'otro', monto: 24 },
+      ],
+    });
+
+    // Desordenados a propósito: el orden lo pone el historial.
+    const historial = armarHistorial([dia5, dia6, dia4], 'todo');
+
+    expect(historial).toHaveLength(3);
+    expect(historial[0].titulo).toBe('Martes 6 de octubre');
+    expect(historial[historial.length - 1].titulo).toBe('Domingo 4 de octubre');
+    expect(historial.map(g => g.fecha)).toEqual(['2026-10-06', '2026-10-05', '2026-10-04']);
+    expect(historial.map(g => g.neto)).toEqual([168, 186, 40]);
+    expect(historial.map(g => formatoSoles(g.neto))).toEqual(['S/ 168.00', 'S/ 186.00', 'S/ 40.00']);
   });
 
   // @spec03_e6 — Filtra lo que está por cobrar
@@ -147,7 +172,19 @@ describe('SPEC-03: Historial y ciclos de compra', () => {
     // Given: 3 cierres, de los cuales solo el del 2026-10-05 tiene Yape por cobrar
     // When: se arma el historial con el filtro "Por cobrar"
     // Then: el historial tiene 1 grupo, titulado "Lunes 5 de octubre"
-    throw new Error('Rojo: no implementado');
+    const lineas = [linea('Anticucho', 20, 10)];
+    const dia4 = cierreDe('2026-10-04', { lineas });
+    const dia5 = {
+      ...cierreDe('2026-10-05', { lineas }),
+      montoYape: 46,
+      yapePendiente: true, // sin cobradoEn: sigue por cobrar
+    };
+    const dia6 = cierreDe('2026-10-06', { lineas });
+
+    const historial = armarHistorial([dia4, dia5, dia6], 'porCobrar');
+
+    expect(historial).toHaveLength(1);
+    expect(historial[0].titulo).toBe('Lunes 5 de octubre');
   });
 
   // @spec03_e7 — Borrar dice la consecuencia en soles

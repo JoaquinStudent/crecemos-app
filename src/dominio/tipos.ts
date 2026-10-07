@@ -90,3 +90,24 @@ export interface ResumenCiclo {
   capitalRecuperadoEn?: FechaNegocio;
   faltaParaCapital: number;
 }
+
+export type FiltroHistorial = 'todo' | 'ingresos' | 'gastos' | 'porCobrar';
+
+/** Una fila del historial. Monto positivo = ingreso; negativo = gasto. */
+export interface Movimiento {
+  tipo: 'venta' | 'gasto';
+  etiqueta: string;
+  /** `null` en los gastos. */
+  metodo: 'Efectivo' | 'Yape' | null;
+  monto: number;
+  porCobrar: boolean;
+}
+
+/** Los movimientos de un día (un cierre) con su neto. */
+export interface GrupoDia {
+  fecha: FechaNegocio;
+  titulo: string;
+  neto: number;
+  cierreId: string;
+  movimientos: Movimiento[];
+}

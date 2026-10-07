@@ -29,6 +29,14 @@ export const guardarCierre = async (c: Cierre): Promise<void> => {
   await base().setItem(CLAVE_CIERRES, JSON.stringify([...otros, c]));
 };
 
+/** Quita el cierre con ese id. Si no existe, no hace nada. */
+export const eliminarCierre = async (id: string): Promise<void> => {
+  const cierres = await listarCierres();
+  const restantes = cierres.filter(c => c.id !== id);
+  if (restantes.length === cierres.length) return;
+  await base().setItem(CLAVE_CIERRES, JSON.stringify(restantes));
+};
+
 /** Sin productos guardados devuelve los por defecto, sin escribirlos. */
 export const listarProductos = async (): Promise<Producto[]> =>
   (await leer<Producto[]>(CLAVE_PRODUCTOS)) ?? PRODUCTOS_POR_DEFECTO;

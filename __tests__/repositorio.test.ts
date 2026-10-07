@@ -1,13 +1,17 @@
 /**
  * Pruebas de apoyo del repositorio (no son escenarios del SPEC).
- * Cubren los invariantes de obtenerPerfil, guardarPerfil y guardarProducto.
+ * Cubren los invariantes de obtenerPerfil, guardarPerfil y guardarProducto,
+ * y el borrado de cierres con eliminarCierre.
  */
 
 import { clearAllMockStorages } from '@react-native-async-storage/async-storage/jest';
 import { PRODUCTOS_POR_DEFECTO } from '@dominio/productosPorDefecto';
-import type { Perfil } from '@dominio/tipos';
+import type { Cierre, Perfil } from '@dominio/tipos';
 import {
+  eliminarCierre,
+  guardarCierre,
   guardarProducto,
+  listarCierres,
   guardarPerfil,
   listarProductos,
   obtenerPerfil,
@@ -79,5 +83,55 @@ describe('Repositorio: perfil y productos', () => {
 
   it('obtener el perfil sin nada guardado devuelve null', async () => {
     expect(await obtenerPerfil()).toBeNull();
+  });
+});
+
+const cierreDe = (fecha: string): Cierre => ({
+  id: `c-${fecha}`,
+  fecha,
+  lineas: [],
+  montoYape: 0,
+  yapePendiente: false,
+  gastos: [{ categoria: 'gas', monto: 5 }],
+  abreCiclo: false,
+  creadoEn: '2026-10-07T12:00:00.000Z',
+  actualizadoEn: '2026-10-07T12:00:00.000Z',
+});
+
+describe('Repositorio: eliminar cierres', () => {
+  beforeEach(() => {
+    clearAllMockStorages();
+  });
+
+  it('borra el cierre con ese id y deja el resto', async () => {
+    await guardarCierre(cierreDe('2026-10-04'));
+    await guardarCierre(cierreDe('2026-10-05'));
+    await guardarCierre(cierreDe('2026-10-06'));
+
+    await eliminarCierre('c-2026-10-05');
+
+    const cierres = await listarCierres();
+    expect(cierres.map(c => c.id).sort()).toEqual(['c-2026-10-04', 'c-2026-10-06']);
+  });
+
+  it('un id que no existe no hace nada ni falla', async () => {
+    await guardarCierre(cierreDe('2026-10-04'));
+
+    await expect(eliminarCierre('no-existe')).resolves.toBeUndefined();
+
+    expect((await listarCierres()).map(c => c.id)).toEqual(['c-2026-10-04']);
+  });
+
+  it('borrar con el almacenamiento vacio no falla', async () => {
+    await expect(eliminarCierre('lo-que-sea')).resolves.toBeUndefined();
+    expect(await listarCierres()).toEqual([]);
+  });
+
+  it('borrar el unico cierre deja la lista vacia', async () => {
+    await guardarCierre(cierreDe('2026-10-04'));
+
+    await eliminarCierre('c-2026-10-04');
+
+    expect(await listarCierres()).toEqual([]);
   });
 });
