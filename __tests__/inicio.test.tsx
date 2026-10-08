@@ -11,11 +11,13 @@ import { clearAllMockStorages } from '@react-native-async-storage/async-storage/
 import App from '../App';
 import { colors } from '@theme';
 import { nuevoCierre } from '@dominio/cierre';
-import { fechaLocal } from '@dominio/fecha';
+import { fechaLocal, restarDias } from '@dominio/fecha';
 import { formatoFecha } from '@dominio/formato';
 import { PERFIL_POR_DEFECTO } from '@dominio/perfil';
 import { PRODUCTOS_POR_DEFECTO } from '@dominio/productosPorDefecto';
-import type { Cierre, DatosCierre } from '@dominio/tipos';
+import type { Cierre, DatosCierre, Producto } from '@dominio/tipos';
+import * as reglas from '@analisis/reglas';
+import { evaluarReglas } from '@analisis/reglas';
 import {
   guardarCierre,
   guardarPerfil,
@@ -71,8 +73,35 @@ const montarApp = async () => {
   const pestanaActiva = (testID: string) =>
     app.root.findAll(n => n.props.testID === testID && n.props.accessibilityState)[0]?.props
       .accessibilityState.selected === true;
+  const tamanoDe = (testID: string) => StyleSheet.flatten(textoNodo(testID).props.style).fontSize;
+  // Los testID pedidos, en el orden en que están en pantalla (de arriba hacia abajo), sin repetir.
+  const enOrden = (ids: string[]) => {
+    const vistos: string[] = [];
+    app.root
+      .findAll(n => (esHost(n, 'Text') || esHost(n, 'View')) && ids.includes(n.props.testID))
+      .forEach(n => {
+        if (!vistos.includes(n.props.testID)) vistos.push(n.props.testID);
+      });
+    return vistos;
+  };
+  // Las vistas cuyo testID empieza así, en el orden en que están en pantalla.
+  const vistasCon = (prefijo: string) =>
+    app.root
+      .findAll(n => esHost(n, 'View') && String(n.props.testID ?? '').startsWith(prefijo))
+      .map(n => String(n.props.testID));
 
-  return { tocar, existe, textos, textoDe, colorDe, estiloDe, pestanaActiva };
+  return {
+    tocar,
+    existe,
+    textos,
+    textoDe,
+    colorDe,
+    estiloDe,
+    pestanaActiva,
+    tamanoDe,
+    enOrden,
+    vistasCon,
+  };
 };
 
 const ahora = new Date('2026-10-07T12:00:00-05:00');
@@ -85,6 +114,7 @@ interface Dia {
   porCobrar?: boolean;
   cobradoEn?: string;
   abreCiclo?: boolean;
+  productos?: Producto[];
 }
 
 // Siembra un cierre con fecha e id explícitos ANTES de montar la app: el id es 'c-<fecha>'.
@@ -98,7 +128,7 @@ const sembrar = async (fecha: string, dia: Dia = {}): Promise<Cierre> => {
         gastos: dia.gastos ?? [],
         abreCiclo: dia.abreCiclo ?? false,
       },
-      PRODUCTOS_POR_DEFECTO,
+      dia.productos ?? PRODUCTOS_POR_DEFECTO,
       null,
       ahora,
     ),
@@ -608,5 +638,396 @@ describe('Inicio: sin cierres y los datos de ejemplo', () => {
 
     expect(existe('inicio-cargar-ejemplo')).toBe(true);
     expect(sinMensajesTecnicos(textos())).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Sprint-05 · oleada C: el insight, las recomendaciones y el nuevo orden de Inicio.
+// Fechas relativas a hoy: el insight mira los últimos 30 días y la regla de precio, 90 días atrás.
+// ---------------------------------------------------------------------------------------------
+
+const haceDias = (n: number) => restarDias(hoy(), n);
+
+// Los productos por defecto, pero con otro costo del anticucho (para sembrar un día de hace meses).
+const conCostoAnticucho = (costo: number): Producto[] =>
+  PRODUCTOS_POR_DEFECTO.map(p => (p.id === 'p-anticucho' ? { ...p, costoUnitario: costo } : p));
+
+// Margen por porción con los precios por defecto: anticucho 1.80 · pancita 1.00 · rachi 1.40.
+// Tres ciclos que activan las cinco reglas a la vez (como spec05_e10), con el insight de la
+// pancita contra el anticucho (últimos 30 días: pancita 100 · anticucho 60 · rachi 50):
+//   hace 100 días · abre ciclo · anticucho a S/ 3.20 por porción (costo 6.80)        → regla precio
+//   hace 20 días  · abre ciclo · anticucho 40 · rachi 30 (sobran 6) · mercadería S/ 100.00
+//   hace 9 días   · abre ciclo · anticucho 20 · pancita 100 · rachi 30 (sobran 4) · Yape S/ 120.00
+//                   por cobrar (regla cobro) · mercadería S/ 100.00
+const sembrarTodasLasReglas = async () => {
+  await sembrar(haceDias(100), {
+    abreCiclo: true,
+    productos: conCostoAnticucho(6.8),
+    lineas: [{ productoId: 'p-anticucho', preparadas: 20, sobrantes: 0 }],
+  });
+  await sembrar(haceDias(20), {
+    abreCiclo: true,
+    lineas: [
+      { productoId: 'p-anticucho', preparadas: 40, sobrantes: 0 },
+      { productoId: 'p-rachi', preparadas: 30, sobrantes: 6 },
+    ],
+    gastos: [{ categoria: 'mercaderia', monto: 100 }],
+  });
+  await sembrar(haceDias(9), {
+    abreCiclo: true,
+    lineas: [
+      { productoId: 'p-anticucho', preparadas: 20, sobrantes: 0 },
+      { productoId: 'p-pancita', preparadas: 100, sobrantes: 0 },
+      { productoId: 'p-rachi', preparadas: 30, sobrantes: 4 },
+    ],
+    montoYape: 120,
+    porCobrar: true,
+    gastos: [{ categoria: 'mercaderia', monto: 100 }],
+  });
+};
+
+// Dos ciclos sin Yape por cobrar ni precios viejos: solo se activan retiro y comparación.
+//   hace 5 días · abre ciclo · 20 anticuchos (S/ 200.00) − S/ 100.00 → te queda S/ 100.00
+//   hace 1 día  · abre ciclo · 30 anticuchos (S/ 300.00) − S/ 100.00 → te queda S/ 200.00
+const sembrarDosCiclosSinAlertas = async () => {
+  await sembrar(haceDias(5), {
+    abreCiclo: true,
+    lineas: [{ productoId: 'p-anticucho', preparadas: 20, sobrantes: 0 }],
+    gastos: [{ categoria: 'mercaderia', monto: 100 }],
+  });
+  await sembrar(haceDias(1), {
+    abreCiclo: true,
+    lineas: [{ productoId: 'p-anticucho', preparadas: 30, sobrantes: 0 }],
+    gastos: [{ categoria: 'mercaderia', monto: 100 }],
+  });
+};
+
+const FRASE_DEL_INSIGHT =
+  'La pancita se vende más, pero el anticucho te deja S/ 0.80 más por porción.';
+
+describe('Inicio: el orden de las tarjetas', () => {
+  beforeEach(() => {
+    clearAllMockStorages();
+  });
+  afterEach(async () => {
+    const app = montada;
+    montada = null;
+    if (app) await act(async () => app.unmount());
+    global.fetch = fetchPorDefecto;
+  });
+
+  it('saludo, ciclo, insight, recomendaciones, Yape por cobrar, tu último día y el botón', async () => {
+    await sembrarTodasLasReglas();
+
+    const { enOrden } = await montarApp();
+
+    expect(
+      enOrden([
+        'inicio-saludo',
+        'inicio-ciclo-titulo',
+        'inicio-insight',
+        'inicio-recomendaciones',
+        'inicio-por-cobrar-total',
+        'inicio-te-queda',
+        'inicio-cerrar-dia-rapido',
+      ]),
+    ).toEqual([
+      'inicio-saludo',
+      'inicio-ciclo-titulo',
+      'inicio-insight',
+      'inicio-recomendaciones',
+      'inicio-por-cobrar-total',
+      'inicio-te-queda',
+      'inicio-cerrar-dia-rapido',
+    ]);
+  });
+
+  it('"Tu último día" conserva su testID y su valor aunque cambie de lugar', async () => {
+    await sembrarTodasLasReglas();
+
+    const { textoDe, textos } = await montarApp();
+
+    // El último día cerrado es el de hace 9 días: 20 anticuchos + 100 pancitas + 26 rachis.
+    // Venta S/ 200.00 + S/ 900.00 + S/ 234.00 = S/ 1,334.00 − S/ 100.00 de mercadería.
+    expect(textoDe('inicio-te-queda')).toBe('S/ 1,234.00');
+    expect(textos().some(t => t.startsWith('Tu último día · '))).toBe(true);
+  });
+
+  it('el botón principal sigue siendo uno solo: "Cerrar mi día"', async () => {
+    await sembrarTodasLasReglas();
+
+    const { vistasCon, existe } = await montarApp();
+
+    // Ni el insight ni las recomendaciones traen otro botón principal: el enlace es de texto.
+    expect(vistasCon('inicio-cerrar-dia')).toEqual(['inicio-cerrar-dia-rapido']);
+    expect(existe('inicio-cerrar-dia-rapido')).toBe(true);
+  });
+});
+
+describe('Inicio: el insight', () => {
+  beforeEach(() => {
+    clearAllMockStorages();
+  });
+  afterEach(async () => {
+    const app = montada;
+    montada = null;
+    if (app) await act(async () => app.unmount());
+    global.fetch = fetchPorDefecto;
+  });
+
+  // Pancita 50 porciones (la que más se vende) y anticucho 30 (la que más deja por porción).
+  const sembrarInsight = async () => {
+    await sembrar(haceDias(3), {
+      abreCiclo: true,
+      lineas: [
+        { productoId: 'p-anticucho', preparadas: 30, sobrantes: 0 },
+        { productoId: 'p-pancita', preparadas: 50, sobrantes: 0 },
+      ],
+    });
+  };
+
+  it('muestra la frase exacta del insight, en 18 px y sin naranja como color de texto', async () => {
+    await sembrarInsight();
+
+    const { existe, textoDe, tamanoDe, colorDe } = await montarApp();
+
+    expect(existe('inicio-insight')).toBe(true);
+    expect(textoDe('inicio-insight-texto')).toBe(FRASE_DEL_INSIGHT);
+    expect(tamanoDe('inicio-insight-texto')).toBe(18);
+    expect(colorDe('inicio-insight-texto')).toBe(colors.text);
+    expect(colorDe('inicio-insight-texto')).not.toBe(colors.accent);
+  });
+
+  it('el fondo es suave y lleva un borde izquierdo de acento: el naranja nunca es el texto', async () => {
+    await sembrarInsight();
+
+    const { estiloDe, colorDe } = await montarApp();
+
+    const tarjeta = estiloDe('inicio-insight');
+    expect(tarjeta.backgroundColor).toBe(colors.accentSoft);
+    expect(tarjeta.borderLeftWidth).toBe(4);
+    expect(tarjeta.borderLeftColor).toBe(colors.accent);
+    expect(colorDe('inicio-insight-texto')).not.toBe(tarjeta.borderLeftColor);
+  });
+
+  it('el enlace "Ver qué me deja cada uno" lleva la flecha y mide al menos 48 dp', async () => {
+    await sembrarInsight();
+
+    const { textos, estiloDe, colorDe } = await montarApp();
+
+    expect(textos()).toContain('Ver qué me deja cada uno');
+    expect(estiloDe('inicio-ver-que-me-deja').minHeight).toBeGreaterThanOrEqual(48);
+    expect(colorDe('inicio-ver-que-me-deja-texto')).not.toBe(colors.accent);
+  });
+
+  it('no aparece cuando el más vendido y el que más deja son el mismo producto', async () => {
+    // El anticucho se vende más (50) y también deja más por porción: no hay contraste que contar.
+    await sembrar(haceDias(3), {
+      abreCiclo: true,
+      lineas: [
+        { productoId: 'p-anticucho', preparadas: 50, sobrantes: 0 },
+        { productoId: 'p-pancita', preparadas: 30, sobrantes: 0 },
+      ],
+    });
+
+    const { existe, textos } = await montarApp();
+
+    expect(existe('inicio-insight')).toBe(false);
+    expect(existe('inicio-ver-que-me-deja')).toBe(false);
+    expect(textos()).not.toContain('Ver qué me deja cada uno');
+  });
+
+  it('no aparece con un solo producto vendido', async () => {
+    await sembrar(haceDias(3), {
+      abreCiclo: true,
+      lineas: [{ productoId: 'p-anticucho', preparadas: 30, sobrantes: 0 }],
+    });
+
+    const { existe } = await montarApp();
+
+    expect(existe('inicio-insight')).toBe(false);
+  });
+
+  it('mira los mismos últimos 30 días que "Qué me deja cada uno": el día 30 cuenta y el 31 no', async () => {
+    // Con el día 31 la pancita se llevaría casi todo; sin él no hay contraste que contar.
+    await sembrar(haceDias(31), {
+      abreCiclo: true,
+      lineas: [{ productoId: 'p-pancita', preparadas: 99, sobrantes: 0 }],
+    });
+    await sembrar(haceDias(30), {
+      abreCiclo: true,
+      lineas: [{ productoId: 'p-anticucho', preparadas: 10, sobrantes: 0 }],
+    });
+    const { existe } = await montarApp();
+    expect(existe('inicio-insight')).toBe(false);
+  });
+
+  it('el día 30 sí cuenta para el insight', async () => {
+    await sembrar(haceDias(30), {
+      abreCiclo: true,
+      lineas: [
+        { productoId: 'p-anticucho', preparadas: 10, sobrantes: 0 },
+        { productoId: 'p-pancita', preparadas: 20, sobrantes: 0 },
+      ],
+    });
+
+    const { textoDe } = await montarApp();
+
+    expect(textoDe('inicio-insight-texto')).toBe(FRASE_DEL_INSIGHT);
+  });
+
+  it('sin cierres no hay insight', async () => {
+    const { existe } = await montarApp();
+
+    expect(existe('inicio-insight')).toBe(false);
+  });
+
+  it('"Ver qué me deja cada uno" abre esa pantalla, con la misma frase', async () => {
+    await sembrarInsight();
+    const { tocar, existe, textoDe } = await montarApp();
+    expect(existe('queme-pantalla')).toBe(false);
+
+    await tocar('inicio-ver-que-me-deja');
+
+    expect(existe('queme-pantalla')).toBe(true);
+    expect(textoDe('queme-insight-texto')).toBe(textoDe('inicio-insight-texto'));
+  });
+
+  it('desde esa pantalla, "Atrás" vuelve a Inicio', async () => {
+    await sembrarInsight();
+    const { tocar, textoDe } = await montarApp();
+    await tocar('inicio-ver-que-me-deja');
+
+    await tocar('queme-atras');
+
+    expect(textoDe('inicio-insight-texto')).toBe(FRASE_DEL_INSIGHT);
+  });
+});
+
+describe('Inicio: las recomendaciones', () => {
+  beforeEach(() => {
+    clearAllMockStorages();
+  });
+  afterEach(async () => {
+    const app = montada;
+    montada = null;
+    if (app) await act(async () => app.unmount());
+    global.fetch = fetchPorDefecto;
+    jest.restoreAllMocks();
+  });
+
+  const CARTELES = ['Para decidir hoy', 'Cierra 2 ciclos para ver recomendaciones'];
+
+  it('con las cinco reglas activas muestra exactamente 2: cobro y precio, en ese orden', async () => {
+    await sembrarTodasLasReglas();
+
+    const { existe, textos, vistasCon } = await montarApp();
+
+    expect(existe('inicio-recomendaciones')).toBe(true);
+    expect(textos()).toContain('Para decidir hoy');
+    expect(vistasCon('inicio-recomendacion-')).toEqual([
+      'inicio-recomendacion-cobro',
+      'inicio-recomendacion-precio',
+    ]);
+    expect(existe('inicio-recomendacion-preparar')).toBe(false);
+    expect(existe('inicio-recomendacion-retiro')).toBe(false);
+    expect(existe('inicio-recomendacion-comparacion')).toBe(false);
+    expect(existe('inicio-sin-recomendaciones')).toBe(false);
+  });
+
+  it('cada tarjeta dice el mensaje del motor, con verbo y monto, en 18 px', async () => {
+    await sembrarTodasLasReglas();
+    const { textoDe, tamanoDe, colorDe } = await montarApp();
+    const del = evaluarReglas({
+      cierres: await listarCierres(),
+      productos: PRODUCTOS_POR_DEFECTO,
+      hoy: hoy(),
+    });
+
+    expect(del.map(r => r.reglaId)).toEqual(['cobro', 'precio']);
+    for (const r of del) {
+      expect(textoDe(`inicio-recomendacion-${r.reglaId}-texto`)).toBe(r.mensaje);
+      expect(tamanoDe(`inicio-recomendacion-${r.reglaId}-texto`)).toBe(18);
+      expect(colorDe(`inicio-recomendacion-${r.reglaId}-texto`)).toBe(colors.text);
+    }
+    expect(textoDe('inicio-recomendacion-cobro-texto')).toMatch(
+      /^Tienes S\/ 120\.00 por cobrar desde el \d+ de \w+\.$/,
+    );
+    expect(textoDe('inicio-recomendacion-precio-texto')).toMatch(
+      /^Tu anticucho te deja S\/ 1\.40 menos que en \w+\. ¿Revisas el precio\?$/,
+    );
+  });
+
+  it('sin cobro ni precio, las que siguen: retiro y comparación, con sus montos', async () => {
+    await sembrarDosCiclosSinAlertas();
+
+    const { vistasCon, textoDe } = await montarApp();
+
+    expect(vistasCon('inicio-recomendacion-')).toEqual([
+      'inicio-recomendacion-retiro',
+      'inicio-recomendacion-comparacion',
+    ]);
+    expect(textoDe('inicio-recomendacion-retiro-texto')).toBe(
+      'Puedes sacar S/ 100.00 para la casa sin tocar tu capital.',
+    );
+    expect(textoDe('inicio-recomendacion-comparacion-texto')).toBe(
+      'Ganaste S/ 100.00 más que el ciclo pasado',
+    );
+  });
+
+  it('con una sola recomendación activa muestra solo esa tarjeta', async () => {
+    // El motor puede devolver una sola: la pantalla muestra solo lo que él devuelve.
+    await sembrarDosCiclosSinAlertas();
+    const soloUna = jest
+      .spyOn(reglas, 'evaluarReglas')
+      .mockReturnValue([{ reglaId: 'retiro', prioridad: 4, mensaje: 'Puedes sacar S/ 1.00.' }]);
+
+    const { vistasCon, textoDe } = await montarApp();
+
+    expect(soloUna).toHaveBeenCalled();
+    expect(vistasCon('inicio-recomendacion-')).toEqual(['inicio-recomendacion-retiro']);
+    expect(textoDe('inicio-recomendacion-retiro-texto')).toBe('Puedes sacar S/ 1.00.');
+  });
+
+  it('con un solo ciclo dice "Cierra 2 ciclos para ver recomendaciones" y no inventa ninguna', async () => {
+    await sembrarTresDias();
+
+    const { textoDe, existe, vistasCon, tamanoDe } = await montarApp();
+
+    expect(textoDe('inicio-sin-recomendaciones')).toBe('Cierra 2 ciclos para ver recomendaciones');
+    expect(tamanoDe('inicio-sin-recomendaciones')).toBeGreaterThanOrEqual(14);
+    expect(existe('inicio-recomendaciones')).toBe(false);
+    expect(vistasCon('inicio-recomendacion-')).toEqual([]);
+  });
+
+  it('sin ningún cierre no muestra nada de este bloque (se ve el estado vacío de siempre)', async () => {
+    const { existe, textos } = await montarApp();
+
+    expect(existe('inicio-sin-recomendaciones')).toBe(false);
+    expect(existe('inicio-recomendaciones')).toBe(false);
+    expect(existe('inicio-insight')).toBe(false);
+    for (const cartel of CARTELES) expect(textos()).not.toContain(cartel);
+    expect(textos()).toContain('Aún no cierras ningún día');
+  });
+
+  it('con 2 ciclos o más ya no pide cerrar 2 ciclos', async () => {
+    await sembrarDosCiclosSinAlertas();
+
+    const { existe, textos } = await montarApp();
+
+    expect(existe('inicio-sin-recomendaciones')).toBe(false);
+    expect(textos()).not.toContain('Cierra 2 ciclos para ver recomendaciones');
+  });
+
+  it('con 2 ciclos o más y ninguna recomendación activa, no muestra nada de este bloque', async () => {
+    await sembrarDosCiclosSinAlertas();
+    jest.spyOn(reglas, 'evaluarReglas').mockReturnValue([]);
+
+    const { existe, textos, vistasCon } = await montarApp();
+
+    expect(existe('inicio-sin-recomendaciones')).toBe(false);
+    expect(existe('inicio-recomendaciones')).toBe(false);
+    expect(vistasCon('inicio-recomendacion-')).toEqual([]);
+    for (const cartel of CARTELES) expect(textos()).not.toContain(cartel);
   });
 });

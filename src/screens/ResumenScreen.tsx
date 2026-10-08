@@ -1,23 +1,33 @@
 // src/screens/ResumenScreen.tsx
 // "Resumen" (mock 04): el ciclo de compra actual. "El primer día es para el capital y el
 // segundo es la ganancia" dibujado como una barra, y cuánto de la mercadería se vendió.
-// Sin comparación con el ciclo anterior (es del Sprint-05), sin "Este mes / Todo", sin
-// gráfico de ciclos y sin buscar. Las barras son Views de ancho porcentual, sin librerías.
+// Con 2 ciclos o más, una fila compara con el ciclo anterior: el texto y el monto, nunca solo un
+// porcentaje. Termina con el botón a "Qué me deja cada uno". Sin "Este mes / Todo", sin gráfico
+// de ciclos y sin buscar.
+// Las barras son Views de ancho porcentual, sin librerías.
 import React from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, type CompositeNavigationProp } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
-import { TriangleAlert } from 'lucide-react-native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { Minus, TrendingDown, TrendingUp, TriangleAlert } from 'lucide-react-native';
 import { colors, radius, spacing } from '@theme';
 import { Text } from '@components/atoms/Text';
 import { Button } from '@components/atoms/Button';
 import { Icon } from '@components/atoms/Icon';
+import { compararCiclos } from '@analisis/metricas';
 import { agruparCiclos, mercaderiaDelCiclo, resumirCiclo, textoCapital } from '@dominio/ciclo';
 import { formatoFechaCorta, formatoSoles } from '@dominio/formato';
-import type { Ciclo } from '@dominio/tipos';
+import type { Ciclo, ResumenCiclo } from '@dominio/tipos';
 import { useCrecemos } from '@context/CrecemosProvider';
+import type { RootStackParamList } from '@navigation/RootStack';
 import type { TabsParamList } from '@navigation/Tabs';
+
+type ResumenNavigation = CompositeNavigationProp<
+  BottomTabNavigationProp<TabsParamList, 'Resumen'>,
+  NativeStackNavigationProp<RootStackParamList>
+>;
 
 // Por debajo de este porcentaje vendido, la barra de un producto va en naranja (solo relleno).
 const VENDIDO_MINIMO = 70;
@@ -32,11 +42,12 @@ const rango = (ciclo: Ciclo): string =>
 
 export const ResumenScreen = () => {
   const { cierres, cargando } = useCrecemos();
-  const navigation = useNavigation<BottomTabNavigationProp<TabsParamList, 'Resumen'>>();
+  const navigation = useNavigation<ResumenNavigation>();
 
   // El ciclo actual es el último.
   const ciclos = agruparCiclos(cierres);
   const actual = ciclos.length > 0 ? ciclos[ciclos.length - 1] : null;
+  const anterior = ciclos.length > 1 ? ciclos[ciclos.length - 2] : null;
 
   return (
     <SafeAreaView style={styles.pantalla} edges={['top']}>
@@ -46,7 +57,7 @@ export const ResumenScreen = () => {
         </Text>
 
         {cargando ? null : actual ? (
-          <CicloActual ciclo={actual} />
+          <CicloActual ciclo={actual} anterior={anterior} />
         ) : (
           <View style={styles.tarjeta} testID="resumen-vacio">
             <Text variant="h3">Aún no cierras ningún día</Text>
@@ -64,12 +75,23 @@ export const ResumenScreen = () => {
             />
           </View>
         )}
+
+        {cargando ? null : (
+          <Button
+            title="Qué me deja cada uno"
+            variant="outline"
+            size="lg"
+            fullWidth
+            testID="resumen-que-me-deja"
+            onPress={() => navigation.navigate('QueMeDeja')}
+          />
+        )}
       </ScrollView>
     </SafeAreaView>
   );
 };
 
-const CicloActual = ({ ciclo }: { ciclo: Ciclo }) => {
+const CicloActual = ({ ciclo, anterior }: { ciclo: Ciclo; anterior: Ciclo | null }) => {
   const resumen = resumirCiclo(ciclo);
   const mercaderia = mercaderiaDelCiclo(ciclo);
 
@@ -142,6 +164,8 @@ const CicloActual = ({ ciclo }: { ciclo: Ciclo }) => {
         ) : null}
       </View>
 
+      {anterior ? <Comparacion actual={resumen} anterior={resumirCiclo(anterior)} /> : null}
+
       {mercaderia.length > 0 ? (
         <View style={styles.seccion}>
           <Text variant="h3">Tu mercadería</Text>
@@ -201,11 +225,50 @@ const CicloActual = ({ ciclo }: { ciclo: Ciclo }) => {
   );
 };
 
+/**
+ * El "te queda" de este ciclo contra el del anterior, con el monto del anterior debajo. El ícono
+ * sube, baja o se queda igual y siempre acompaña a la frase; el texto va en letra oscura.
+ */
+const Comparacion = ({ actual, anterior }: { actual: ResumenCiclo; anterior: ResumenCiclo }) => {
+  const perdio = actual.teQueda < anterior.teQueda;
+  const igual = actual.teQueda === anterior.teQueda;
+  return (
+    <View style={styles.comparacion} testID="resumen-comparacion-fila">
+      <View testID="resumen-comparacion-icono">
+        <Icon
+          icon={perdio ? TrendingDown : igual ? Minus : TrendingUp}
+          color={perdio ? 'danger' : 'success'}
+          size="lg"
+        />
+      </View>
+      <View style={styles.comparacionTextos}>
+        <Text variant="bodyStrong" testID="resumen-comparacion">
+          {compararCiclos(actual, anterior)}
+        </Text>
+        <Text variant="caption" color="textMuted" testID="resumen-comparacion-anterior">
+          {`Ciclo anterior: ${formatoSoles(anterior.teQueda)}`}
+        </Text>
+      </View>
+    </View>
+  );
+};
+
 const styles = StyleSheet.create({
   pantalla: { flex: 1, backgroundColor: colors.background },
   contenido: { padding: spacing.lg, gap: spacing.xl },
   tarjeta: { backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.lg },
   seccion: { gap: spacing.md },
+  comparacion: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    padding: spacing.lg,
+  },
+  comparacionTextos: { flex: 1 },
   separado: { marginTop: spacing.md },
   separadoChico: { marginTop: spacing.sm },
   filaEntre: {

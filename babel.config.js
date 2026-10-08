@@ -20,6 +20,7 @@ module.exports = {
           '@storage': './src/storage',
           '@types': './src/types',
           '@dominio': './src/dominio',
+          '@analisis': './src/analisis',
         },
       },
     ],

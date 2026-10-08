@@ -63,3 +63,6 @@ export const sobranteSoles = (linea: LineaCierre): number =>
 /** 'Te sobró S/ 38.00 en rachi'. */
 export const textoSobrante = (linea: LineaCierre): string =>
   `Te sobró ${formatoSoles(sobranteSoles(linea))} en ${linea.nombre.toLowerCase()}`;
+
+/** 'julio': el mes de la fecha, en minúscula. */
+export const nombreMes = (f: FechaNegocio): string => MESES[Number(f.split('-')[1]) - 1];
