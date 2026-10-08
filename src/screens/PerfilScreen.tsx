@@ -12,14 +12,16 @@ import { Text } from '@components/atoms/Text';
 import { Button } from '@components/atoms/Button';
 import { Icon } from '@components/atoms/Icon';
 import { Input } from '@components/atoms/Input';
+import { AvatarPerfil } from '@components/molecules/AvatarPerfil';
 import { CambiarPrecioSheet } from '@components/organisms/CambiarPrecioSheet';
 import { fechaLocal } from '@dominio/fecha';
 import { formatoFechaCorta, formatoSoles } from '@dominio/formato';
-import { inicialesAvatar } from '@dominio/perfil';
+import { avatarDe } from '@dominio/foto';
 import { validarNumeroYape } from '@dominio/validacion';
 import { requiereRevision, teDeja } from '@dominio/producto';
 import type { Perfil, Producto } from '@dominio/tipos';
 import { useCrecemos } from '@context/CrecemosProvider';
+import { elegirFoto, mensajeFoto } from '@services/foto';
 import type { RootStackParamList } from '@navigation/RootStack';
 
 type CampoDato =
@@ -59,7 +61,7 @@ const YAPE_PARENTESCO: DatoEditable = {
 };
 
 export const PerfilScreen = () => {
-  const { perfil, productos, guardarPerfil } = useCrecemos();
+  const { perfil, productos, guardarPerfil, guardarFoto, quitarFoto } = useCrecemos();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList, 'Perfil'>>();
   const [editando, setEditando] = useState<CampoDato | null>(null);
   const [borrador, setBorrador] = useState('');
@@ -68,6 +70,55 @@ export const PerfilScreen = () => {
   const [hojaVisible, setHojaVisible] = useState(false);
 
   const hoy = fechaLocal(new Date());
+
+  // Foto de perfil: se guarda al elegirla. Los botones dependen de si ya hay una foto válida.
+  const hayFoto = avatarDe(perfil).tipo === 'foto';
+  const [abriendoFoto, setAbriendoFoto] = useState(false);
+  const [errorFoto, setErrorFoto] = useState<string | null>(null);
+  const [cambiandoFoto, setCambiandoFoto] = useState(false);
+  const [confirmandoQuitar, setConfirmandoQuitar] = useState(false);
+  // Un solo selector abierto a la vez, aunque el botón se toque dos veces antes de repintar.
+  const selectorAbierto = useRef(false);
+
+  const elegirLaFoto = async (origen: 'galeria' | 'camara') => {
+    if (selectorAbierto.current) return;
+    selectorAbierto.current = true;
+    setAbriendoFoto(true);
+    setErrorFoto(null);
+    try {
+      const resultado = await elegirFoto(origen);
+      if (resultado.ok) {
+        const guardada = await guardarFoto(resultado.fotoUri);
+        if (guardada.ok) setCambiandoFoto(false);
+        else setErrorFoto(guardada.errores.foto ?? mensajeFoto('INVALIDA'));
+      } else if (resultado.motivo !== 'CANCELADA') {
+        // Cancelar no es un error: no se dice nada.
+        setErrorFoto(resultado.mensaje ?? mensajeFoto(resultado.motivo));
+      }
+    } catch {
+      setErrorFoto(mensajeFoto('NO_SE_PUDO'));
+    } finally {
+      selectorAbierto.current = false;
+      setAbriendoFoto(false);
+    }
+  };
+
+  const pedirCambiarFoto = () => {
+    setErrorFoto(null);
+    setConfirmandoQuitar(false);
+    setCambiandoFoto(true);
+  };
+
+  const pedirQuitarFoto = () => {
+    setErrorFoto(null);
+    setCambiandoFoto(false);
+    setConfirmandoQuitar(true);
+  };
+
+  const confirmarQuitarFoto = async () => {
+    await quitarFoto();
+    setConfirmandoQuitar(false);
+  };
 
   // El teclado de iOS tapaba la fila que se edita, con su "Guardar" y "Cancelar", y
   // `automaticallyAdjustKeyboardInsets` solo no alcanzaba: al abrir la edición se lleva la
@@ -193,17 +244,112 @@ export const PerfilScreen = () => {
               Atrás
             </Text>
           </Pressable>
-          <View style={styles.avatar}>
-            <Text variant="display" color="textInverse" testID="perfil-iniciales">
-              {inicialesAvatar(perfil.nombre)}
-            </Text>
-          </View>
+          <AvatarPerfil
+            perfil={perfil}
+            tamano={96}
+            fondo="primaryPressed"
+            borde={3}
+            textoVariant="display"
+            testIDFoto="perfil-avatar-foto"
+            testIDIniciales="perfil-iniciales"
+          />
           <Text variant="h2" color="textInverse" align="center" testID="perfil-nombre">
             {perfil.nombre || 'Agrega tu nombre'}
           </Text>
           {perfil.negocio ? (
             <Text color="textInverse" align="center">
               {perfil.negocio}
+            </Text>
+          ) : null}
+
+          {/* Cada acción de la foto lleva su texto: ningún ícono suelto (UX, regla 1). */}
+          {hayFoto ? (
+            <View style={styles.fotoAcciones}>
+              <Button
+                title="Cambiar foto"
+                variant="secondary"
+                disabled={abriendoFoto}
+                onPress={pedirCambiarFoto}
+                testID="perfil-foto-cambiar"
+              />
+              <Button
+                title="Quitar foto"
+                variant="secondary"
+                disabled={abriendoFoto}
+                onPress={pedirQuitarFoto}
+                testID="perfil-foto-quitar"
+              />
+            </View>
+          ) : (
+            <View style={styles.fotoAcciones}>
+              <Button
+                title="Elegir de la galería"
+                variant="secondary"
+                disabled={abriendoFoto}
+                onPress={() => elegirLaFoto('galeria')}
+                testID="perfil-foto-galeria"
+              />
+              <Button
+                title="Tomar foto"
+                variant="secondary"
+                disabled={abriendoFoto}
+                onPress={() => elegirLaFoto('camara')}
+                testID="perfil-foto-camara"
+              />
+            </View>
+          )}
+
+          {hayFoto && cambiandoFoto ? (
+            <View style={styles.fotoPanel} testID="perfil-foto-cambiar-panel">
+              <Button
+                title="Elegir de la galería"
+                variant="outline"
+                fullWidth
+                disabled={abriendoFoto}
+                onPress={() => elegirLaFoto('galeria')}
+                testID="perfil-foto-cambiar-galeria"
+              />
+              <Button
+                title="Tomar foto"
+                variant="outline"
+                fullWidth
+                disabled={abriendoFoto}
+                onPress={() => elegirLaFoto('camara')}
+                testID="perfil-foto-cambiar-camara"
+              />
+              <Button
+                title="Cancelar"
+                variant="ghost"
+                fullWidth
+                onPress={() => setCambiandoFoto(false)}
+                testID="perfil-foto-cambiar-cancelar"
+              />
+            </View>
+          ) : null}
+
+          {hayFoto && confirmandoQuitar ? (
+            <View style={styles.fotoPanel} testID="perfil-foto-quitar-panel">
+              <Text align="center">¿Quitar tu foto? Se va a ver tu inicial.</Text>
+              <Button
+                title="Sí, quitar"
+                variant="danger"
+                fullWidth
+                onPress={confirmarQuitarFoto}
+                testID="perfil-foto-quitar-si"
+              />
+              <Button
+                title="No, dejarla"
+                variant="outline"
+                fullWidth
+                onPress={() => setConfirmandoQuitar(false)}
+                testID="perfil-foto-quitar-no"
+              />
+            </View>
+          ) : null}
+
+          {errorFoto ? (
+            <Text variant="bodySmall" color="textInverse" align="center" testID="perfil-foto-error">
+              {errorFoto}
             </Text>
           ) : null}
         </SafeAreaView>
@@ -367,15 +513,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginLeft: -spacing.xs,
   },
-  avatar: {
-    width: 96,
-    height: 96,
-    borderRadius: radius.full,
-    backgroundColor: colors.primaryPressed,
-    borderWidth: 3,
-    borderColor: colors.background,
-    alignItems: 'center',
+  fotoAcciones: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'center',
+    gap: spacing.sm,
+  },
+  fotoPanel: {
+    alignSelf: 'stretch',
+    backgroundColor: colors.background,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
+    gap: spacing.sm,
   },
   contenido: { padding: spacing.lg, gap: spacing.xl },
   seccion: { gap: spacing.md },

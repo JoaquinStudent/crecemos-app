@@ -8,7 +8,9 @@ import { Share } from 'react-native';
  * `ok: true` también cuando la persona cierra la hoja sin compartir: no es un error. El código de
  * error no llega a ninguna pantalla; la pantalla lo traduce a una frase con voz de Freddy.
  */
-export type ResultadoCompartir = { ok: true } | { ok: false; error: 'NO_SE_PUDO_ABRIR' };
+export type ResultadoCompartir =
+  | { ok: true }
+  | { ok: false; error: 'NO_SE_PUDO_ABRIR' | 'NO_SE_PUDO_PREPARAR' };
 
 /** Nunca lanza: si la hoja no se puede abrir devuelve el resultado con error. */
 export const compartirReporte = async (texto: string): Promise<ResultadoCompartir> => {

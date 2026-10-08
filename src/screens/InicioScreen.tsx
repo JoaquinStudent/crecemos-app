@@ -12,6 +12,7 @@ import { colors, radius, spacing } from '@theme';
 import { Text } from '@components/atoms/Text';
 import { Button } from '@components/atoms/Button';
 import { Icon } from '@components/atoms/Icon';
+import { AvatarPerfil } from '@components/molecules/AvatarPerfil';
 import { gananciaPorProducto, insight } from '@analisis/metricas';
 import { evaluarReglas } from '@analisis/reglas';
 import { calcularCierre } from '@dominio/cierre';
@@ -24,7 +25,6 @@ import {
 import { totalPorCobrar } from '@dominio/cobro';
 import { fechaLocal, restarDias } from '@dominio/fecha';
 import { formatoFecha, formatoSoles } from '@dominio/formato';
-import { inicialesAvatar } from '@dominio/perfil';
 import { useCrecemos, type EstadoSemilla } from '@context/CrecemosProvider';
 import type { Ciclo, Recomendacion } from '@dominio/tipos';
 import type { RootStackParamList } from '@navigation/RootStack';
@@ -83,11 +83,12 @@ export const InicioScreen = () => {
             style={styles.perfil}
             testID="abrir-perfil"
           >
-            <View style={styles.avatar}>
-              <Text variant="bodyStrong" color="textInverse" testID="inicio-avatar-iniciales">
-                {inicialesAvatar(perfil.nombre)}
-              </Text>
-            </View>
+            <AvatarPerfil
+              perfil={perfil}
+              tamano={48}
+              testIDFoto="inicio-avatar-foto"
+              testIDIniciales="inicio-avatar-iniciales"
+            />
             <Text variant="caption" color="primary">
               Mi perfil
             </Text>
@@ -447,14 +448,6 @@ const styles = StyleSheet.create({
   encabezado: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   saludo: { flex: 1, paddingRight: spacing.md },
   perfil: { minWidth: 48, minHeight: 48, alignItems: 'center', gap: spacing.xxs },
-  avatar: {
-    width: 48,
-    height: 48,
-    borderRadius: radius.full,
-    backgroundColor: colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   tarjeta: { backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.lg },
   tarjetaBorde: {
     backgroundColor: colors.background,
