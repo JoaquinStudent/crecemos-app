@@ -28,7 +28,7 @@ describe('cargarSemilla', () => {
     jest.useRealTimers();
   });
 
-  it('con la semilla real responde ok y trae los 4 productos y los 40 cierres', async () => {
+  it('con la semilla real responde ok y trae los 4 productos y los 75 cierres', async () => {
     const fetchFn = conRespuesta(semillaReal);
 
     const resultado = await cargar(fetchFn);
@@ -36,7 +36,7 @@ describe('cargarSemilla', () => {
     expect(resultado.ok).toBe(true);
     if (!resultado.ok) return;
     expect(resultado.semilla.productos).toHaveLength(4);
-    expect(resultado.semilla.cierres).toHaveLength(40);
+    expect(resultado.semilla.cierres).toHaveLength(75);
   });
 
   it('es un GET sin cuerpo ni encabezados, a la dirección pedida, y se llama una sola vez', async () => {

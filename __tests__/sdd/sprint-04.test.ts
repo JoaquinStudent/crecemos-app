@@ -171,15 +171,15 @@ describe('SPEC-04: Cobros pendientes y carga inicial desde el Mock API', () => {
 
   // @spec04_e3 — Carga la semilla en el primer arranque
   it('spec04_e3 carga la semilla en el primer arranque', () => {
-    // Given: el almacenamiento vacío y un servidor que responde la semilla con 4 productos y 40 cierres
+    // Given: el almacenamiento vacío y un servidor que responde la semilla con 4 productos y 75 cierres
     // When: arranca la app
-    // Then: quedan guardados 4 productos y 40 cierres, y la clave "@crecemos/seed" tiene la fecha de carga
+    // Then: quedan guardados 4 productos y 75 cierres, y la clave "@crecemos/seed" tiene la fecha de carga
     return (async () => {
       clearAllMockStorages();
       const texto = readFileSync(RUTA_SEMILLA, 'utf8');
       const enviada = JSON.parse(texto) as SemillaJSON;
       expect(enviada.productos).toHaveLength(4);
-      expect(enviada.cierres).toHaveLength(40);
+      expect(enviada.cierres).toHaveLength(75);
       const servidor = servidorQueResponde(texto);
 
       await montarApp();
@@ -192,10 +192,10 @@ describe('SPEC-04: Cobros pendientes y carga inicial desde el Mock API', () => {
       const productos = await listarProductos();
       expect(productos).toHaveLength(4);
       expect(productos.map(p => p.id).sort()).toEqual(enviada.productos.map(p => p.id).sort());
-      // Cierres: los 40, cada uno con su fecha real, sin repetir días.
+      // Cierres: los 75, cada uno con su fecha real, sin repetir días.
       const cierres = await listarCierres();
-      expect(cierres).toHaveLength(40);
-      expect(new Set(cierres.map(c => c.fecha)).size).toBe(40);
+      expect(cierres).toHaveLength(75);
+      expect(new Set(cierres.map(c => c.fecha)).size).toBe(75);
       // La marca de carga lleva la fecha en que se cargó.
       const marca = JSON.parse((await crudo('@crecemos/seed')) ?? 'null') as { cargadoEn: string };
       expect(typeof marca.cargadoEn).toBe('string');
@@ -245,7 +245,7 @@ describe('SPEC-04: Cobros pendientes y carga inicial desde el Mock API', () => {
       await montarApp();
 
       expect(servidor).not.toHaveBeenCalled();
-      expect(await listarCierres()).toHaveLength(40);
+      expect(await listarCierres()).toHaveLength(75);
 
       // Aunque después borre todos sus días, la marca sigue ahí: no hay otra descarga.
       await desmontarApp();
