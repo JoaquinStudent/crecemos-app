@@ -6,10 +6,23 @@
  * La tarea del sprint es ponerlos en verde sin relajar ninguna aserción.
  */
 
-import { restarDias } from '@dominio/fecha';
+/// <reference types="node" />
+import { readFileSync } from 'fs';
+import { join } from 'path';
+import { createElement } from 'react';
+import ReactTestRenderer, { act, ReactTestInstance } from 'react-test-renderer';
+import { clearAllMockStorages } from '@react-native-async-storage/async-storage/jest';
+import App from '../../App';
+import { fechaLocal, restarDias } from '@dominio/fecha';
 import { formatoSoles } from '@dominio/formato';
+import { materializarSemilla, validarSemilla } from '@dominio/semilla';
 import type { Cierre, FechaNegocio, Perfil } from '@dominio/tipos';
 import { senalesBanco, textoReporte } from '@analisis/senales';
+import { compartirReporte } from '@services/compartir';
+import { guardarCierre, guardarPerfil } from '@storage/repositorio';
+
+// La hoja nativa de compartir nunca se abre en las pruebas: se mira qué recibiría.
+jest.mock('@services/compartir');
 
 // "Hoy" es explícito: el reloj no decide ningún resultado.
 const HOY: FechaNegocio = '2026-10-07';
@@ -53,6 +66,70 @@ const tresMesesCompletos = (): Cierre[] => [
   cierreDe('2026-09-22', 250, 1620),
   cierreDe('2026-10-05', 120, 0),
 ];
+
+// La app real, montada como en el teléfono (como en spec04_e10 y spec05_e12).
+const RUTA_SEMILLA = join(__dirname, '..', '..', 'seed', 'semilla.json');
+let montada: ReactTestRenderer.ReactTestRenderer | null = null;
+const montarApp = async () => {
+  await act(async () => {
+    montada = ReactTestRenderer.create(createElement(App));
+  });
+  for (let i = 0; i < 5; i += 1) {
+    await act(async () => {
+      await new Promise(resolver => setTimeout(resolver, 0));
+    });
+  }
+};
+const desmontarApp = async () => {
+  const app = montada;
+  montada = null;
+  if (app) await act(async () => app.unmount());
+};
+const raiz = (): ReactTestInstance => {
+  if (!montada) throw new Error('La app no está montada');
+  return (montada as ReactTestRenderer.ReactTestRenderer).root;
+};
+const tocar = (testID: string) =>
+  act(async () => {
+    const nodo = raiz().findAll(
+      n => n.props.testID === testID && typeof n.props.onPress === 'function',
+    )[0];
+    if (!nodo) throw new Error(`No hay nada con testID "${testID}" que responda a onPress`);
+    await nodo.props.onPress();
+  });
+const textoCompleto = (n: ReactTestInstance | string): string =>
+  typeof n === 'string' ? n : n.children.map(textoCompleto).join('');
+const textosEnPantalla = (): string[] =>
+  raiz()
+    .findAll(n => (n.type as unknown) === 'Text')
+    .map(textoCompleto);
+const textoDe = (testID: string): string => {
+  const nodo = raiz().findAll(n => (n.type as unknown) === 'Text' && n.props.testID === testID)[0];
+  if (!nodo) throw new Error(`No hay ningún texto con testID "${testID}"`);
+  return textoCompleto(nodo);
+};
+const hayNodo = (testID: string): boolean => raiz().findAll(n => n.props.testID === testID).length > 0;
+
+// Todos los temporizadores quedan reales (la app y el almacenamiento esperan promesas de verdad);
+// solo el reloj se fija, como en spec03_e10.
+const SIN_FALSEAR = [
+  'hrtime',
+  'nextTick',
+  'performance',
+  'queueMicrotask',
+  'requestAnimationFrame',
+  'cancelAnimationFrame',
+  'requestIdleCallback',
+  'cancelIdleCallback',
+  'setImmediate',
+  'clearImmediate',
+  'setInterval',
+  'clearInterval',
+  'setTimeout',
+  'clearTimeout',
+] as const;
+
+const compartir = compartirReporte as jest.MockedFunction<typeof compartirReporte>;
 
 describe('SPEC-06: Reporte para el banco y cierre de entrega', () => {
   // @spec06_e1 — Constancia de registro
@@ -142,7 +219,44 @@ describe('SPEC-06: Reporte para el banco y cierre de entrega', () => {
     // Given: la pantalla Mi reporte con la vista previa generada
     // When: se abre la pantalla y luego se toca "Compartir reporte"
     // Then: la función de compartir no se llama al abrir la pantalla y se llama 1 sola vez, con el texto del reporte, al tocar el botón
-    throw new Error('Rojo: no implementado');
+    return (async () => {
+      clearAllMockStorages();
+      compartir.mockClear();
+      // Hoy es el 7 de octubre; hay tres meses completos y el perfil de Freddy.
+      jest.useFakeTimers({ doNotFake: [...SIN_FALSEAR], now: new Date('2026-10-07T12:00:00-05:00') });
+      try {
+        const cierres = tresMesesCompletos();
+        for (const c of cierres) await guardarCierre(c);
+        const perfil: Perfil = {
+          nombre: 'Freddy',
+          negocio: 'Anticuchos Freddy',
+          aceptaYape: true,
+          yapeAjeno: false,
+          actualizadoEn: INSTANTE,
+        };
+        await guardarPerfil(perfil);
+        const esperado = textoReporte(senalesBanco(cierres, HOY), perfil);
+        expect(esperado).toContain('Venta promedio mensual: S/ 5,120.00');
+
+        await montarApp();
+        // Resumen → "Mi reporte": la vista previa ya está generada.
+        await tocar('tab-resumen');
+        await tocar('resumen-mi-reporte');
+        expect(hayNodo('reporte-hoja')).toBe(true);
+        expect(textoDe('reporte-venta-promedio')).toBe('S/ 5,120.00');
+
+        // Abrir la pantalla no comparte nada.
+        expect(compartir).not.toHaveBeenCalled();
+
+        // Solo el botón comparte: una vez, con el texto del reporte.
+        await tocar('reporte-compartir');
+        expect(compartir).toHaveBeenCalledTimes(1);
+        expect(compartir).toHaveBeenCalledWith(esperado);
+      } finally {
+        jest.useRealTimers();
+        await desmontarApp();
+      }
+    })();
   });
 
   // @spec06_e6 — e2e: del dato al reporte
@@ -150,6 +264,44 @@ describe('SPEC-06: Reporte para el banco y cierre de entrega', () => {
     // Given: la app con la semilla cargada
     // When: se abre Mi reporte y se toca "Compartir reporte"
     // Then: la pantalla muestra "Venta promedio mensual" con un monto en soles y la hoja de compartir recibe un texto que empieza con "Reporte de actividad del negocio"
-    throw new Error('Rojo: no implementado');
+    return (async () => {
+      clearAllMockStorages();
+      compartir.mockClear();
+      const texto = readFileSync(RUTA_SEMILLA, 'utf8');
+      const validada = validarSemilla(JSON.parse(texto));
+      if (!validada.ok) throw new Error('La semilla del repositorio no valida');
+      const fetchPorDefecto = global.fetch;
+      global.fetch = jest.fn(
+        async () => ({ ok: true, status: 200, text: async () => texto } as unknown as Response),
+      ) as unknown as typeof fetch;
+      try {
+        await montarApp();
+
+        // Resumen → "Mi reporte".
+        await tocar('tab-resumen');
+        await tocar('resumen-mi-reporte');
+
+        // Lo esperado sale del dominio, con la misma semilla y el mismo "hoy" que usa la app.
+        const { cierres } = materializarSemilla(validada.semilla, new Date());
+        const senales = senalesBanco(cierres, fechaLocal(new Date()));
+        expect(senales.ventaPromedioMensual).toBeGreaterThan(0);
+
+        // La pantalla dice "Venta promedio mensual" con un monto en soles.
+        expect(textosEnPantalla()).toContain('Venta promedio mensual');
+        const venta = textoDe('reporte-venta-promedio');
+        expect(venta).toMatch(/^S\/ [\d,]+\.\d{2}$/);
+        expect(venta).toBe(formatoSoles(senales.ventaPromedioMensual));
+
+        // Y la hoja de compartir recibe el reporte.
+        await tocar('reporte-compartir');
+        expect(compartir).toHaveBeenCalledTimes(1);
+        const enviado = compartir.mock.calls[0][0];
+        expect(enviado.startsWith('Reporte de actividad del negocio')).toBe(true);
+        expect(enviado).toContain(`Venta promedio mensual: ${formatoSoles(senales.ventaPromedioMensual)}`);
+      } finally {
+        global.fetch = fetchPorDefecto;
+        await desmontarApp();
+      }
+    })();
   });
 });

@@ -29,14 +29,20 @@ const mesDeIndice = (indice: number): string =>
   `${Math.floor(indice / 12)}-${String((indice % 12) + 1).padStart(2, '0')}`;
 
 const promedio = (valores: number[]): number =>
-  valores.length === 0 ? 0 : redondearSoles(valores.reduce((total, v) => total + v, 0) / valores.length);
+  valores.length === 0
+    ? 0
+    : redondearSoles(valores.reduce((total, v) => total + v, 0) / valores.length);
 
 /**
  * Meses completos para los promedios (hasta `MESES_MAXIMOS`, los más recientes). Completo = ya
  * terminó respecto de `hoy`, y si es el primer mes del registro, solo si el primer cierre cae en
  * sus primeros `DIAS_PRIMER_MES` días. Un mes entre medias sin cierres cuenta, con venta 0.
  */
-const mesesCompletos = (cierres: Cierre[], registraDesde: FechaNegocio, hoy: FechaNegocio): MesCompleto[] => {
+const mesesCompletos = (
+  cierres: Cierre[],
+  registraDesde: FechaNegocio,
+  hoy: FechaNegocio,
+): MesCompleto[] => {
   const primerMes = indiceDeMes(registraDesde.slice(0, 7));
   const parcial = Number(registraDesde.slice(8, 10)) > DIAS_PRIMER_MES;
   const desde = parcial ? primerMes + 1 : primerMes;
@@ -104,7 +110,15 @@ export const senalesBanco = (cierres: Cierre[], hoy: FechaNegocio): Senales => {
 };
 
 const dias = (n: number): string => `${n} ${n === 1 ? 'día' : 'días'}`;
-const diasRegistradosTexto = (n: number): string => `${n} ${n === 1 ? 'día registrado' : 'días registrados'}`;
+/** '1 día registrado' · '58 días registrados': la pantalla y el texto del reporte lo dicen igual. */
+export const diasRegistradosTexto = (n: number): string =>
+  `${n} ${n === 1 ? 'día registrado' : 'días registrados'}`;
+
+/** 'Te faltan 21 días de registro para que tu reporte sea convincente' (singular: 'Te falta 1 día…'). */
+export const textoFaltan = (diasFaltantes: number): string =>
+  `${diasFaltantes === 1 ? 'Te falta' : 'Te faltan'} ${dias(
+    diasFaltantes,
+  )} de registro para que tu reporte sea convincente`;
 
 /**
  * Texto plano del reporte (≤ 2,000 caracteres). Solo totales y promedios, más el nombre y el negocio
@@ -120,7 +134,9 @@ export const textoReporte = (s: Senales, perfil: Perfil | null): string => {
   const hayMeses = s.mesesCompletos > 0;
   const periodo =
     s.primerCierre !== undefined && s.ultimoCierre !== undefined
-      ? `Periodo: del ${formatoFechaCorta(s.primerCierre)} al ${formatoFechaCorta(s.ultimoCierre)} · ${diasRegistradosTexto(s.diasRegistrados)}`
+      ? `Periodo: del ${formatoFechaCorta(s.primerCierre)} al ${formatoFechaCorta(
+          s.ultimoCierre,
+        )} · ${diasRegistradosTexto(s.diasRegistrados)}`
       : `Periodo: sin días registrados en los últimos ${VENTANA_DIAS} días`;
   const base =
     s.diasTranscurridos === VENTANA_DIAS
@@ -129,7 +145,9 @@ export const textoReporte = (s: Senales, perfil: Perfil | null): string => {
   const constancia =
     s.diasTranscurridos === 0
       ? `Constancia de registro: 0 % (${diasRegistradosTexto(0)})`
-      : `Constancia de registro: ${s.constancia} % ${base} (${diasRegistradosTexto(s.diasRegistrados)})`;
+      : `Constancia de registro: ${s.constancia} % ${base} (${diasRegistradosTexto(
+          s.diasRegistrados,
+        )})`;
 
   const lineas = [
     'Reporte de actividad del negocio',
@@ -139,16 +157,15 @@ export const textoReporte = (s: Senales, perfil: Perfil | null): string => {
     `Ganancia promedio mensual: ${hayMeses ? formatoSoles(s.gananciaPromedioMensual) : sinMes}`,
     constancia,
     ...(hayMeses
-      ? ['Días registrados por mes completo:', ...s.meses.map(m => `- ${nombreMes(`${m.mes}-01`)}: ${dias(m.dias)}`)]
+      ? [
+          'Días registrados por mes completo:',
+          ...s.meses.map(m => `- ${nombreMes(`${m.mes}-01`)}: ${dias(m.dias)}`),
+        ]
       : []),
     ...(s.registraDesde === undefined
       ? []
       : [`Registra desde el ${formatoFechaCorta(s.registraDesde)} (${dias(s.antiguedadDias)})`]),
-    ...(s.enConstruccion
-      ? [
-          `${s.diasFaltantes === 1 ? 'Te falta' : 'Te faltan'} ${dias(s.diasFaltantes)} de registro para que tu reporte sea convincente`,
-        ]
-      : []),
+    ...(s.enConstruccion ? [textoFaltan(s.diasFaltantes)] : []),
     'Son totales registrados por el propio negocio en la app Crecemos; no incluyen movimientos individuales.',
   ];
   return lineas.join('\n');

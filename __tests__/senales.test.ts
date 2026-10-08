@@ -53,7 +53,8 @@ const seguidas = (n: number, desde = 1): FechaNegocio[] =>
   Array.from({ length: n }, (_, i) => restarDias(HOY, desde + i));
 
 /** Un cierre el 10 de cada uno de los meses dados ('YYYY-MM'), con venta mensual explícita. */
-const mensual = (mes: string, venta: number, gasto = 0): Cierre => cierreDe(`${mes}-10`, venta / 10, gasto);
+const mensual = (mes: string, venta: number, gasto = 0): Cierre =>
+  cierreDe(`${mes}-10`, venta / 10, gasto);
 
 const perfilCompleto: Perfil = {
   nombre: 'Freddy',
@@ -105,14 +106,21 @@ describe('senalesBanco · ventana de 90 días y constancia', () => {
   });
 
   it('los cierres del mismo día cuentan una sola vez', () => {
-    const cierres = [cierreDe('2026-10-05'), cierreDe('2026-10-05', 30), cierreDe('2026-10-05', 40)];
+    const cierres = [
+      cierreDe('2026-10-05'),
+      cierreDe('2026-10-05', 30),
+      cierreDe('2026-10-05', 40),
+    ];
     const s = senalesBanco(cierres, HOY);
     expect(s.diasRegistrados).toBe(1);
   });
 
   it('con el registro más nuevo que 90 días, los días transcurridos van desde el primer cierre (inclusive)', () => {
     // Primer cierre hace 9 días → 10 días transcurridos contando hoy; 5 días registrados.
-    const s = senalesBanco(enFechas(['2026-09-28', '2026-09-30', '2026-10-02', '2026-10-04', '2026-10-06']), HOY);
+    const s = senalesBanco(
+      enFechas(['2026-09-28', '2026-09-30', '2026-10-02', '2026-10-04', '2026-10-06']),
+      HOY,
+    );
     expect(s.diasTranscurridos).toBe(10);
     expect(s.diasRegistrados).toBe(5);
     expect(s.constancia).toBe(50);
@@ -281,7 +289,10 @@ describe('senalesBanco · meses completos y promedios', () => {
       ...cierreDe(fecha, 1),
       lineas: [{ ...cierreDe(fecha, 1).lineas[0], precioUnitario: centimos / 100 }],
     });
-    const s = senalesBanco([una('2026-07-02', 10001), una('2026-08-02', 10002), una('2026-09-02', 10002)], HOY);
+    const s = senalesBanco(
+      [una('2026-07-02', 10001), una('2026-08-02', 10002), una('2026-09-02', 10002)],
+      HOY,
+    );
     expect(s.ventaPromedioMensual).toBe(100.02); // 100.0166… → 100.02
   });
 
@@ -357,7 +368,10 @@ describe('textoReporte', () => {
   });
 
   it('con registro más nuevo que 90 días la constancia dice sobre cuántos días se calculó', () => {
-    const s = senalesBanco(enFechas(['2026-09-28', '2026-09-30', '2026-10-02', '2026-10-04', '2026-10-06']), HOY);
+    const s = senalesBanco(
+      enFechas(['2026-09-28', '2026-09-30', '2026-10-02', '2026-10-04', '2026-10-06']),
+      HOY,
+    );
     expect(textoReporte(s, null)).toContain(
       'Constancia de registro: 50 % de los 10 días desde su primer cierre (5 días registrados)',
     );
@@ -366,14 +380,21 @@ describe('textoReporte', () => {
   it('con un solo día registrado usa el singular', () => {
     const s = senalesBanco(enFechas([HOY]), HOY);
     const texto = textoReporte(s, null);
-    expect(texto).toContain('Constancia de registro: 100 % de los 1 día desde su primer cierre (1 día registrado)');
+    expect(texto).toContain(
+      'Constancia de registro: 100 % de los 1 día desde su primer cierre (1 día registrado)',
+    );
     expect(texto).toContain('Te faltan 29 días de registro para que tu reporte sea convincente');
   });
 
   it('lista los días registrados por mes y el periodo en palabras', () => {
     const texto = textoReporte(
       senalesBanco(
-        [cierreDe('2026-07-03'), cierreDe('2026-08-03'), cierreDe('2026-08-04'), cierreDe('2026-10-06')],
+        [
+          cierreDe('2026-07-03'),
+          cierreDe('2026-08-03'),
+          cierreDe('2026-08-04'),
+          cierreDe('2026-10-06'),
+        ],
         HOY,
       ),
       null,
@@ -462,7 +483,9 @@ describe('textoReporte', () => {
 
 describe('con la semilla real (75 cierres) y hoy = 2026-10-07', () => {
   const semilla = (): SemillaJSON => {
-    const r = validarSemilla(JSON.parse(readFileSync(join(__dirname, '..', 'seed', 'semilla.json'), 'utf8')));
+    const r = validarSemilla(
+      JSON.parse(readFileSync(join(__dirname, '..', 'seed', 'semilla.json'), 'utf8')),
+    );
     if (!r.ok) throw new Error('La semilla real no valida');
     return r.semilla;
   };
