@@ -3,11 +3,20 @@
 // Claves y formato: sdd/database/esquema.md, "Claves de AsyncStorage".
 import { createAsyncStorage } from '@react-native-async-storage/async-storage';
 import { PRODUCTOS_POR_DEFECTO } from '@dominio/productosPorDefecto';
-import type { Cierre, Perfil, Producto } from '@dominio/tipos';
+import { marcarCobrados } from '@dominio/cobro';
+import type {
+  Cierre,
+  FechaNegocio,
+  Instante,
+  Perfil,
+  Producto,
+  SemillaMaterializada,
+} from '@dominio/tipos';
 
 const CLAVE_CIERRES = '@crecemos/cierres';
 const CLAVE_PRODUCTOS = '@crecemos/productos';
 const CLAVE_PERFIL = '@crecemos/perfil';
+const CLAVE_SEED = '@crecemos/seed';
 
 // Base propia de la app (D21). Se pide en cada operación: en nativo la instancia
 // solo guarda el nombre, y en Jest el mock la reutiliza por nombre, así que
@@ -37,6 +46,14 @@ export const eliminarCierre = async (id: string): Promise<void> => {
   await base().setItem(CLAVE_CIERRES, JSON.stringify(restantes));
 };
 
+/** Pone `cobradoEn` en los cierres pedidos y reescribe la lista completa (e2). */
+export const marcarCobrado = async (ids: string[], fecha: FechaNegocio): Promise<void> => {
+  const cierres = await listarCierres();
+  const cobrados = marcarCobrados(cierres, ids, fecha);
+  if (cobrados.every((c, i) => c === cierres[i])) return; // nada pendiente que cobrar
+  await base().setItem(CLAVE_CIERRES, JSON.stringify(cobrados));
+};
+
 /** Sin productos guardados devuelve los por defecto, sin escribirlos. */
 export const listarProductos = async (): Promise<Producto[]> =>
   (await leer<Producto[]>(CLAVE_PRODUCTOS)) ?? PRODUCTOS_POR_DEFECTO;
@@ -62,4 +79,23 @@ export const guardarProducto = async (p: Producto): Promise<void> => {
     ? actuales.map(existente => (existente.id === p.id ? p : existente))
     : [...actuales, p];
   await base().setItem(CLAVE_PRODUCTOS, JSON.stringify(lista));
+};
+
+/**
+ * Guarda los productos y los cierres de la semilla (la lista completa, una escritura cada
+ * una) y, al final, la marca de carga: si algo falla a medias, la marca no queda puesta.
+ */
+export const importarSemilla = async (s: SemillaMaterializada, ahora: Instante): Promise<void> => {
+  await base().setItem(CLAVE_PRODUCTOS, JSON.stringify(s.productos));
+  await base().setItem(CLAVE_CIERRES, JSON.stringify(s.cierres));
+  await marcarSemillaResuelta(ahora);
+};
+
+/** Si la semilla ya se resolvió alguna vez (cargada, o descartada porque ya había datos). */
+export const semillaCargada = async (): Promise<boolean> =>
+  (await leer<{ cargadoEn: Instante }>(CLAVE_SEED)) !== null;
+
+/** Escribe solo la marca: se usa cuando ya había datos y no se descarga nada. */
+export const marcarSemillaResuelta = async (ahora: Instante): Promise<void> => {
+  await base().setItem(CLAVE_SEED, JSON.stringify({ cargadoEn: ahora }));
 };
