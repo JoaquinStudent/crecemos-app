@@ -78,3 +78,9 @@ yarn-error.log
 # (investigación con datos de una persona real, producto, diseño y plan SDD)
 /contexto-hack/
 /sdd/
+
+# Servidor intermedio (Cloudflare Worker): variables locales con secretos y carpetas de trabajo de wrangler
+servidor/.dev.vars
+servidor/.dev.vars.*
+servidor/.wrangler/
+servidor/node_modules/

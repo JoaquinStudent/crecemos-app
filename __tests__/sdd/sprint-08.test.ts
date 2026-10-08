@@ -6,6 +6,11 @@
  * La tarea del sprint es ponerlos en verde sin relajar ninguna aserción.
  */
 
+/// <reference types="node" />
+import { readFileSync } from 'fs';
+import { join } from 'path';
+import { fechaLocal } from '@dominio/fecha';
+import { materializarSemilla, validarSemilla } from '@dominio/semilla';
 import type {
   Cierre,
   Consulta,
@@ -13,10 +18,12 @@ import type {
   FechaNegocio,
   Hecho,
   LineaCierre,
+  Perfil,
   Producto,
 } from '@dominio/tipos';
 import { interpretarRespuesta, responderConsulta } from '@analisis/intenciones';
 import { extraerCifras, validarRedaccion } from '@analisis/validarRedaccion';
+import { consultar, redactarRespuesta } from '@services/jev';
 
 // Mediodía del 2026-10-07 en Lima: solo alimenta el instante de creación; "hoy" y la fecha de cada cierre son explícitas.
 const ahora = new Date('2026-10-07T12:00:00-05:00');
@@ -72,6 +79,81 @@ const jevInterpreta = (respuesta: unknown): Consulta => {
   if (consulta === null) throw new Error('El clasificador no devolvió una consulta válida');
   return consulta;
 };
+
+// --- Apoyo de e7, e8 y e10: un servidor intermedio simulado -------------------------------------
+
+const URL_JEV = 'https://asistente.ejemplo.test';
+const RUTA_SEMILLA = join(__dirname, '..', '..', 'seed', 'semilla.json');
+
+const respuestaJson = (cuerpo: unknown, ok = true, status = 200) =>
+  ({ ok, status, text: async () => JSON.stringify(cuerpo) } as unknown as Response);
+
+/** Lo que responde el servidor a "interpretar": la intención ya clasificada. */
+const interpretacion = (intencion: string, dia = 'ninguno') => ({
+  intencion,
+  producto: 'ninguno',
+  dia,
+  confianza: 0.95,
+  modelo: 'typesafe/jev-router',
+});
+
+type Llamada = [string, { method?: string; headers?: Record<string, string>; body?: string }];
+
+/** Las peticiones que recibió el fetch simulado, tal como salieron de la app. */
+const llamadasDe = (fetchSim: jest.Mock): Llamada[] => fetchSim.mock.calls as unknown as Llamada[];
+
+/** La app de Freddy con los datos de ejemplo: el perfil, los productos y los 75 cierres. */
+const datosDeFreddy = () => {
+  const validada = validarSemilla(JSON.parse(readFileSync(RUTA_SEMILLA, 'utf8')));
+  if (!validada.ok) throw new Error('La semilla del repositorio no valida');
+  const { cierres, productos } = materializarSemilla(validada.semilla, ahora);
+  const perfil: Perfil = {
+    nombre: 'Freddy',
+    negocio: 'Anticuchos El Buen Sabor',
+    ubicacion: 'Mercado de Surquillo',
+    aceptaYape: true,
+    yapeAjeno: true,
+    yapeNumero: '987654321',
+    yapeTitular: 'Rosa',
+    yapeParentesco: 'esposa',
+    actualizadoEn: ahora.toISOString(),
+  };
+  return { cierres, productos, perfil, hoy: fechaLocal(ahora) };
+};
+
+/** Nada de lo que es de Freddy (perfil y cierres) aparece en lo que salió por la red. */
+const noFiltraNadaDeFreddy = (salida: string, cierres: Cierre[], perfil: Perfil) => {
+  for (const privado of [
+    perfil.nombre,
+    perfil.negocio,
+    perfil.ubicacion,
+    perfil.yapeNumero,
+    perfil.yapeTitular,
+    perfil.yapeParentesco,
+    'montoYape',
+    'yapePendiente',
+    'lineas',
+    'gastos',
+    'Authorization',
+  ]) {
+    expect(salida).not.toContain(privado);
+  }
+  for (const cierre of cierres) {
+    expect(salida).not.toContain(cierre.id);
+    expect(salida).not.toContain(cierre.fecha);
+  }
+};
+
+/** Una venta de ayer de S/ 205.00 y la frase fija que el código arma con ella. */
+const FRASE_AYER = 'Ayer, martes 6 de octubre, vendiste S/ 205.00.';
+const ventaDeAyer = (): ContextoAnalisis =>
+  ctxDe([
+    cierreDe('2026-10-06', {
+      lineas: [linea('Anticucho', 7, 0, 10, 8.2), linea('Pancita', 15, 0, 9, 8)],
+    }),
+  ]);
+
+const CODIGOS_TECNICOS = /SIN_RED|TIEMPO_AGOTADO|RESPUESTA_INVALIDA|REDACCION_DESCARTADA|NO_DISPONIBLE|Network|Abort|HTTP|\b5\d\d\b|undefined|error/i;
 
 describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
   // @spec08_e1 — Una pregunta sobre un día se responde con la cifra del dominio
@@ -217,7 +299,33 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
     // Given: un perfil con nombre, número de Yape y 75 cierres
     // When: se pregunta "¿cuánto vendí ayer?"
     // Then: la petición para interpretar es exactamente el tipo "interpretar" con ese texto, y no contiene el nombre, el Yape ni ningún monto de un cierre
-    throw new Error('Rojo: no implementado');
+    return (async () => {
+      const { cierres, productos, perfil, hoy } = datosDeFreddy();
+      expect(cierres).toHaveLength(75);
+      const fetchSim = jest
+        .fn()
+        .mockResolvedValueOnce(respuestaJson(interpretacion('ventaDelDia', 'ayer')))
+        .mockResolvedValue(respuestaJson({ texto: 'Ayer vendiste lo de siempre.' }));
+
+      await consultar(fetchSim as unknown as typeof fetch, URL_JEV, '¿cuánto vendí ayer?', {
+        cierres,
+        productos,
+        hoy,
+      });
+
+      // La primera petición es la de interpretar: solo el tipo y el texto de la pregunta.
+      const [url, init] = llamadasDe(fetchSim)[0];
+      expect(url).toBe(URL_JEV);
+      expect(init.method).toBe('POST');
+      expect(JSON.parse(init.body ?? '')).toEqual({
+        tipo: 'interpretar',
+        texto: '¿cuánto vendí ayer?',
+      });
+      // El único encabezado es el tipo de contenido: ni Authorization ni cookies ni datos de Freddy.
+      expect(init.headers).toEqual({ 'Content-Type': 'application/json' });
+      // Ni el nombre, ni el Yape, ni ningún dato de un cierre salen del teléfono.
+      noFiltraNadaDeFreddy(JSON.stringify(llamadasDe(fetchSim)[0]), cierres, perfil);
+    })();
   });
 
   // @spec08_e8 — Al redactor solo viaja el hecho ya calculado
@@ -225,7 +333,32 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
     // Given: la respuesta calculada "Ayer, martes 6 de octubre, vendiste S/ 205.00."
     // When: se pide la redacción
     // Then: la petición es exactamente el tipo "redactar" con la intención y las cifras de ese hecho, y no contiene el perfil, el Yape ni ningún cierre
-    throw new Error('Rojo: no implementado');
+    return (async () => {
+      const { cierres, perfil } = datosDeFreddy();
+      const hecho = responderConsulta(
+        jevInterpreta({ intencion: 'ventaDelDia', producto: 'ninguno', dia: 'ayer', confianza: 0.9 }),
+        ventaDeAyer(),
+      );
+      expect(hecho.frase).toBe(FRASE_AYER);
+      const fetchSim = jest
+        .fn()
+        .mockResolvedValue(respuestaJson({ texto: 'Ayer, martes 6 de octubre, te entraron S/ 205.00.' }));
+
+      const resultado = await redactarRespuesta(fetchSim as unknown as typeof fetch, URL_JEV, hecho);
+
+      expect(resultado.ok).toBe(true);
+      expect(fetchSim).toHaveBeenCalledTimes(1);
+      const [url, init] = llamadasDe(fetchSim)[0];
+      expect(url).toBe(URL_JEV);
+      // Exactamente el tipo "redactar" y el hecho ya calculado: la intención, la frase y las cifras.
+      expect(JSON.parse(init.body ?? '')).toEqual({
+        tipo: 'redactar',
+        hecho: { intencion: 'ventaDelDia', frase: FRASE_AYER, cifras: ['6', '205.00'] },
+      });
+      expect(init.headers).toEqual({ 'Content-Type': 'application/json' });
+      // El perfil, el Yape y los cierres no viajan.
+      noFiltraNadaDeFreddy(JSON.stringify(llamadasDe(fetchSim)[0]), cierres, perfil);
+    })();
   });
 
   // @spec08_e9 — Una redacción con una cifra distinta se descarta
@@ -253,7 +386,58 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
     // Given: un redactor que no responde en 8 segundos o devuelve un error
     // When: se pide la redacción
     // Then: la pantalla muestra la frase fija con la cifra calculada, sin ningún mensaje técnico
-    throw new Error('Rojo: no implementado');
+    return (async () => {
+      const ctx = ventaDeAyer();
+      const pregunta = '¿cuánto vendí ayer?';
+      const comoLaVeFreddy = (r: unknown) => {
+        expect(r).toMatchObject({ tipo: 'respuesta', texto: FRASE_AYER, redactada: false });
+        expect(JSON.stringify(r)).not.toMatch(CODIGOS_TECNICOS);
+        expect((r as { texto: string }).texto).toContain('S/ 205.00');
+      };
+
+      // (a) El redactor devuelve un error: se muestra la frase fija.
+      const conError = jest
+        .fn()
+        .mockResolvedValueOnce(respuestaJson(interpretacion('ventaDelDia', 'ayer')))
+        .mockResolvedValueOnce(respuestaJson({ error: 'NO_DISPONIBLE' }, false, 502));
+      comoLaVeFreddy(await consultar(conError as unknown as typeof fetch, URL_JEV, pregunta, ctx));
+      expect(conError).toHaveBeenCalledTimes(2);
+
+      // (b) El redactor no responde en 8 segundos: se corta y se muestra la frase fija.
+      jest.useFakeTimers();
+      try {
+        const colgado = jest
+          .fn()
+          .mockResolvedValueOnce(respuestaJson(interpretacion('ventaDelDia', 'ayer')))
+          .mockImplementationOnce(
+            (_url: unknown, init?: { signal?: AbortSignal }) =>
+              new Promise<Response>((_resolver, rechazar) => {
+                init?.signal?.addEventListener('abort', () => {
+                  const aborto = new Error('Aborted');
+                  aborto.name = 'AbortError';
+                  rechazar(aborto);
+                });
+              }),
+          );
+        let resultado: unknown;
+        const pendiente = consultar(colgado as unknown as typeof fetch, URL_JEV, pregunta, ctx).then(
+          r => {
+            resultado = r;
+          },
+        );
+
+        await jest.advanceTimersByTimeAsync(7999);
+        expect(resultado).toBeUndefined();
+        await jest.advanceTimersByTimeAsync(1);
+        await pendiente;
+
+        comoLaVeFreddy(resultado);
+        expect(colgado).toHaveBeenCalledTimes(2);
+        expect(jest.getTimerCount()).toBe(0);
+      } finally {
+        jest.useRealTimers();
+      }
+    })();
   });
 
   // @spec08_e11 — Nada se envía sin tocar el botón
