@@ -23,9 +23,9 @@ elif [ -n "$2" ]; then
 fi
 
 case "$SPRINT" in
-  01 | 02 | 03 | 04 | 05 | 06 | 07) ;;
+  01 | 02 | 03 | 04 | 05 | 06 | 07 | 08 | 09) ;;
   *)
-    echo "Uso: sh scripts/e2e.sh <01..07> [--android]" >&2
+    echo "Uso: sh scripts/e2e.sh <01..09> [--android]" >&2
     exit 2
     ;;
 esac
