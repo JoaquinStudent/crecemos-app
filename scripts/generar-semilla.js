@@ -9,6 +9,8 @@
 //
 // Supuestos sin confirmar (P4): precios y costos de sdd/domain.md. Para cambiarlos se
 // edita este archivo y se vuelve a correr el comando.
+// El costo del anticucho antes de octubre es S/ 6.80 (decisión P27): en julio dejaba S/ 2.20
+// por porción y hoy deja S/ 1.80, así que la regla de precio salta en el demo.
 
 const { Buffer } = require('buffer');
 const fs = require('fs');
@@ -22,6 +24,7 @@ const PARES = 20; // 20 ciclos de 2 días = 40 cierres
 const SPAN = 90; // el cierre más antiguo queda a 90 días
 const SUBIO_PRECIO = '2026-07-15'; // el anticucho pasó de S/ 9 a S/ 10
 const SUBIO_COSTO = '2026-10-01'; // el corazón sube en octubre
+const COSTO_ANTICUCHO_ANTES = 6.8; // costo del anticucho antes de octubre (en octubre sube a 8.20)
 const LIQUIDA_CADA = 7; // la hermana le entrega el Yape una vez por semana
 const PRIMERA_LIQUIDACION = 8; // diasAtras de la entrega más reciente
 
@@ -118,7 +121,10 @@ const lineaDe = (producto, diasAtras, k) => {
     preparadas: vendidas + sobrantes,
     sobrantes,
     precioUnitario: esAnticucho && fechaDe(diasAtras) < SUBIO_PRECIO ? 9 : producto.precioVenta,
-    costoUnitario: esAnticucho && fechaDe(diasAtras) < SUBIO_COSTO ? 7.6 : producto.costoUnitario,
+    costoUnitario:
+      esAnticucho && fechaDe(diasAtras) < SUBIO_COSTO
+        ? COSTO_ANTICUCHO_ANTES
+        : producto.costoUnitario,
   };
 };
 
@@ -230,8 +236,8 @@ exigir(
   'el costo no sube en octubre',
 );
 exigir(
-  costosAnticucho(false).every(x => x === 7.6),
-  'el costo anterior no es 7.60',
+  costosAnticucho(false).every(x => x === COSTO_ANTICUCHO_ANTES),
+  'el costo anterior no es 6.80',
 );
 
 const precios = lista.map(c => [
