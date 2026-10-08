@@ -6,13 +6,94 @@
  * La tarea del sprint es ponerlos en verde sin relajar ninguna aserción.
  */
 
+import type {
+  Cierre,
+  Consulta,
+  ContextoAnalisis,
+  FechaNegocio,
+  Hecho,
+  LineaCierre,
+  Producto,
+} from '@dominio/tipos';
+import { interpretarRespuesta, responderConsulta } from '@analisis/intenciones';
+import { extraerCifras, validarRedaccion } from '@analisis/validarRedaccion';
+
+// Mediodía del 2026-10-07 en Lima: solo alimenta el instante de creación; "hoy" y la fecha de cada cierre son explícitas.
+const ahora = new Date('2026-10-07T12:00:00-05:00');
+const HOY: FechaNegocio = '2026-10-07';
+
+const linea = (
+  nombre: string,
+  preparadas: number,
+  sobrantes: number,
+  precioUnitario: number,
+  costoUnitario: number,
+): LineaCierre => ({
+  productoId: `p-${nombre.toLowerCase()}`,
+  nombre,
+  preparadas,
+  sobrantes,
+  precioUnitario,
+  costoUnitario,
+});
+
+interface Opciones {
+  lineas?: LineaCierre[];
+  abreCiclo?: boolean;
+  montoYape?: number;
+  yapePendiente?: boolean;
+}
+
+// Cierre armado a mano: la fecha es explícita y el reloj no decide nada.
+const cierreDe = (
+  fecha: FechaNegocio,
+  { lineas = [], abreCiclo = false, montoYape = 0, yapePendiente = false }: Opciones = {},
+): Cierre => ({
+  id: `c-${fecha}`,
+  fecha,
+  lineas,
+  montoYape,
+  yapePendiente,
+  gastos: [],
+  abreCiclo,
+  creadoEn: ahora.toISOString(),
+  actualizadoEn: ahora.toISOString(),
+});
+
+const ctxDe = (cierres: Cierre[], productos: Producto[] = [], hoy: FechaNegocio = HOY): ContextoAnalisis => ({
+  cierres,
+  productos,
+  hoy,
+});
+
+// "Jev interpreta la pregunta como la intención X": la respuesta ya parseada del clasificador.
+const jevInterpreta = (respuesta: unknown): Consulta => {
+  const consulta = interpretarRespuesta(respuesta);
+  if (consulta === null) throw new Error('El clasificador no devolvió una consulta válida');
+  return consulta;
+};
+
 describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
   // @spec08_e1 — Una pregunta sobre un día se responde con la cifra del dominio
   it('spec08_e1 una pregunta sobre un dia se responde con la cifra del dominio', () => {
     // Given: hoy 2026-10-07, un cierre del 2026-10-06 con venta de S/ 205.00, y que Jev interpreta "¿cuánto vendí ayer?" como la intención "venta de un día" con el día "ayer"
     // When: se calcula la respuesta
     // Then: la respuesta es "Ayer, martes 6 de octubre, vendiste S/ 205.00."
-    throw new Error('Rojo: no implementado');
+    // Venta del 6 de octubre: 7 anticuchos × S/ 10 + 15 pancitas × S/ 9 = 70 + 135 = S/ 205.00
+    const cierres = [
+      cierreDe('2026-10-06', { lineas: [linea('Anticucho', 7, 0, 10, 8.2), linea('Pancita', 15, 0, 9, 8)] }),
+    ];
+    const consulta = jevInterpreta({
+      intencion: 'ventaDelDia',
+      producto: 'ninguno',
+      dia: 'ayer',
+      confianza: 0.95,
+    });
+
+    const hecho = responderConsulta(consulta, ctxDe(cierres));
+
+    expect(hecho.frase).toBe('Ayer, martes 6 de octubre, vendiste S/ 205.00.');
+    expect(hecho.intencion).toBe('ventaDelDia');
   });
 
   // @spec08_e2 — El peor día sale del día flojo
@@ -20,7 +101,36 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
     // Given: 4 semanas de cierres donde los miércoles ganan en promedio S/ 40.00 y el promedio de todos los días es S/ 85.00, y que Jev interpreta "¿qué día me va peor?" como la intención "peor día"
     // When: se calcula la respuesta
     // Then: la respuesta es "Los miércoles son tu día más flojo: ganas S/ 45.00 menos que tu promedio."
-    throw new Error('Rojo: no implementado');
+    // 5 semanas, de miércoles a sábado: los 5 miércoles ganan S/ 40.00 (4 × 10) y los otros 15 días
+    // S/ 100.00 (10 × 10), así que el promedio de todos los días es (5 × 40 + 15 × 100) / 20 = S/ 85.00.
+    const semanas = [
+      ['2026-09-02', '2026-09-03', '2026-09-04', '2026-09-05'],
+      ['2026-09-09', '2026-09-10', '2026-09-11', '2026-09-12'],
+      ['2026-09-16', '2026-09-17', '2026-09-18', '2026-09-19'],
+      ['2026-09-23', '2026-09-24', '2026-09-25', '2026-09-26'],
+      ['2026-09-30', '2026-10-01', '2026-10-02', '2026-10-03'],
+    ];
+    const cierres = semanas.flatMap((dias, semana) =>
+      dias.map((fecha, i) =>
+        cierreDe(fecha, {
+          abreCiclo: (semana === 0 && i === 0) || (semana === 3 && i === 0),
+          lineas: [linea('Anticucho', i === 0 ? 4 : 10, 0, 10, 0)],
+        }),
+      ),
+    );
+    const consulta = jevInterpreta({
+      intencion: 'peorDia',
+      producto: 'ninguno',
+      dia: 'ninguno',
+      confianza: 0.9,
+    });
+
+    const hecho = responderConsulta(consulta, ctxDe(cierres));
+
+    expect(hecho.frase).toBe(
+      'Los miércoles son tu día más flojo: ganas S/ 45.00 menos que tu promedio.',
+    );
+    expect(hecho.intencion).toBe('peorDia');
   });
 
   // @spec08_e3 — El producto que más deja sale de la ganancia por producto
@@ -28,7 +138,29 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
     // Given: 410 porciones de pancita que dejan S/ 1.00 cada una y 270 de anticucho que dejan S/ 1.80 cada una, y que Jev interpreta "¿cuál me deja más?" como la intención "producto que más deja"
     // When: se calcula la respuesta
     // Then: la respuesta es "El anticucho es el que más te deja: S/ 1.80 por porción, S/ 486.00 en total."
-    throw new Error('Rojo: no implementado');
+    // Octubre: pancita 220 − 20 + 150 + 60 = 410 porciones que dejan S/ 1.00; anticucho 150 − 10 + 130 = 270 que dejan S/ 1.80.
+    const cierres = [
+      cierreDe('2026-10-01', {
+        lineas: [linea('Pancita', 220, 20, 9, 8), linea('Anticucho', 150, 10, 10, 8.2)],
+      }),
+      cierreDe('2026-10-02', {
+        lineas: [linea('Pancita', 150, 0, 9, 8), linea('Anticucho', 130, 0, 10, 8.2)],
+      }),
+      cierreDe('2026-10-03', { lineas: [linea('Pancita', 60, 0, 9, 8)] }),
+    ];
+    const consulta = jevInterpreta({
+      intencion: 'productoQueMasDeja',
+      producto: 'ninguno',
+      dia: 'ninguno',
+      confianza: 0.88,
+    });
+
+    const hecho = responderConsulta(consulta, ctxDe(cierres));
+
+    expect(hecho.frase).toBe(
+      'El anticucho es el que más te deja: S/ 1.80 por porción, S/ 486.00 en total.',
+    );
+    expect(hecho.intencion).toBe('productoQueMasDeja');
   });
 
   // @spec08_e4 — Lo que tiene por cobrar sale de los cobros
@@ -36,7 +168,32 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
     // Given: hoy 2026-10-07 y S/ 120.00 por cobrar con el pago más antiguo del 2026-09-29, y que Jev interpreta "¿cuánto me deben?" como la intención "cuánto por cobrar"
     // When: se calcula la respuesta
     // Then: la respuesta es "Tienes S/ 120.00 por cobrar desde el 29 de septiembre."
-    throw new Error('Rojo: no implementado');
+    // S/ 70 del 2026-09-29 + S/ 50 del 2026-10-02 = S/ 120 por cobrar; el más antiguo es del 29 de septiembre
+    const cierres = [
+      cierreDe('2026-09-29', {
+        abreCiclo: true,
+        lineas: [linea('Anticucho', 20, 0, 10, 8.2)],
+        montoYape: 70,
+        yapePendiente: true,
+      }),
+      cierreDe('2026-10-02', {
+        abreCiclo: true,
+        lineas: [linea('Anticucho', 20, 0, 10, 8.2)],
+        montoYape: 50,
+        yapePendiente: true,
+      }),
+    ];
+    const consulta = jevInterpreta({
+      intencion: 'cuantoPorCobrar',
+      producto: 'ninguno',
+      dia: 'ninguno',
+      confianza: 0.97,
+    });
+
+    const hecho = responderConsulta(consulta, ctxDe(cierres));
+
+    expect(hecho.frase).toBe('Tienes S/ 120.00 por cobrar desde el 29 de septiembre.');
+    expect(hecho.intencion).toBe('cuantoPorCobrar');
   });
 
   // @spec08_e5 — Con poca confianza, no inventa
@@ -76,7 +233,19 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
     // Given: el hecho "vendiste S/ 205.00" y un redactor que responde "Ayer vendiste S/ 250.00"
     // When: se valida la redacción
     // Then: se descarta y la pantalla muestra la frase fija con "S/ 205.00"
-    throw new Error('Rojo: no implementado');
+    const frase = 'vendiste S/ 205.00';
+    const hecho: Hecho = { intencion: 'ventaDelDia', frase, cifras: extraerCifras(frase) };
+
+    const resultado = validarRedaccion('Ayer vendiste S/ 250.00', hecho);
+
+    // Se descarta: no hay texto que mostrar, y lo que se muestra es la frase fija del código.
+    expect(resultado).toEqual({ ok: false, motivo: 'CIFRA_NUEVA' });
+    expect(hecho.frase).toContain('S/ 205.00');
+    // Con la cifra correcta, en cambio, la redacción sí pasa.
+    expect(validarRedaccion('Ayer vendiste S/ 205.00', hecho)).toEqual({
+      ok: true,
+      texto: 'Ayer vendiste S/ 205.00',
+    });
   });
 
   // @spec08_e10 — Si el redactor falla o tarda, se muestra la frase fija

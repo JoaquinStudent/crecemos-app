@@ -9,7 +9,8 @@ const vendidas = (preparadas: number, sobrantes: number): number => preparadas -
 export const gananciaDelDia = (c: Cierre): number =>
   redondearSoles(
     c.lineas.reduce(
-      (total, l) => total + vendidas(l.preparadas, l.sobrantes) * (l.precioUnitario - l.costoUnitario),
+      (total, l) =>
+        total + vendidas(l.preparadas, l.sobrantes) * (l.precioUnitario - l.costoUnitario),
       0,
     ),
   );
@@ -20,7 +21,9 @@ export const gananciaDelDia = (c: Cierre): number =>
  * descendente; el empate, por nombre. El nombre es el de la línea más reciente. No muta la entrada.
  */
 export const gananciaPorProducto = (cierres: Cierre[], desde: FechaNegocio): GananciaProducto[] => {
-  const ordenados = cierres.filter(c => c.fecha >= desde).sort((a, b) => a.fecha.localeCompare(b.fecha));
+  const ordenados = cierres
+    .filter(c => c.fecha >= desde)
+    .sort((a, b) => a.fecha.localeCompare(b.fecha));
   const porProducto = new Map<string, GananciaProducto>();
   for (const cierre of ordenados) {
     for (const l of cierre.lineas) {
@@ -43,14 +46,18 @@ export const gananciaPorProducto = (cierres: Cierre[], desde: FechaNegocio): Gan
     .sort((a, b) => b.ganancia - a.ganancia || a.nombre.localeCompare(b.nombre));
 };
 
-const articulo = (nombre: string): string => (nombre.toLowerCase().endsWith('a') ? 'la' : 'el');
+/** 'la' si el nombre termina en "a", si no 'el': "la pancita", "el anticucho". */
+export const articulo = (nombre: string): string =>
+  nombre.toLowerCase().endsWith('a') ? 'la' : 'el';
 
 /**
- * "La pancita se vende más, pero el anticucho te deja S/ 0.80 más por porción." La diferencia es de
- * "te deja" por porción entre el que más deja y el más vendido. `null` si son el mismo producto o
- * si hay menos de 2 productos con ventas.
+ * El producto que más se vende y el que más deja por porción, con los mismos desempates para
+ * `insight` y para el chat (el otro criterio, luego el nombre). `null` con menos de 2 productos con
+ * ventas.
  */
-export const insight = (g: GananciaProducto[]): string | null => {
+export const extremosDeVentas = (
+  g: GananciaProducto[],
+): { masVendido: GananciaProducto; masDeja: GananciaProducto } | null => {
   const conVentas = g.filter(x => x.seVende > 0);
   if (conVentas.length < 2) return null;
   // Los empates se resuelven a favor del otro criterio: si el más vendido también deja lo máximo, no hay contraste.
@@ -60,12 +67,26 @@ export const insight = (g: GananciaProducto[]): string | null => {
   const masDeja = [...conVentas].sort(
     (a, b) => b.teDeja - a.teDeja || b.seVende - a.seVende || a.nombre.localeCompare(b.nombre),
   )[0];
+  return { masVendido, masDeja };
+};
+
+/**
+ * "La pancita se vende más, pero el anticucho te deja S/ 0.80 más por porción." La diferencia es de
+ * "te deja" por porción entre el que más deja y el más vendido. `null` si son el mismo producto o
+ * si hay menos de 2 productos con ventas.
+ */
+export const insight = (g: GananciaProducto[]): string | null => {
+  const extremos = extremosDeVentas(g);
+  if (extremos === null) return null;
+  const { masVendido, masDeja } = extremos;
   if (masVendido.productoId === masDeja.productoId) return null;
   const diferencia = redondearSoles(masDeja.teDeja - masVendido.teDeja);
   const vendido = masVendido.nombre.toLowerCase();
   const deja = masDeja.nombre.toLowerCase();
   const inicio = `${articulo(vendido)} ${vendido}`;
-  return `${inicio.charAt(0).toUpperCase()}${inicio.slice(1)} se vende más, pero ${articulo(deja)} ${deja} te deja ${formatoSoles(diferencia)} más por porción.`;
+  return `${inicio.charAt(0).toUpperCase()}${inicio.slice(1)} se vende más, pero ${articulo(
+    deja,
+  )} ${deja} te deja ${formatoSoles(diferencia)} más por porción.`;
 };
 
 /**
@@ -75,5 +96,7 @@ export const insight = (g: GananciaProducto[]): string | null => {
 export const compararCiclos = (actual: ResumenCiclo, anterior: ResumenCiclo): string => {
   const diferencia = redondearSoles(actual.teQueda - anterior.teQueda);
   if (diferencia === 0) return 'Ganaste lo mismo que el ciclo pasado';
-  return `Ganaste ${formatoSoles(Math.abs(diferencia))} ${diferencia > 0 ? 'más' : 'menos'} que el ciclo pasado`;
+  return `Ganaste ${formatoSoles(Math.abs(diferencia))} ${
+    diferencia > 0 ? 'más' : 'menos'
+  } que el ciclo pasado`;
 };
