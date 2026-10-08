@@ -5,13 +5,21 @@
 
 import { createElement } from 'react';
 import ReactTestRenderer, { act } from 'react-test-renderer';
+import { createAsyncStorage } from '@react-native-async-storage/async-storage';
 import { clearAllMockStorages } from '@react-native-async-storage/async-storage/jest';
 import { CrecemosProvider, useCrecemos } from '@context/CrecemosProvider';
-import { PERFIL_POR_DEFECTO } from '@dominio/perfil';
+import { fechaLocal } from '@dominio/fecha';
+import { normalizarPerfil, PERFIL_POR_DEFECTO } from '@dominio/perfil';
 import { PRODUCTOS_POR_DEFECTO } from '@dominio/productosPorDefecto';
 import { calcularCierre } from '@dominio/cierre';
-import type { DatosCierre } from '@dominio/tipos';
-import { listarCierres, listarProductos, obtenerPerfil } from '@storage/repositorio';
+import type { Cierre, DatosCierre, Perfil, SemillaJSON } from '@dominio/tipos';
+import {
+  guardarCierre,
+  listarCierres,
+  listarProductos,
+  obtenerPerfil,
+  semillaCargada,
+} from '@storage/repositorio';
 
 let montada: ReactTestRenderer.ReactTestRenderer | null = null;
 const montarProvider = async () => {
@@ -213,5 +221,379 @@ describe('CrecemosProvider: guardar y eliminar dias', () => {
 
     expect(contexto().cierres).toHaveLength(1);
     expect(await listarCierres()).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Semilla de ejemplo, cobros y regla del Yape ajeno (Sprint-04)
+// ---------------------------------------------------------------------------------------------
+
+const SEMILLA: SemillaJSON = {
+  version: 1,
+  semilla: 'prueba',
+  diaSemanaBase: 3,
+  productos: [
+    {
+      id: 'p-anticucho',
+      nombre: 'Anticucho',
+      unidad: 'porcion',
+      precioVenta: 10,
+      costoUnitario: 8.2,
+      actualizadoDiasAtras: 84,
+    },
+  ],
+  cierres: [1, 2].map(diasAtras => ({
+    diasAtras,
+    lineas: [
+      { productoId: 'p-anticucho', preparadas: 20, sobrantes: 2, precioUnitario: 10, costoUnitario: 8.2 },
+    ],
+    montoYape: 46,
+    yapePendiente: true,
+    gastos: [{ categoria: 'movilidad' as const, monto: 12 }],
+    abreCiclo: diasAtras === 2,
+  })),
+};
+
+const respuestaOk = (cuerpo: unknown) =>
+  ({ ok: true, status: 200, text: async () => JSON.stringify(cuerpo) } as unknown as Response);
+
+const fetchPorDefecto = global.fetch;
+const ponerFetch = (f: unknown) => {
+  global.fetch = f as typeof fetch;
+  return f as jest.Mock;
+};
+// Un fetch que responde cuando la prueba lo decide.
+const fetchControlado = () => {
+  let responder!: (r: Response) => void;
+  const fetchMock = ponerFetch(
+    jest.fn(
+      () =>
+        new Promise<Response>(resolver => {
+          responder = resolver;
+        }),
+    ),
+  );
+  return { fetchMock, responder: (r: Response) => responder(r) };
+};
+
+const crudo = (clave: string) => createAsyncStorage('crecemos').getItem(clave);
+const dejarCorrer = () =>
+  act(async () => {
+    await new Promise(resolver => setTimeout(resolver, 0));
+  });
+
+const cierreConYape = (fecha: string, monto: number, cobradoEn?: string): Cierre => ({
+  id: `c-${fecha}`,
+  fecha,
+  lineas: [],
+  montoYape: monto,
+  yapePendiente: true,
+  ...(cobradoEn ? { cobradoEn } : {}),
+  gastos: [],
+  abreCiclo: false,
+  creadoEn: '2026-10-07T12:00:00.000Z',
+  actualizadoEn: '2026-10-07T12:00:00.000Z',
+});
+
+describe('CrecemosProvider: semilla de ejemplo', () => {
+  beforeEach(() => {
+    clearAllMockStorages();
+  });
+  afterEach(async () => {
+    jest.useRealTimers();
+    global.fetch = fetchPorDefecto;
+    const app = montada;
+    montada = null;
+    if (app) await act(async () => app.unmount());
+  });
+
+  it('con cierres guardados y sin marca no descarga nada y marca la semilla como resuelta', async () => {
+    await guardarCierre(cierreConYape('2026-10-06', 46));
+    const fetchMock = ponerFetch(jest.fn());
+
+    const contexto = await montarProvider();
+    await dejarCorrer();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(contexto().cargando).toBe(false);
+    expect(contexto().semilla).toBe('ninguna');
+    expect(contexto().cierres).toHaveLength(1);
+    expect(await semillaCargada()).toBe(true);
+    // Solo la marca: los productos no se tocan.
+    expect(await crudo('@crecemos/productos')).toBeNull();
+  });
+
+  it('la app queda lista de inmediato aunque la semilla no responda, y a los 8 s pasa a sinRed', async () => {
+    jest.useFakeTimers();
+    const fetchMock = ponerFetch(
+      jest.fn(
+        (_url: unknown, init?: { signal?: AbortSignal }) =>
+          new Promise<Response>((_resolver, rechazar) => {
+            init?.signal?.addEventListener('abort', () => rechazar(new Error('Aborted')));
+          }),
+      ),
+    );
+
+    const contexto = await montarProvider();
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(0);
+    });
+
+    expect(contexto().cargando).toBe(false);
+    expect(contexto().semilla).toBe('cargando');
+
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(8000);
+    });
+
+    expect(contexto().semilla).toBe('sinRed');
+    expect(contexto().cierres).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(1); // un solo intento, sin reintentos
+  });
+
+  it('sin red queda en sinRed, con 0 cierres y sin guardar nada', async () => {
+    const contexto = await montarProvider();
+    await dejarCorrer();
+
+    expect(contexto().cargando).toBe(false);
+    expect(contexto().semilla).toBe('sinRed');
+    expect(contexto().cierres).toEqual([]);
+    expect(await semillaCargada()).toBe(false);
+    expect(await crudo('@crecemos/productos')).toBeNull();
+    expect(await crudo('@crecemos/cierres')).toBeNull();
+  });
+
+  it('un JSON sin cierres queda en invalida y no guarda nada', async () => {
+    // JSON.stringify omite lo undefined: la respuesta llega sin el campo "cierres".
+    ponerFetch(jest.fn(async () => respuestaOk({ ...SEMILLA, cierres: undefined })));
+
+    const contexto = await montarProvider();
+    await dejarCorrer();
+
+    expect(contexto().semilla).toBe('invalida');
+    expect(contexto().cierres).toEqual([]);
+    expect(await semillaCargada()).toBe(false);
+    expect(await crudo('@crecemos/productos')).toBeNull();
+    expect(await crudo('@crecemos/cierres')).toBeNull();
+  });
+
+  it('cargarDatosDeEjemplo reintenta después de un fallo y deja los datos en lista', async () => {
+    const contexto = await montarProvider();
+    await dejarCorrer();
+    expect(contexto().semilla).toBe('sinRed');
+    const fetchMock = ponerFetch(jest.fn(async () => respuestaOk(SEMILLA)));
+
+    await act(async () => {
+      await contexto().cargarDatosDeEjemplo();
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(contexto().semilla).toBe('lista');
+    expect(contexto().cierres).toHaveLength(2);
+    expect(contexto().productos).toHaveLength(1);
+    expect(await listarCierres()).toHaveLength(2);
+    expect(await listarProductos()).toEqual(contexto().productos);
+    expect(await semillaCargada()).toBe(true);
+    expect(contexto().cierres.every(c => /^\d{4}-\d{2}-\d{2}$/.test(c.fecha))).toBe(true);
+  });
+
+  it('cargarDatosDeEjemplo no hace nada si ya hay cierres', async () => {
+    const contexto = await montarProvider();
+    await dejarCorrer();
+    await act(async () => {
+      await contexto().guardarDia({
+        fecha: '2026-10-06',
+        lineas: [{ productoId: 'p-anticucho', preparadas: 20, sobrantes: 2 }],
+        montoYape: 0,
+        gastos: [],
+      });
+    });
+    const fetchMock = ponerFetch(jest.fn(async () => respuestaOk(SEMILLA)));
+    const antes = contexto().cierres;
+
+    await act(async () => {
+      await contexto().cargarDatosDeEjemplo();
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(contexto().cierres).toEqual(antes);
+    expect(await listarCierres()).toEqual(antes);
+  });
+
+  it('si el usuario guarda un día mientras la semilla se descarga, no se pisa', async () => {
+    const { fetchMock, responder } = fetchControlado();
+    const contexto = await montarProvider();
+    await dejarCorrer();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(contexto().semilla).toBe('cargando');
+    await act(async () => {
+      await contexto().guardarDia({
+        fecha: '2026-10-06',
+        lineas: [{ productoId: 'p-anticucho', preparadas: 20, sobrantes: 2 }],
+        montoYape: 0,
+        gastos: [],
+      });
+    });
+
+    responder(respuestaOk(SEMILLA));
+    await dejarCorrer();
+
+    expect(contexto().semilla).toBe('ninguna');
+    expect(contexto().cierres.map(c => c.fecha)).toEqual(['2026-10-06']);
+    expect(await listarCierres()).toHaveLength(1);
+    expect(await semillaCargada()).toBe(true);
+  });
+
+  it('un toque doble en cargar no hace dos descargas', async () => {
+    const contexto = await montarProvider();
+    await dejarCorrer();
+    const { fetchMock, responder } = fetchControlado();
+
+    let primera!: Promise<void>;
+    let segunda!: Promise<void>;
+    await act(async () => {
+      primera = contexto().cargarDatosDeEjemplo();
+      segunda = contexto().cargarDatosDeEjemplo();
+      await new Promise(resolver => setTimeout(resolver, 0)); // las dos llegan hasta el fetch
+      responder(respuestaOk(SEMILLA));
+      await Promise.all([primera, segunda]);
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(contexto().cierres).toHaveLength(2);
+  });
+
+  it('si el Provider se desmonta antes de que responda, no falla ni avisa', async () => {
+    const { responder } = fetchControlado();
+    const errores = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    await montarProvider();
+    await dejarCorrer();
+    const app = montada;
+    montada = null;
+    if (app) await act(async () => app.unmount());
+
+    responder(respuestaOk(SEMILLA));
+    await new Promise(resolver => setTimeout(resolver, 0));
+    await new Promise(resolver => setTimeout(resolver, 0));
+
+    expect(errores).not.toHaveBeenCalled();
+    errores.mockRestore();
+  });
+});
+
+describe('CrecemosProvider: marcar cobrado', () => {
+  beforeEach(() => {
+    clearAllMockStorages();
+  });
+  afterEach(async () => {
+    const app = montada;
+    montada = null;
+    if (app) await act(async () => app.unmount());
+  });
+
+  it('marca como cobrados solo los pendientes, con la fecha local de hoy, en el estado y en disco', async () => {
+    await guardarCierre(cierreConYape('2026-10-03', 50));
+    await guardarCierre(cierreConYape('2026-10-05', 46));
+    await guardarCierre(cierreConYape('2026-10-04', 30, '2026-10-06'));
+    const contexto = await montarProvider();
+    await dejarCorrer();
+
+    await act(async () => {
+      await contexto().marcarCobrado();
+    });
+
+    const hoy = fechaLocal(new Date());
+    const porFecha = (lista: Cierre[], fecha: string) => lista.find(c => c.fecha === fecha);
+    const enDisco = await listarCierres();
+    for (const lista of [contexto().cierres, enDisco]) {
+      expect(porFecha(lista, '2026-10-03')?.cobradoEn).toBe(hoy);
+      expect(porFecha(lista, '2026-10-05')?.cobradoEn).toBe(hoy);
+      expect(porFecha(lista, '2026-10-04')?.cobradoEn).toBe('2026-10-06'); // el anterior no se pisa
+    }
+  });
+
+  it('sin nada por cobrar no cambia nada', async () => {
+    await guardarCierre(cierreConYape('2026-10-04', 30, '2026-10-06'));
+    const contexto = await montarProvider();
+    await dejarCorrer();
+    const antes = contexto().cierres;
+
+    await act(async () => {
+      await contexto().marcarCobrado();
+    });
+
+    expect(contexto().cierres).toEqual(antes);
+    expect(await listarCierres()).toEqual(antes);
+  });
+});
+
+describe('Yape ajeno al apagar "Acepto Yape" (P17)', () => {
+  const conYapeAjeno: Perfil = {
+    ...PERFIL_POR_DEFECTO,
+    nombre: 'Persona de prueba',
+    aceptaYape: true,
+    yapeAjeno: true,
+    yapeNumero: '987654321',
+    yapeTitular: 'Titular de prueba',
+    yapeParentesco: 'hermana',
+  };
+
+  beforeEach(() => {
+    clearAllMockStorages();
+  });
+  afterEach(async () => {
+    const app = montada;
+    montada = null;
+    if (app) await act(async () => app.unmount());
+  });
+
+  it('normalizarPerfil apaga yapeAjeno si no acepta Yape y conserva los datos del titular', () => {
+    const resultado = normalizarPerfil({ ...conYapeAjeno, aceptaYape: false });
+
+    expect(resultado).toEqual({ ...conYapeAjeno, aceptaYape: false, yapeAjeno: false });
+    expect(resultado.yapeNumero).toBe('987654321');
+    expect(resultado.yapeTitular).toBe('Titular de prueba');
+    expect(resultado.yapeParentesco).toBe('hermana');
+  });
+
+  it('normalizarPerfil no toca un perfil que sí acepta Yape', () => {
+    expect(normalizarPerfil(conYapeAjeno)).toEqual(conYapeAjeno);
+    expect(normalizarPerfil({ ...conYapeAjeno, yapeAjeno: false })).toEqual({
+      ...conYapeAjeno,
+      yapeAjeno: false,
+    });
+  });
+
+  it('normalizarPerfil no muta el perfil que recibe', () => {
+    const original = { ...conYapeAjeno, aceptaYape: false };
+
+    normalizarPerfil(original);
+
+    expect(original.yapeAjeno).toBe(true);
+  });
+
+  it('guardarPerfil aplica la regla, la persiste y no toca los pendientes ya guardados', async () => {
+    await guardarCierre(cierreConYape('2026-10-05', 46));
+    const contexto = await montarProvider();
+    await dejarCorrer();
+    await act(async () => {
+      await contexto().guardarPerfil(conYapeAjeno);
+    });
+    expect(contexto().perfil.yapeAjeno).toBe(true);
+
+    await act(async () => {
+      await contexto().guardarPerfil({ aceptaYape: false });
+    });
+
+    const perfil = contexto().perfil;
+    expect(perfil.aceptaYape).toBe(false);
+    expect(perfil.yapeAjeno).toBe(false);
+    expect(perfil.yapeNumero).toBe('987654321');
+    expect(perfil.yapeTitular).toBe('Titular de prueba');
+    expect(perfil.yapeParentesco).toBe('hermana');
+    expect(await obtenerPerfil()).toEqual(perfil);
+    // El cobro que ya estaba pendiente sigue pendiente.
+    expect(contexto().cierres[0].yapePendiente).toBe(true);
+    expect((await listarCierres())[0].yapePendiente).toBe(true);
   });
 });

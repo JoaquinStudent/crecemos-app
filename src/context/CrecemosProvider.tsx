@@ -8,32 +8,48 @@ import React, {
   useEffect,
   useMemo,
   useReducer,
+  useRef,
 } from 'react';
 import { editarCierre, nuevoCierre } from '@dominio/cierre';
+import { marcarCobrados } from '@dominio/cobro';
 import { fechaLocal } from '@dominio/fecha';
-import { PERFIL_POR_DEFECTO } from '@dominio/perfil';
+import { normalizarPerfil, PERFIL_POR_DEFECTO } from '@dominio/perfil';
 import { cambiarPrecio } from '@dominio/producto';
+import { materializarSemilla } from '@dominio/semilla';
 import type { Cierre, DatosCierre, Perfil, Producto } from '@dominio/tipos';
 import { ResultadoValidacion, validarCierre, validarProducto } from '@dominio/validacion';
+import { SEED_URL } from '../config';
+import { cargarSemilla } from '@services/seed';
 import {
   eliminarCierre,
   guardarCierre,
   guardarPerfil as guardarPerfilRepo,
   guardarProducto,
+  importarSemilla,
   listarCierres,
   listarProductos,
+  marcarCobrado as marcarCobradoRepo,
+  marcarSemillaResuelta,
   obtenerPerfil,
+  semillaCargada,
 } from '@storage/repositorio';
+
+/** Cómo va la semilla de ejemplo; la pantalla decide qué texto poner (no la ve Freddy en crudo). */
+export type EstadoSemilla = 'ninguna' | 'cargando' | 'lista' | 'sinRed' | 'invalida';
 
 interface Estado {
   cierres: Cierre[];
   productos: Producto[];
   perfil: Perfil;
   cargando: boolean;
+  semilla: EstadoSemilla;
 }
 
 type Accion =
   | { tipo: 'cargado'; cierres: Cierre[]; productos: Producto[]; perfil: Perfil }
+  | { tipo: 'semilla'; estado: EstadoSemilla }
+  | { tipo: 'semillaLista'; cierres: Cierre[]; productos: Producto[] }
+  | { tipo: 'cobrado'; ids: string[]; fecha: string }
   | { tipo: 'perfilGuardado'; perfil: Perfil }
   | { tipo: 'productoGuardado'; producto: Producto }
   | { tipo: 'cierreGuardado'; cierre: Cierre }
@@ -44,6 +60,7 @@ const estadoInicial: Estado = {
   productos: [],
   perfil: PERFIL_POR_DEFECTO,
   cargando: true,
+  semilla: 'ninguna',
 };
 
 const reducer = (estado: Estado, accion: Accion): Estado => {
@@ -54,7 +71,19 @@ const reducer = (estado: Estado, accion: Accion): Estado => {
         productos: accion.productos,
         perfil: accion.perfil,
         cargando: false,
+        semilla: 'ninguna',
       };
+    case 'semilla':
+      return { ...estado, semilla: accion.estado };
+    case 'semillaLista':
+      return {
+        ...estado,
+        cierres: accion.cierres,
+        productos: accion.productos,
+        semilla: 'lista',
+      };
+    case 'cobrado':
+      return { ...estado, cierres: marcarCobrados(estado.cierres, accion.ids, accion.fecha) };
     case 'perfilGuardado':
       return { ...estado, perfil: accion.perfil };
     case 'productoGuardado':
@@ -86,6 +115,10 @@ interface ContextoCrecemos extends Estado {
     precio: number,
     costo: number,
   ) => Promise<ResultadoValidacion>;
+  /** Pide la semilla de ejemplo. Si ya hay días guardados no hace nada (nunca los pisa). */
+  cargarDatosDeEjemplo: () => Promise<void>;
+  /** Marca como cobrado, con la fecha de hoy, todo el Yape que estaba por cobrar. */
+  marcarCobrado: () => Promise<void>;
 }
 
 const Contexto = createContext<ContextoCrecemos | null>(null);
@@ -93,19 +126,73 @@ const Contexto = createContext<ContextoCrecemos | null>(null);
 export const CrecemosProvider = ({ children }: { children: React.ReactNode }) => {
   const [estado, dispatch] = useReducer(reducer, estadoInicial);
 
-  useEffect(() => {
-    let vigente = true;
-    Promise.all([listarCierres(), listarProductos(), obtenerPerfil()]).then(
-      ([cierres, productos, perfil]) => {
-        if (vigente) {
-          dispatch({ tipo: 'cargado', cierres, productos, perfil: perfil ?? PERFIL_POR_DEFECTO });
-        }
-      },
-    );
-    return () => {
-      vigente = false;
+  // El Provider sigue montado: ninguna respuesta tardía toca el estado de un Provider ya desmontado.
+  const montado = useRef(true);
+  // Una sola descarga a la vez, aunque el botón se toque dos veces.
+  const descargando = useRef(false);
+
+  /**
+   * Pide la semilla en segundo plano y, si llega bien, la guarda y la deja en el estado.
+   * Sin red, tarde o inválida no guarda nada. Los datos del usuario nunca se pisan: si
+   * mientras tanto guardó un día, la semilla se descarta.
+   */
+  const descargarSemilla = useCallback(async (): Promise<void> => {
+    if (descargando.current) return;
+    descargando.current = true;
+    const avisar = (accion: Accion) => {
+      if (montado.current) dispatch(accion);
     };
+    try {
+      avisar({ tipo: 'semilla', estado: 'cargando' });
+      const resultado = await cargarSemilla(globalThis.fetch, SEED_URL);
+      if (!resultado.ok) {
+        avisar({
+          tipo: 'semilla',
+          estado: resultado.error === 'SEMILLA_INVALIDA' ? 'invalida' : 'sinRed',
+        });
+        return;
+      }
+      const ahora = new Date();
+      if ((await listarCierres()).length > 0) {
+        await marcarSemillaResuelta(ahora.toISOString());
+        avisar({ tipo: 'semilla', estado: 'ninguna' });
+        return;
+      }
+      const materializada = materializarSemilla(resultado.semilla, ahora);
+      await importarSemilla(materializada, ahora.toISOString());
+      avisar({ tipo: 'semillaLista', ...materializada });
+    } catch {
+      // Un fallo del almacenamiento tampoco bloquea la app: queda lista para reintentar.
+      avisar({ tipo: 'semilla', estado: 'sinRed' });
+    } finally {
+      descargando.current = false;
+    }
   }, []);
+
+  useEffect(() => {
+    montado.current = true;
+    (async () => {
+      const [cierres, productos, perfil, cargada] = await Promise.all([
+        listarCierres(),
+        listarProductos(),
+        obtenerPerfil(),
+        semillaCargada(),
+      ]);
+      if (!montado.current) return;
+      // La app queda lista ya: la semilla, si hace falta, llega después y en segundo plano.
+      dispatch({ tipo: 'cargado', cierres, productos, perfil: perfil ?? PERFIL_POR_DEFECTO });
+      if (cargada) return;
+      if (cierres.length > 0) {
+        // Usuario real: si algún día borra todo, no deben reaparecer datos de ejemplo.
+        await marcarSemillaResuelta(new Date().toISOString());
+        return;
+      }
+      await descargarSemilla();
+    })();
+    return () => {
+      montado.current = false;
+    };
+  }, [descargarSemilla]);
 
   const guardarDia = useCallback(
     async (datos: DatosCierre): Promise<ResultadoValidacion> => {
@@ -132,11 +219,11 @@ export const CrecemosProvider = ({ children }: { children: React.ReactNode }) =>
 
   const guardarPerfil = useCallback(
     async (parcial: Partial<Perfil>): Promise<void> => {
-      const perfil: Perfil = {
+      const perfil: Perfil = normalizarPerfil({
         ...estado.perfil,
         ...parcial,
         actualizadoEn: new Date().toISOString(),
-      };
+      });
       await guardarPerfilRepo(perfil);
       dispatch({ tipo: 'perfilGuardado', perfil });
     },
@@ -157,9 +244,39 @@ export const CrecemosProvider = ({ children }: { children: React.ReactNode }) =>
     [estado.productos],
   );
 
+  const cargarDatosDeEjemplo = useCallback(async (): Promise<void> => {
+    // Se mira lo guardado, no el estado: es lo que de verdad se perdería.
+    if ((await listarCierres()).length > 0) return;
+    await descargarSemilla();
+  }, [descargarSemilla]);
+
+  const marcarCobrado = useCallback(async (): Promise<void> => {
+    const ids = estado.cierres.filter(c => c.yapePendiente && !c.cobradoEn).map(c => c.id);
+    if (ids.length === 0) return;
+    const fecha = fechaLocal(new Date());
+    await marcarCobradoRepo(ids, fecha);
+    dispatch({ tipo: 'cobrado', ids, fecha });
+  }, [estado.cierres]);
+
   const valor = useMemo(
-    () => ({ ...estado, guardarDia, eliminarDia, guardarPerfil, cambiarPrecioProducto }),
-    [estado, guardarDia, eliminarDia, guardarPerfil, cambiarPrecioProducto],
+    () => ({
+      ...estado,
+      guardarDia,
+      eliminarDia,
+      guardarPerfil,
+      cambiarPrecioProducto,
+      cargarDatosDeEjemplo,
+      marcarCobrado,
+    }),
+    [
+      estado,
+      guardarDia,
+      eliminarDia,
+      guardarPerfil,
+      cambiarPrecioProducto,
+      cargarDatosDeEjemplo,
+      marcarCobrado,
+    ],
   );
 
   return <Contexto.Provider value={valor}>{children}</Contexto.Provider>;

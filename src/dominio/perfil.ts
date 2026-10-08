@@ -18,3 +18,10 @@ export const inicialesAvatar = (nombre: string): string => {
   const primera = nombre.trim().charAt(0);
   return primera ? primera.toUpperCase() : '?';
 };
+
+/**
+ * Un Yape que no se acepta no puede ser "ajeno" (P17). Se apaga `yapeAjeno` y se conservan
+ * número, titular y parentesco, para que no se pierdan si vuelve a aceptar Yape. No muta.
+ */
+export const normalizarPerfil = (p: Perfil): Perfil =>
+  p.aceptaYape || !p.yapeAjeno ? p : { ...p, yapeAjeno: false };

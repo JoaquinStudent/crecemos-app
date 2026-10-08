@@ -4,18 +4,22 @@
  * y el borrado de cierres con eliminarCierre.
  */
 
+import { createAsyncStorage } from '@react-native-async-storage/async-storage';
 import { clearAllMockStorages } from '@react-native-async-storage/async-storage/jest';
 import { PRODUCTOS_POR_DEFECTO } from '@dominio/productosPorDefecto';
-import type { Cierre, Perfil } from '@dominio/tipos';
+import type { Cierre, Perfil, SemillaMaterializada } from '@dominio/tipos';
 import {
   eliminarCierre,
   guardarCierre,
   guardarProducto,
+  importarSemilla,
   listarCierres,
   guardarPerfil,
   listarProductos,
   marcarCobrado,
+  marcarSemillaResuelta,
   obtenerPerfil,
+  semillaCargada,
 } from '@storage/repositorio';
 
 const perfil: Perfil = {
@@ -183,5 +187,49 @@ describe('Repositorio: marcar cobrado', () => {
     await marcarCobrado(['c-2026-10-04'], '2026-10-07');
 
     expect((await listarCierres())[0].cobradoEn).toBe('2026-10-05');
+  });
+});
+
+describe('Repositorio: semilla de ejemplo', () => {
+  const AHORA = '2026-10-07T17:00:00.000Z';
+  const crudo = (clave: string) => createAsyncStorage('crecemos').getItem(clave);
+
+  const semilla = (): SemillaMaterializada => ({
+    productos: PRODUCTOS_POR_DEFECTO.map(p => ({ ...p, precioVenta: p.precioVenta + 1 })),
+    cierres: [cierreDe('2026-10-05'), cierreDe('2026-10-06')],
+  });
+
+  beforeEach(() => {
+    clearAllMockStorages();
+  });
+
+  it('sin nada guardado la semilla no está cargada', async () => {
+    expect(await semillaCargada()).toBe(false);
+  });
+
+  it('importar guarda productos y cierres completos y marca la semilla con la fecha', async () => {
+    await importarSemilla(semilla(), AHORA);
+
+    expect(await listarProductos()).toEqual(semilla().productos);
+    expect((await listarCierres()).map(c => c.id).sort()).toEqual(['c-2026-10-05', 'c-2026-10-06']);
+    expect(JSON.parse((await crudo('@crecemos/seed')) ?? 'null')).toEqual({ cargadoEn: AHORA });
+    expect(await semillaCargada()).toBe(true);
+  });
+
+  it('importar reemplaza la lista completa de cierres, no la mezcla', async () => {
+    await guardarCierre(cierreDe('2026-09-01'));
+
+    await importarSemilla(semilla(), AHORA);
+
+    expect((await listarCierres()).map(c => c.fecha).sort()).toEqual(['2026-10-05', '2026-10-06']);
+  });
+
+  it('marcar la semilla como resuelta escribe solo esa clave', async () => {
+    await marcarSemillaResuelta(AHORA);
+
+    expect(await semillaCargada()).toBe(true);
+    expect(JSON.parse((await crudo('@crecemos/seed')) ?? 'null')).toEqual({ cargadoEn: AHORA });
+    expect(await crudo('@crecemos/productos')).toBeNull();
+    expect(await crudo('@crecemos/cierres')).toBeNull();
   });
 });

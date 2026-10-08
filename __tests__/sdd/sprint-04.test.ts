@@ -10,14 +10,26 @@
 import { execFileSync } from 'child_process';
 import { readFileSync, statSync, writeFileSync } from 'fs';
 import { join } from 'path';
+import { createElement } from 'react';
+import ReactTestRenderer, { act } from 'react-test-renderer';
+import { createAsyncStorage } from '@react-native-async-storage/async-storage';
 import { clearAllMockStorages } from '@react-native-async-storage/async-storage/jest';
+import App from '../../App';
 import { calcularCierre } from '@dominio/cierre';
 import { marcarCobrados, totalPorCobrar } from '@dominio/cobro';
+import { SEED_URL } from '../../src/config';
 import { formatoSoles } from '@dominio/formato';
 import { teDeja } from '@dominio/producto';
 import { materializarSemilla, validarSemilla } from '@dominio/semilla';
 import type { Cierre, FechaNegocio, SemillaJSON } from '@dominio/tipos';
-import { guardarCierre, listarCierres, marcarCobrado } from '@storage/repositorio';
+import {
+  guardarCierre,
+  importarSemilla,
+  listarCierres,
+  listarProductos,
+  marcarCobrado,
+  semillaCargada,
+} from '@storage/repositorio';
 
 // Mediodía del 2026-10-07 (miércoles) en Lima: es el "hoy" de los escenarios.
 const ahora = new Date('2026-10-07T12:00:00-05:00');
@@ -45,7 +57,42 @@ const cierreYape = (
 const RUTA_SEMILLA = join(__dirname, '..', '..', 'seed', 'semilla.json');
 const RUTA_GENERADOR = join(__dirname, '..', '..', 'scripts', 'generar-semilla.js');
 
+// La app real, montada como en el teléfono. Se deja correr el arranque (leer el almacenamiento,
+// pedir la semilla, guardarla) antes de devolverla.
+let montada: ReactTestRenderer.ReactTestRenderer | null = null;
+const montarApp = async () => {
+  await act(async () => {
+    montada = ReactTestRenderer.create(createElement(App));
+  });
+  for (let i = 0; i < 5; i += 1) {
+    await act(async () => {
+      await new Promise(resolver => setTimeout(resolver, 0));
+    });
+  }
+};
+const desmontarApp = async () => {
+  const app = montada;
+  montada = null;
+  if (app) await act(async () => app.unmount());
+};
+
+// Un fetch simulado que responde el texto dado, como lo haría el servidor de la semilla.
+const fetchPorDefecto = global.fetch;
+const servidorQueResponde = (cuerpo: string) => {
+  const simulado = jest.fn(
+    async () => ({ ok: true, status: 200, text: async () => cuerpo } as unknown as Response),
+  );
+  global.fetch = simulado as unknown as typeof fetch;
+  return simulado;
+};
+const crudo = (clave: string) => createAsyncStorage('crecemos').getItem(clave);
+
 describe('SPEC-04: Cobros pendientes y carga inicial desde el Mock API', () => {
+  afterEach(async () => {
+    global.fetch = fetchPorDefecto;
+    await desmontarApp();
+  });
+
   // @spec04_e1 — Total por cobrar
   it('spec04_e1 total por cobrar', () => {
     // Given: un cierre con S/ 50.00 de Yape por cobrar, otro con S/ 46.00 por cobrar y otro con S/ 30.00 ya cobrado
@@ -98,7 +145,34 @@ describe('SPEC-04: Cobros pendientes y carga inicial desde el Mock API', () => {
     // Given: el almacenamiento vacío y un servidor que responde la semilla con 4 productos y 40 cierres
     // When: arranca la app
     // Then: quedan guardados 4 productos y 40 cierres, y la clave "@crecemos/seed" tiene la fecha de carga
-    throw new Error('Rojo: no implementado');
+    return (async () => {
+      clearAllMockStorages();
+      const texto = readFileSync(RUTA_SEMILLA, 'utf8');
+      const enviada = JSON.parse(texto) as SemillaJSON;
+      expect(enviada.productos).toHaveLength(4);
+      expect(enviada.cierres).toHaveLength(40);
+      const servidor = servidorQueResponde(texto);
+
+      await montarApp();
+
+      expect(servidor).toHaveBeenCalledTimes(1);
+      expect(servidor.mock.calls[0] as unknown[]).toContain(SEED_URL);
+      // Productos: los de la semilla, guardados de verdad (los de fábrica nunca se escriben).
+      const guardadosCrudo = await crudo('@crecemos/productos');
+      expect(guardadosCrudo).not.toBeNull();
+      const productos = await listarProductos();
+      expect(productos).toHaveLength(4);
+      expect(productos.map(p => p.id).sort()).toEqual(enviada.productos.map(p => p.id).sort());
+      // Cierres: los 40, cada uno con su fecha real, sin repetir días.
+      const cierres = await listarCierres();
+      expect(cierres).toHaveLength(40);
+      expect(new Set(cierres.map(c => c.fecha)).size).toBe(40);
+      // La marca de carga lleva la fecha en que se cargó.
+      const marca = JSON.parse((await crudo('@crecemos/seed')) ?? 'null') as { cargadoEn: string };
+      expect(typeof marca.cargadoEn).toBe('string');
+      expect(Number.isNaN(Date.parse(marca.cargadoEn))).toBe(false);
+      expect(await semillaCargada()).toBe(true);
+    })();
   });
 
   // @spec04_e4 — Sin internet la app abre igual
@@ -114,7 +188,26 @@ describe('SPEC-04: Cobros pendientes y carga inicial desde el Mock API', () => {
     // Given: la semilla ya se cargó en un arranque anterior
     // When: la app arranca de nuevo
     // Then: no se hace ninguna petición de red
-    throw new Error('Rojo: no implementado');
+    return (async () => {
+      clearAllMockStorages();
+      const semilla = validarSemilla(JSON.parse(readFileSync(RUTA_SEMILLA, 'utf8')));
+      if (!semilla.ok) throw new Error('La semilla del repositorio no valida');
+      await importarSemilla(materializarSemilla(semilla.semilla, ahora), ahora.toISOString());
+      const servidor = servidorQueResponde(readFileSync(RUTA_SEMILLA, 'utf8'));
+
+      await montarApp();
+
+      expect(servidor).not.toHaveBeenCalled();
+      expect(await listarCierres()).toHaveLength(40);
+
+      // Aunque después borre todos sus días, la marca sigue ahí: no hay otra descarga.
+      await desmontarApp();
+      await createAsyncStorage('crecemos').setItem('@crecemos/cierres', '[]');
+      await montarApp();
+
+      expect(servidor).not.toHaveBeenCalled();
+      expect(await listarCierres()).toEqual([]);
+    })();
   });
 
   // @spec04_e6 — Las fechas de la semilla se calculan desde hoy
