@@ -11,7 +11,7 @@ import { execFileSync } from 'child_process';
 import { readFileSync, statSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { createElement } from 'react';
-import ReactTestRenderer, { act } from 'react-test-renderer';
+import ReactTestRenderer, { act, ReactTestInstance } from 'react-test-renderer';
 import { createAsyncStorage } from '@react-native-async-storage/async-storage';
 import { clearAllMockStorages } from '@react-native-async-storage/async-storage/jest';
 import App from '../../App';
@@ -75,6 +75,35 @@ const desmontarApp = async () => {
   montada = null;
   if (app) await act(async () => app.unmount());
 };
+
+// Lo que ve una persona en la app montada: los textos y los nodos por testID.
+const textoCompleto = (n: ReactTestInstance | string): string =>
+  typeof n === 'string' ? n : n.children.map(textoCompleto).join('');
+const raiz = (): ReactTestInstance => {
+  if (!montada) throw new Error('La app no está montada');
+  return (montada as ReactTestRenderer.ReactTestRenderer).root;
+};
+const textosEnPantalla = (): string[] =>
+  raiz()
+    .findAll(n => (n.type as unknown) === 'Text')
+    .map(textoCompleto);
+const hayNodo = (testID: string): boolean => raiz().findAll(n => n.props.testID === testID).length > 0;
+const textoDe = (testID: string): string => {
+  const nodo = raiz().findAll(n => (n.type as unknown) === 'Text' && n.props.testID === testID)[0];
+  if (!nodo) throw new Error(`No hay ningún texto con testID "${testID}"`);
+  return textoCompleto(nodo);
+};
+// Lo que nunca debe llegar a una pantalla: códigos de error y mensajes de excepción.
+const MENSAJES_TECNICOS = [
+  'SIN_RED',
+  'TIEMPO_AGOTADO',
+  'SEMILLA_INVALIDA',
+  'Network request failed',
+  'TypeError',
+  'Error',
+];
+const mensajesTecnicosEnPantalla = (): string[] =>
+  textosEnPantalla().filter(texto => MENSAJES_TECNICOS.some(m => texto.includes(m)));
 
 // Un fetch simulado que responde el texto dado, como lo haría el servidor de la semilla.
 const fetchPorDefecto = global.fetch;
@@ -180,7 +209,25 @@ describe('SPEC-04: Cobros pendientes y carga inicial desde el Mock API', () => {
     // Given: el almacenamiento vacío y la red caída
     // When: arranca la app
     // Then: la app queda lista con 0 cierres, no muestra ningún error técnico y ofrece el botón "Cargar datos de ejemplo"
-    throw new Error('Rojo: no implementado');
+    return (async () => {
+      clearAllMockStorages();
+      const caida = jest.fn(() => Promise.reject(new TypeError('Network request failed')));
+      global.fetch = caida as unknown as typeof fetch;
+
+      await montarApp();
+
+      // Lista: intentó una vez y sin señal no guardó nada.
+      expect(caida).toHaveBeenCalledTimes(1);
+      expect(await listarCierres()).toHaveLength(0);
+      expect(await semillaCargada()).toBe(false);
+      expect(hayNodo('inicio-cerrar-dia')).toBe(true);
+      expect(textosEnPantalla()).toContain('Aún no cierras ningún día');
+      // Ningún texto técnico: ni códigos de error ni mensajes de excepción.
+      expect(mensajesTecnicosEnPantalla()).toEqual([]);
+      // Ofrece cargar los datos de ejemplo.
+      expect(hayNodo('inicio-cargar-ejemplo')).toBe(true);
+      expect(textosEnPantalla()).toContain('Cargar datos de ejemplo');
+    })();
   });
 
   // @spec04_e5 — No descarga dos veces
@@ -267,7 +314,28 @@ describe('SPEC-04: Cobros pendientes y carga inicial desde el Mock API', () => {
     // Given: el almacenamiento vacío y un servidor que responde un JSON sin el campo "cierres"
     // When: arranca la app
     // Then: no se guarda ningún producto ni cierre y la app muestra "No pudimos cargar los datos de ejemplo"
-    throw new Error('Rojo: no implementado');
+    return (async () => {
+      clearAllMockStorages();
+      const completa = JSON.parse(readFileSync(RUTA_SEMILLA, 'utf8')) as Record<string, unknown>;
+      const sinCierres = { ...completa };
+      delete sinCierres.cierres;
+      expect(sinCierres).not.toHaveProperty('cierres');
+      const servidor = servidorQueResponde(JSON.stringify(sinCierres));
+
+      await montarApp();
+
+      expect(servidor).toHaveBeenCalledTimes(1);
+      // Nada guardado: ni las claves de productos y cierres ni la marca de carga (se podrá reintentar).
+      expect(await crudo('@crecemos/productos')).toBeNull();
+      expect(await crudo('@crecemos/cierres')).toBeNull();
+      expect(await crudo('@crecemos/seed')).toBeNull();
+      expect(await listarCierres()).toHaveLength(0);
+      expect(await semillaCargada()).toBe(false);
+      // La app lo dice con palabras de Freddy, sin código ni excepción.
+      expect(textoDe('inicio-semilla-mensaje')).toBe('No pudimos cargar los datos de ejemplo');
+      expect(textosEnPantalla()).toContain('No pudimos cargar los datos de ejemplo');
+      expect(mensajesTecnicosEnPantalla()).toEqual([]);
+    })();
   });
 
   // @spec04_e9 — La semilla contiene lo que dijo Freddy
@@ -331,6 +399,33 @@ describe('SPEC-04: Cobros pendientes y carga inicial desde el Mock API', () => {
     // Given: la app recién instalada y un servidor que responde la semilla
     // When: arranca la app y se abre Inicio
     // Then: Inicio muestra un monto en "Te queda" distinto de "S/ 0.00" y la tarjeta "Yape por cobrar" con su total
-    throw new Error('Rojo: no implementado');
+    return (async () => {
+      clearAllMockStorages();
+      const texto = readFileSync(RUTA_SEMILLA, 'utf8');
+      const validada = validarSemilla(JSON.parse(texto));
+      if (!validada.ok) throw new Error('La semilla del repositorio no valida');
+      servidorQueResponde(texto);
+
+      await montarApp();
+
+      // Lo esperado sale del dominio, con la misma semilla y el mismo "hoy" que usa la app.
+      const { cierres } = materializarSemilla(validada.semilla, new Date());
+      const ultimo = cierres.reduce((a, b) => (b.fecha > a.fecha ? b : a));
+      const porCobrar = totalPorCobrar(cierres);
+      expect(porCobrar.pagos).toBeGreaterThan(0);
+
+      // "Te queda": un monto de verdad, no S/ 0.00.
+      const teQueda = textoDe('inicio-te-queda');
+      expect(teQueda).not.toBe('S/ 0.00');
+      expect(teQueda).toBe(formatoSoles(calcularCierre(ultimo).teQueda));
+      expect(textosEnPantalla()).toContain('Te queda');
+      // "Yape por cobrar" con su total y sus pagos.
+      expect(textosEnPantalla()).toContain('Yape por cobrar');
+      expect(textoDe('inicio-por-cobrar-total')).toBe(formatoSoles(porCobrar.total));
+      expect(textoDe('inicio-por-cobrar-pagos')).toBe(`${porCobrar.pagos} pagos`);
+      // Y ya no ofrece cargar nada: los datos de ejemplo están.
+      expect(hayNodo('inicio-cargar-ejemplo')).toBe(false);
+      expect(mensajesTecnicosEnPantalla()).toEqual([]);
+    })();
   });
 });

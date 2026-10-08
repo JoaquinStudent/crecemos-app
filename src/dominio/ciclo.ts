@@ -79,3 +79,15 @@ export const mercaderiaDelCiclo = (ciclo: Ciclo): MercaderiaProducto[] => {
     .map(m => ({ ...m, sobranteSoles: redondearSoles(m.sobranteSoles) }))
     .sort((a, b) => a.nombre.localeCompare(b.nombre) || a.productoId.localeCompare(b.productoId));
 };
+
+/**
+ * Cuánto del capital del ciclo ya se recuperó con lo vendido: entero de 0 a 100. Sin capital
+ * no hay nada que recuperar (100). Redondea hacia abajo, así que 100 significa que de verdad
+ * recuperó el capital y nunca "casi". Cuenta en centavos para que 0.29 / 1 dé 29 y no 28.
+ */
+export const porcentajeCapitalRecuperado = (r: ResumenCiclo): number => {
+  if (r.capital <= 0) return 100;
+  const centavosVendidos = Math.max(0, Math.round(r.venta * 100));
+  const centavosCapital = Math.round(r.capital * 100);
+  return Math.min(100, Math.floor((centavosVendidos * 100) / centavosCapital));
+};

@@ -260,6 +260,45 @@ describe('Perfil y hoja "Cambiar precio"', () => {
     expect(existe('editar-yapeNumero')).toBe(false);
   });
 
+  // P17: un Yape que no se acepta no puede estar "a nombre de otra persona", pero lo que ya
+  // se escribió (número, de quién es, qué es para él) no se pierde.
+  it('apagar "Acepto Yape" con "no está a mi nombre" encendido apaga ese interruptor y conserva los datos', async () => {
+    const { tocar, escribir, cambiarInterruptor, interruptor } = await montarApp();
+    await tocar('abrir-perfil');
+    await cambiarInterruptor('switch-yape-ajeno', true);
+    await tocar('editar-yapeNumero');
+    await escribir('input-yapeNumero', '987654321');
+    await tocar('guardar-yapeNumero');
+    await tocar('editar-yapeTitular');
+    await escribir('input-yapeTitular', 'persona de prueba');
+    await tocar('guardar-yapeTitular');
+    await tocar('editar-yapeParentesco');
+    await escribir('input-yapeParentesco', 'hermana');
+    await tocar('guardar-yapeParentesco');
+    expect(interruptor('switch-yape-ajeno').props.value).toBe(true);
+
+    await cambiarInterruptor('switch-acepta-yape', false);
+
+    expect(interruptor('switch-acepta-yape').props.value).toBe(false);
+    expect(interruptor('switch-yape-ajeno').props.value).toBe(false);
+    expect(interruptor('switch-yape-ajeno').props.disabled).toBe(true);
+    const perfil = await obtenerPerfil();
+    expect(perfil?.aceptaYape).toBe(false);
+    expect(perfil?.yapeAjeno).toBe(false);
+    expect(perfil?.yapeNumero).toBe('987654321');
+    expect(perfil?.yapeTitular).toBe('persona de prueba');
+    expect(perfil?.yapeParentesco).toBe('hermana');
+
+    // Si vuelve a aceptar Yape, los datos siguen ahí y "no está a mi nombre" queda apagado.
+    await cambiarInterruptor('switch-acepta-yape', true);
+    const despues = await obtenerPerfil();
+    expect(despues?.aceptaYape).toBe(true);
+    expect(despues?.yapeAjeno).toBe(false);
+    expect(despues?.yapeNumero).toBe('987654321');
+    expect(despues?.yapeTitular).toBe('persona de prueba');
+    expect(despues?.yapeParentesco).toBe('hermana');
+  });
+
   // GUARDA, no verificación: Jest no ve el diseño ni el teclado. Esta prueba solo evita que
   // alguien quite la configuración que hace que el teclado de iOS no tape la fila que se
   // edita en "Mis datos" (defecto hallado en el simulador, iPhone 17e). Que el campo con su
