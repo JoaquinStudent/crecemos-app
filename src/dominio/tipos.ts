@@ -129,6 +129,32 @@ export interface ResumenPorCobrar {
   desde?: FechaNegocio;
 }
 
+/** Lo de un producto en un periodo: lo que se vende, lo que deja por porción y lo que ganó en total. */
+export interface GananciaProducto {
+  productoId: string;
+  nombre: string;
+  /** Porciones vendidas en el periodo. */
+  seVende: number;
+  /** Ganancia por porción (ganancia / seVende), con los precios copiados en cada línea. */
+  teDeja: number;
+  ganancia: number;
+}
+
+export interface Recomendacion {
+  reglaId: 'cobro' | 'precio' | 'preparar' | 'retiro' | 'diaFlojo' | 'comparacion';
+  /** 1 es la más alta. */
+  prioridad: number;
+  /** Con verbo y monto en soles. */
+  mensaje: string;
+}
+
+/** Todo lo que una regla puede mirar. La fecha de hoy entra por aquí: el motor no lee el reloj. */
+export interface ContextoAnalisis {
+  cierres: Cierre[];
+  productos: Producto[];
+  hoy: FechaNegocio;
+}
+
 /** Producto del JSON del Mock API: la fecha entra como `actualizadoDiasAtras`. */
 export interface ProductoSemilla {
   id: string;

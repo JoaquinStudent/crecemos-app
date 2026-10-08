@@ -16,7 +16,8 @@
       "@navigation/*": ["./src/navigation/*"],
       "@storage/*": ["./src/storage/*"],
       "@types/*": ["./src/types/*"],
-      "@dominio/*": ["./src/dominio/*"]
+      "@dominio/*": ["./src/dominio/*"],
+      "@analisis/*": ["./src/analisis/*"]
     }
   }
 }

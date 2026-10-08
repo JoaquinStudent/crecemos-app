@@ -1,20 +1,14 @@
 // src/dominio/producto.ts
+import { diasEntre } from './fecha';
 import { redondearSoles } from './formato';
 import type { FechaNegocio, Producto } from './tipos';
 
 const DIAS_PARA_REVISAR = 90;
-const MS_POR_DIA = 24 * 60 * 60 * 1000;
 
 /** Parte 'YYYY-MM-DD' sin pasar por Date local: no depende de la zona horaria. */
 const partes = (f: FechaNegocio): { a: number; m: number; d: number } => {
   const [a, m, d] = f.split('-').map(Number);
   return { a, m, d };
-};
-
-const diasEntre = (desde: FechaNegocio, hasta: FechaNegocio): number => {
-  const x = partes(desde);
-  const y = partes(hasta);
-  return Math.round((Date.UTC(y.a, y.m - 1, y.d) - Date.UTC(x.a, x.m - 1, x.d)) / MS_POR_DIA);
 };
 
 /** Meses calendario completos entre dos fechas. */
