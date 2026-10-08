@@ -6,18 +6,24 @@
  * La tarea del sprint es ponerlos en verde sin relajar ninguna aserción.
  */
 
+/// <reference types="node" />
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import { createElement } from 'react';
-import ReactTestRenderer, { act } from 'react-test-renderer';
+import ReactTestRenderer, { act, ReactTestInstance } from 'react-test-renderer';
 import { clearAllMockStorages } from '@react-native-async-storage/async-storage/jest';
+import { generatePDF } from 'react-native-html-to-pdf';
 import { launchImageLibrary } from 'react-native-image-picker';
+import Share from 'react-native-share';
 import App from '../../App';
-import { restarDias } from '@dominio/fecha';
+import { fechaLocal, restarDias } from '@dominio/fecha';
 import { armarFotoUri, avatarDe, FOTO_MAX_BYTES, quitarFoto, validarFoto } from '@dominio/foto';
 import { formatoSoles } from '@dominio/formato';
+import { materializarSemilla, validarSemilla } from '@dominio/semilla';
 import type { Cierre, FechaNegocio, Perfil, Senales } from '@dominio/tipos';
-import { htmlReporte } from '@analisis/htmlReporte';
+import { htmlReporte, NOMBRE_ARCHIVO_PDF } from '@analisis/htmlReporte';
 import { senalesBanco } from '@analisis/senales';
-import { guardarPerfil, obtenerPerfil } from '@storage/repositorio';
+import { guardarCierre, guardarPerfil, obtenerPerfil } from '@storage/repositorio';
 
 // "Hoy" es explícito: el reloj no decide ningún resultado.
 const HOY: FechaNegocio = '2026-10-07';
@@ -76,6 +82,71 @@ const perfilDe = (extra: Partial<Perfil> = {}): Perfil => ({
   actualizadoEn: INSTANTE,
   ...extra,
 });
+
+// La app real, montada como en el teléfono (como en spec06_e5 y spec06_e6).
+const RUTA_SEMILLA = join(__dirname, '..', '..', 'seed', 'semilla.json');
+let montada: ReactTestRenderer.ReactTestRenderer | null = null;
+const montarApp = async () => {
+  await act(async () => {
+    montada = ReactTestRenderer.create(createElement(App));
+  });
+  for (let i = 0; i < 5; i += 1) {
+    await act(async () => {
+      await new Promise(resolver => setTimeout(resolver, 0));
+    });
+  }
+};
+const desmontarApp = async () => {
+  const app = montada;
+  montada = null;
+  if (app) await act(async () => app.unmount());
+};
+const raiz = (): ReactTestInstance => {
+  if (!montada) throw new Error('La app no está montada');
+  return (montada as ReactTestRenderer.ReactTestRenderer).root;
+};
+const tocarBoton = (testID: string) =>
+  act(async () => {
+    const nodo = raiz().findAll(
+      n => n.props.testID === testID && typeof n.props.onPress === 'function',
+    )[0];
+    if (!nodo) throw new Error(`No hay nada con testID "${testID}" que responda a onPress`);
+    await nodo.props.onPress();
+  });
+const textoCompleto = (n: ReactTestInstance | string): string =>
+  typeof n === 'string' ? n : n.children.map(textoCompleto).join('');
+const textosEnPantalla = (): string[] =>
+  raiz()
+    .findAll(n => (n.type as unknown) === 'Text')
+    .map(textoCompleto);
+const textoDe = (testID: string): string => {
+  const nodo = raiz().findAll(n => (n.type as unknown) === 'Text' && n.props.testID === testID)[0];
+  if (!nodo) throw new Error(`No hay ningún texto con testID "${testID}"`);
+  return textoCompleto(nodo);
+};
+const hayNodo = (testID: string): boolean => raiz().findAll(n => n.props.testID === testID).length > 0;
+
+// Todos los temporizadores quedan reales (la app y el almacenamiento esperan promesas de verdad);
+// solo el reloj se fija, como en spec06_e5.
+const SIN_FALSEAR = [
+  'hrtime',
+  'nextTick',
+  'performance',
+  'queueMicrotask',
+  'requestAnimationFrame',
+  'cancelAnimationFrame',
+  'requestIdleCallback',
+  'cancelIdleCallback',
+  'setImmediate',
+  'clearImmediate',
+  'setInterval',
+  'clearInterval',
+  'setTimeout',
+  'clearTimeout',
+] as const;
+
+const generar = jest.mocked(generatePDF);
+const abrirHoja = jest.mocked(Share.open);
 
 describe('SPEC-07: Foto de perfil y reporte en PDF', () => {
   // @spec07_e1 — Una foto pequeña es válida; una pesada o sin formato, no
@@ -306,7 +377,46 @@ describe('SPEC-07: Foto de perfil y reporte en PDF', () => {
     // Given: la pantalla Mi reporte con la vista previa generada
     // When: se abre la pantalla y luego se toca "Compartir reporte"
     // Then: ni generar el PDF ni abrir la hoja de compartir se llaman al abrir la pantalla, y se llaman 1 sola vez al tocar el botón, con un archivo que termina en ".pdf"
-    throw new Error('Rojo: no implementado');
+    return (async () => {
+      clearAllMockStorages();
+      generar.mockClear();
+      abrirHoja.mockClear();
+      // Hoy es el 7 de octubre; hay tres meses completos y el perfil de Freddy.
+      jest.useFakeTimers({ doNotFake: [...SIN_FALSEAR], now: new Date('2026-10-07T12:00:00-05:00') });
+      try {
+        const cierres = tresMesesCompletos();
+        for (const c of cierres) await guardarCierre(c);
+        await guardarPerfil(perfilDe());
+
+        await montarApp();
+        // Resumen → "Mi reporte": la vista previa ya está generada.
+        await tocarBoton('tab-resumen');
+        await tocarBoton('resumen-mi-reporte');
+        expect(hayNodo('reporte-hoja')).toBe(true);
+        expect(textoDe('reporte-venta-promedio')).toBe('S/ 5,120.00');
+        expect(textosEnPantalla()).toContain('Compartir reporte');
+
+        // Abrir la pantalla no genera ni comparte nada.
+        expect(generar).not.toHaveBeenCalled();
+        expect(abrirHoja).not.toHaveBeenCalled();
+
+        // Solo el botón lo hace: una vez cada uno, con un archivo .pdf.
+        await tocarBoton('reporte-compartir-pdf');
+        expect(generar).toHaveBeenCalledTimes(1);
+        expect(abrirHoja).toHaveBeenCalledTimes(1);
+        const hoja = abrirHoja.mock.calls[0][0];
+        expect(hoja.url?.startsWith('file://')).toBe(true);
+        expect(hoja.url?.endsWith('.pdf')).toBe(true);
+        expect(hoja.type).toBe('application/pdf');
+        // El documento que lo originó es el del reporte de hoy.
+        expect(generar.mock.calls[0][0].html).toBe(
+          htmlReporte(senalesBanco(cierres, HOY), perfilDe(), HOY),
+        );
+      } finally {
+        jest.useRealTimers();
+        await desmontarApp();
+      }
+    })();
   });
 
   // @spec07_e10 — e2e: del dato al PDF con la foto
@@ -314,6 +424,56 @@ describe('SPEC-07: Foto de perfil y reporte en PDF', () => {
     // Given: la app con la semilla cargada y una foto de perfil guardada
     // When: se abre Mi reporte y se toca "Compartir reporte"
     // Then: la hoja de compartir recibe un archivo ".pdf" y el documento que lo originó lleva la foto y "Venta promedio mensual"
-    throw new Error('Rojo: no implementado');
+    return (async () => {
+      clearAllMockStorages();
+      generar.mockClear();
+      abrirHoja.mockClear();
+      const texto = readFileSync(RUTA_SEMILLA, 'utf8');
+      const validada = validarSemilla(JSON.parse(texto));
+      if (!validada.ok) throw new Error('La semilla del repositorio no valida');
+      const fetchPorDefecto = global.fetch;
+      global.fetch = jest.fn(
+        async () => ({ ok: true, status: 200, text: async () => texto } as unknown as Response),
+      ) as unknown as typeof fetch;
+      try {
+        // Una foto de perfil ya guardada, como la deja "Mi perfil".
+        const foto = armarFotoUri(base64DeBytes(2 * 1024), 'image/jpg');
+        expect(validarFoto(foto)).toEqual({ ok: true });
+        await guardarPerfil(perfilDe({ fotoUri: foto }));
+
+        await montarApp();
+
+        // Resumen → "Mi reporte".
+        await tocarBoton('tab-resumen');
+        await tocarBoton('resumen-mi-reporte');
+
+        // Lo esperado sale del dominio, con la misma semilla y el mismo "hoy" que usa la app.
+        const { cierres } = materializarSemilla(validada.semilla, new Date());
+        const hoy = fechaLocal(new Date());
+        const senales = senalesBanco(cierres, hoy);
+        expect(senales.ventaPromedioMensual).toBeGreaterThan(0);
+        expect(textoDe('reporte-venta-promedio')).toBe(formatoSoles(senales.ventaPromedioMensual));
+
+        // La hoja de compartir recibe un archivo .pdf...
+        await tocarBoton('reporte-compartir-pdf');
+        expect(generar).toHaveBeenCalledTimes(1);
+        expect(abrirHoja).toHaveBeenCalledTimes(1);
+        const hoja = abrirHoja.mock.calls[0][0];
+        expect(hoja.url?.startsWith('file://')).toBe(true);
+        expect(hoja.url?.endsWith('.pdf')).toBe(true);
+        expect(hoja.type).toBe('application/pdf');
+
+        // ...y el documento que lo originó lleva la foto y las cifras del reporte.
+        const documento = generar.mock.calls[0][0];
+        expect(documento.fileName).toBe(NOMBRE_ARCHIVO_PDF(hoy));
+        expect(documento.html).toContain('Venta promedio mensual');
+        expect(documento.html).toContain(foto);
+        expect(documento.html).toContain(formatoSoles(senales.ventaPromedioMensual));
+        expect(documento.html).toBe(htmlReporte(senales, perfilDe({ fotoUri: foto }), hoy));
+      } finally {
+        global.fetch = fetchPorDefecto;
+        await desmontarApp();
+      }
+    })();
   });
 });

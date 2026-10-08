@@ -280,17 +280,17 @@ describe('htmlReporte · barras por mes', () => {
     html = htmlReporte(senalesDe(), perfilDe(), HOY);
   });
 
-  it('la barra mayor llena el alto (100 pt) y las demás son proporcionales', () => {
-    // 4,900 ÷ 5,360 = 91.4 % · 5,100 ÷ 5,360 = 95.1 %
-    expect(html).toContain('<div class="barra" style="height: 91pt"></div>');
-    expect(html).toContain('<div class="barra" style="height: 95pt"></div>');
-    expect(html).toContain('<div class="barra" style="height: 100pt"></div>');
+  it('la barra mayor llena el alto (170 pt) y las demás son proporcionales', () => {
+    // 4,900 ÷ 5,360 × 170 = 155.4 · 5,100 ÷ 5,360 × 170 = 161.8
+    expect(html).toContain('<div class="barra" style="height: 155pt"></div>');
+    expect(html).toContain('<div class="barra" style="height: 162pt"></div>');
+    expect(html).toContain('<div class="barra" style="height: 170pt"></div>');
     expect(cuenta(html, 'class="barra"')).toBe(3);
   });
 
   it('el monto va encima de su barra y el mes en tres letras debajo', () => {
     expect(html).toContain(
-      '<div class="monto">S/ 4,900.00</div><div class="barra" style="height: 91pt"></div><div class="mes">Jul</div>',
+      '<div class="monto">S/ 4,900.00</div><div class="barra" style="height: 155pt"></div><div class="mes">Jul</div>',
     );
     expect(html).toContain('<div class="mes">Ago</div>');
     expect(html).toContain('<div class="mes">Sep</div>');
@@ -311,7 +311,7 @@ describe('htmlReporte · barras por mes', () => {
     expect(conCero).toContain(
       '<div class="monto">S/ 0.00</div><div class="barra" style="height: 3pt">',
     );
-    expect(conCero).toContain('<div class="barra" style="height: 100pt">');
+    expect(conCero).toContain('<div class="barra" style="height: 170pt">');
   });
 
   it('si todos los meses valen 0 todas las barras son mínimas', () => {
@@ -335,7 +335,7 @@ describe('htmlReporte · barras por mes', () => {
       perfilDe(),
       HOY,
     );
-    expect(uno).toContain('<div class="barra" style="height: 100pt">');
+    expect(uno).toContain('<div class="barra" style="height: 170pt">');
   });
 
   it('sin ningún mes completo no hay gráfico', () => {
@@ -501,6 +501,210 @@ describe('NOMBRE_ARCHIVO_PDF', () => {
   it('no tiene espacios, tildes ni extensión', () => {
     expect(NOMBRE_ARCHIVO_PDF('2026-01-05')).toMatch(/^[A-Za-z0-9-]+$/);
     expect(NOMBRE_ARCHIVO_PDF('2026-01-05').endsWith('.pdf')).toBe(false);
+  });
+});
+
+/** El texto que se lee en el documento: sin el estilo ni las etiquetas. */
+const soloTexto = (html: string): string =>
+  html
+    .replace(/<style>[\s\S]*?<\/style>/, '')
+    .replace(/<[^>]+>/g, '')
+    .replace(/\s+/g, ' ');
+
+/** El cuerpo de una regla de estilo: `.valor { … }` → '…'. */
+const regla = (html: string, selector: string): string => {
+  const inicio = html.indexOf(`${selector} {`);
+  if (inicio < 0) throw new Error(`No hay ninguna regla "${selector}"`);
+  return html.slice(html.indexOf('{', inicio) + 1, html.indexOf('}', inicio));
+};
+
+describe('htmlReporte · línea de promedio', () => {
+  it('dibuja una línea punteada horizontal con la etiqueta "Promedio S/ …"', () => {
+    const html = htmlReporte(senalesDe(), perfilDe(), HOY);
+    // 5,120 ÷ 5,360 × 170 = 162.4 pt sobre la base de las barras (18 pt de los meses).
+    expect(html).toContain('<div class="promedio" style="bottom: 180pt"></div>');
+    expect(cuenta(html, 'class="promedio"')).toBe(1);
+    expect(regla(html, '.promedio')).toContain('dotted');
+    expect(soloTexto(html)).toContain('Promedio S/ 5,120.00');
+  });
+
+  it('la etiqueta usa formatoSoles con la venta promedio mensual', () => {
+    const html = htmlReporte(senalesDe({ ventaPromedioMensual: 5163.5 }), perfilDe(), HOY);
+    expect(soloTexto(html)).toContain(`Promedio ${formatoSoles(5163.5)}`);
+    expect(soloTexto(html)).toContain('Promedio S/ 5,163.50');
+  });
+
+  it('no usa JavaScript: es un <div> con el borde punteado y la altura en pt', () => {
+    const html = htmlReporte(senalesDe(), perfilDe(), HOY);
+    expect(html.toLowerCase()).not.toContain('<script');
+    expect(html).not.toContain('<svg');
+    expect(html).not.toContain('<canvas');
+    expect(regla(html, '.promedio')).toContain('position: absolute');
+  });
+
+  it('con un solo mes completo la línea queda a la altura de su barra', () => {
+    const html = htmlReporte(
+      senalesDe({
+        ventaPromedioMensual: 800,
+        meses: [{ mes: '2026-09', venta: 800, teQueda: 300, dias: 10 }],
+        mesesCompletos: 1,
+      }),
+      perfilDe(),
+      HOY,
+    );
+    expect(html).toContain('<div class="promedio" style="bottom: 188pt"></div>');
+    expect(soloTexto(html)).toContain('Promedio S/ 800.00');
+  });
+
+  it('un promedio mayor que la barra mayor no se sale del gráfico', () => {
+    const html = htmlReporte(senalesDe({ ventaPromedioMensual: 999999 }), perfilDe(), HOY);
+    expect(html).toContain('<div class="promedio" style="bottom: 188pt"></div>');
+  });
+
+  it('si todas las ventas son 0 la línea queda en la base', () => {
+    const html = htmlReporte(
+      senalesDe({
+        ventaPromedioMensual: 0,
+        meses: [{ mes: '2026-09', venta: 0, teQueda: 0, dias: 0 }],
+        mesesCompletos: 1,
+      }),
+      perfilDe(),
+      HOY,
+    );
+    expect(html).toContain('<div class="promedio" style="bottom: 18pt"></div>');
+  });
+
+  it('sin ningún mes completo no hay línea ni etiqueta de promedio', () => {
+    const html = htmlReporte(sinMeses(), perfilDe(), HOY);
+    expect(html).not.toContain('class="promedio"');
+    expect(soloTexto(html)).not.toMatch(/Promedio S\//);
+  });
+
+  it('el monto de cada barra sigue encima de ella y el mes debajo', () => {
+    const html = htmlReporte(senalesDe(), perfilDe(), HOY);
+    expect(html.indexOf('<div class="monto">S/ 5,360.00</div>')).toBeLessThan(
+      html.indexOf('<div class="barra" style="height: 170pt">'),
+    );
+    expect(html).toContain('<div class="mes">Sep</div>');
+  });
+});
+
+describe('htmlReporte · cómo leer este reporte', () => {
+  const DEFINICIONES = [
+    'Venta promedio mensual: lo que vendió el negocio en un mes, promediado sobre los últimos meses completos.',
+    'Ganancia promedio mensual: lo que le queda al negocio en el mes, después de restar lo que gastó.',
+    'Constancia de registro: el porcentaje de los últimos 90 días en los que el negocio registró su día de ventas.',
+  ];
+  const casos: [string, Senales][] = [
+    ['con tres meses', senalesDe()],
+    ['en construcción', senalesDe({ enConstruccion: true, diasFaltantes: 21 })],
+    ['sin ningún mes completo', sinMeses()],
+    ['sin días registrados', senalesBanco([], HOY)],
+  ];
+
+  it('lleva el título y las tres definiciones, palabra por palabra', () => {
+    const texto = soloTexto(htmlReporte(senalesDe(), perfilDe(), HOY));
+    expect(texto).toContain('Cómo leer este reporte');
+    for (const definicion of DEFINICIONES) expect(texto).toContain(definicion);
+    expect(cuenta(htmlReporte(senalesDe(), perfilDe(), HOY), 'class="def"')).toBe(3);
+  });
+
+  it.each(casos)('las definiciones también van %s', (_nombre, senales) => {
+    const texto = soloTexto(htmlReporte(senales, perfilDe(), HOY));
+    expect(texto).toContain('Cómo leer este reporte');
+    for (const definicion of DEFINICIONES) expect(texto).toContain(definicion);
+  });
+
+  it.each(casos)('no usa las palabras "balance" ni "margen" %s', (_nombre, senales) => {
+    const texto = soloTexto(htmlReporte(senales, perfilDe(), HOY));
+    expect(texto).not.toMatch(/balance|margen|utilidad|conciliar/i);
+  });
+
+  it('cada definición cabe en una línea corta: sin jerga y de menos de 120 caracteres', () => {
+    for (const definicion of DEFINICIONES) expect(definicion.length).toBeLessThan(120);
+  });
+
+  it('va después de las cifras y antes del pie', () => {
+    const html = htmlReporte(senalesDe(), perfilDe(), HOY);
+    expect(html.indexOf('Cómo leer este reporte')).toBeGreaterThan(html.indexOf('Venta por mes'));
+    expect(html.indexOf('Cómo leer este reporte')).toBeLessThan(html.indexOf('class="pie"'));
+  });
+});
+
+describe('htmlReporte · jerarquía y una sola página A4', () => {
+  const peor = (): string =>
+    htmlReporte(
+      senalesDe({ enConstruccion: true, diasFaltantes: 21 }),
+      perfilDe({ nombre: 'N'.repeat(60), negocio: 'B'.repeat(60), fotoUri: FOTO }),
+      HOY,
+    );
+
+  it('el título mide 24 pt y el número de cada tarjeta, 22 pt', () => {
+    const html = htmlReporte(senalesDe(), perfilDe(), HOY);
+    expect(regla(html, 'h1')).toMatch(/font-size:\s*24pt/);
+    expect(regla(html, '.valor')).toMatch(/font-size:\s*22pt/);
+  });
+
+  it('separa las secciones con una línea fina', () => {
+    const html = htmlReporte(senalesDe(), perfilDe(), HOY);
+    expect(regla(html, '.seccion')).toContain('border-top: 1pt solid #E4D7DE');
+    expect(cuenta(html, 'class="seccion')).toBeGreaterThanOrEqual(2);
+  });
+
+  it('el pie queda al fondo de la hoja, con la privacidad y la fecha', () => {
+    const html = htmlReporte(senalesDe(), perfilDe(), HOY);
+    expect(regla(html, '.hoja')).toContain('display: flex');
+    expect(regla(html, '.hoja')).toContain('flex-direction: column');
+    expect(regla(html, '.pie')).toContain('margin-top: auto');
+    const pie = html.slice(html.indexOf('<div class="pie">'));
+    expect(soloTexto(pie)).toContain(FRASE_PIE);
+    expect(soloTexto(pie)).toContain('Generado el martes 20 de octubre de 2026');
+    // El pie es lo último de la hoja: nada de contenido después.
+    expect(html.indexOf('<div class="pie">')).toBeGreaterThan(
+      html.indexOf('Cómo leer este reporte'),
+    );
+  });
+
+  it('la hoja mide menos que la página (842 pt) y no se parte', () => {
+    const html = htmlReporte(senalesDe(), perfilDe(), HOY);
+    const alto = Number(/min-height:\s*([\d.]+)pt/.exec(regla(html, '.hoja'))?.[1]);
+    expect(alto).toBeGreaterThanOrEqual(800);
+    expect(alto).toBeLessThanOrEqual(842);
+    expect(regla(html, '.hoja')).toContain('page-break-inside: avoid');
+    expect(regla(html, '.hoja')).toContain('break-inside: avoid');
+    expect(regla(html, '.hoja')).toContain('width: 595pt');
+  });
+
+  it('nunca fuerza un salto de página y tiene una sola hoja, también en el peor caso', () => {
+    const documentos = [
+      htmlReporte(senalesDe(), perfilDe(), HOY),
+      htmlReporte(sinMeses({ enConstruccion: true, diasFaltantes: 21 }), perfilDe(), HOY),
+      peor(),
+    ];
+    for (const html of documentos) {
+      expect(cuenta(html, 'class="hoja"')).toBe(1);
+      expect(html).not.toMatch(/page-break-(before|after):\s*always/);
+      expect(html).not.toMatch(/break-(before|after):\s*(page|always)/);
+      expect(html.trimEnd().endsWith('</div></body></html>')).toBe(true);
+    }
+  });
+
+  it('en el peor caso (3 meses, en construcción, nombres de 60 letras, con foto) la foto y el pie siguen', () => {
+    const html = peor();
+    expect(html).toContain(`<img class="foto" src="${FOTO}" alt="">`);
+    expect(html).toContain('Cómo leer este reporte');
+    expect(html).toContain('class="aviso"');
+    expect(html).toContain('class="pie"');
+    expect(cuenta(html, 'class="barra"')).toBe(3);
+  });
+
+  it('el peor caso sigue siendo un documento ligero (menos de 12 KB sin la foto)', () => {
+    const sinFoto = htmlReporte(
+      senalesDe({ enConstruccion: true, diasFaltantes: 21 }),
+      perfilDe({ nombre: 'N'.repeat(60), negocio: 'B'.repeat(60) }),
+      HOY,
+    );
+    expect(Buffer.byteLength(sinFoto, 'utf8')).toBeLessThan(12 * 1024);
   });
 });
 

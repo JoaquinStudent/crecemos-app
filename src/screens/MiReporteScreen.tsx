@@ -1,10 +1,10 @@
 // src/screens/MiReporteScreen.tsx
 // "Mi reporte" (mock 06): la vista previa, como un documento, de lo que Freddy puede mostrarle a su
-// banco, y el botón para compartirlo. Las señales y el texto salen del dominio (`senalesBanco`,
-// `textoReporte`): la pantalla solo los dibuja. Nada sale del teléfono hasta que toca "Compartir
-// reporte" (P6 de manejo-de-datos.md): generar esta vista no comparte nada.
-// No entran del mock: el selector de periodo ni "Descargar PDF" (el periodo es fijo y se comparte
-// texto plano).
+// banco, y los botones para compartirlo. Las señales, el texto y el documento salen del dominio
+// (`senalesBanco`, `textoReporte`, `htmlReporte`): la pantalla solo los dibuja. Nada se genera ni
+// sale del teléfono hasta que toca un botón (P6 de manejo-de-datos.md): "Compartir reporte" arma el
+// PDF en el teléfono y abre la hoja de compartir; "Compartir solo el texto" comparte texto plano.
+// No entra del mock el selector de periodo (el periodo es fijo).
 import React, { useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -15,6 +15,8 @@ import { colors, radius, spacing } from '@theme';
 import { Text } from '@components/atoms/Text';
 import { Button } from '@components/atoms/Button';
 import { Icon } from '@components/atoms/Icon';
+import { AvatarPerfil } from '@components/molecules/AvatarPerfil';
+import { htmlReporte, NOMBRE_ARCHIVO_PDF } from '@analisis/htmlReporte';
 import {
   DIAS_CONVINCENTE,
   diasRegistradosTexto,
@@ -24,16 +26,23 @@ import {
 } from '@analisis/senales';
 import { fechaLocal } from '@dominio/fecha';
 import { formatoFechaCorta, formatoSoles, nombreMes } from '@dominio/formato';
-import type { MesCompleto, Senales } from '@dominio/tipos';
+import { avatarDe } from '@dominio/foto';
+import type { MesCompleto, Perfil, Senales } from '@dominio/tipos';
 import { useCrecemos } from '@context/CrecemosProvider';
 import { compartirReporte } from '@services/compartir';
+import { compartirPdf } from '@services/pdf';
 import type { RootStackParamList } from '@navigation/RootStack';
 
 const TEXTO_PRIVACIDAD =
   'Tú decides qué compartes. Este reporte muestra totales, no tus movimientos uno por uno. Nada se envía si no tocas el botón.';
 const TEXTO_SIN_MES = 'aún no hay un mes completo';
 const TEXTO_ERROR = 'No pudimos abrir la hoja para compartir. Inténtalo otra vez.';
+const TEXTO_ERROR_PDF = 'No pudimos preparar el PDF. Inténtalo otra vez.';
 const TEXTO_AYUDA_VACIO = 'Cierra tu primer día para armar tu reporte';
+const TEXTO_AYUDA_PDF = 'El PDF lleva solo totales. No lleva tu Yape ni tus movimientos.';
+const TITULO_PDF = 'Reporte de actividad del negocio';
+/** Foto de la identidad en la hoja de pantalla, en dp. */
+const TAMANO_FOTO = 56;
 
 /** Alto de la zona de las barras: la del mes mayor la llena entera. */
 const ALTO_BARRAS = 96;
@@ -61,26 +70,58 @@ export const MiReporteScreen = () => {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList, 'MiReporte'>>();
   const insets = useSafeAreaInsets();
 
-  const senales = useMemo(() => senalesBanco(cierres, fechaLocal(new Date())), [cierres]);
+  const { senales, hoy } = useMemo(() => {
+    const fecha = fechaLocal(new Date());
+    return { senales: senalesBanco(cierres, fecha), hoy: fecha };
+  }, [cierres]);
   const texto = useMemo(() => textoReporte(senales, perfil), [senales, perfil]);
 
-  const [falloAlCompartir, setFalloAlCompartir] = useState(false);
-  // Un toque, una llamada: mientras la hoja se abre, otro toque no hace nada.
-  const compartiendo = useRef(false);
+  // El mensaje amable del último fallo (o nada). Cerrar la hoja sin compartir no es un fallo.
+  const [mensajeError, setMensajeError] = useState<string | null>(null);
+  const [preparando, setPreparando] = useState(false);
+  // Un toque, una acción: mientras se prepara o se abre la hoja, otro toque no hace nada.
+  const ocupado = useRef(false);
   const sinDias = senales.diasRegistrados === 0;
 
-  const compartir = async () => {
-    if (compartiendo.current || sinDias) return;
-    compartiendo.current = true;
-    setFalloAlCompartir(false);
+  const compartirComoPdf = async () => {
+    if (ocupado.current || sinDias) return;
+    ocupado.current = true;
+    setMensajeError(null);
+    setPreparando(true);
+    try {
+      // El documento se arma aquí, al tocar: abrir la pantalla no genera ni comparte nada.
+      const resultado = await compartirPdf(
+        htmlReporte(senales, perfil, hoy),
+        NOMBRE_ARCHIVO_PDF(hoy),
+        TITULO_PDF,
+      );
+      setMensajeError(
+        resultado?.ok !== false
+          ? null
+          : resultado.error === 'NO_SE_PUDO_PREPARAR'
+          ? TEXTO_ERROR_PDF
+          : TEXTO_ERROR,
+      );
+    } catch {
+      setMensajeError(TEXTO_ERROR_PDF);
+    } finally {
+      ocupado.current = false;
+      setPreparando(false);
+    }
+  };
+
+  const compartirComoTexto = async () => {
+    if (ocupado.current || sinDias) return;
+    ocupado.current = true;
+    setMensajeError(null);
     try {
       const resultado = await compartirReporte(texto);
       // Cerrar la hoja sin compartir es `ok`: solo un fallo de verdad muestra el mensaje.
-      setFalloAlCompartir(resultado?.ok === false);
+      setMensajeError(resultado?.ok === false ? TEXTO_ERROR : null);
     } catch {
-      setFalloAlCompartir(true);
+      setMensajeError(TEXTO_ERROR);
     } finally {
-      compartiendo.current = false;
+      ocupado.current = false;
     }
   };
 
@@ -122,17 +163,17 @@ export const MiReporteScreen = () => {
           </Text>
         </View>
 
-        <Hoja senales={senales} nombre={perfil.nombre} negocio={perfil.negocio} />
+        <Hoja senales={senales} perfil={perfil} />
       </ScrollView>
 
-      {/* El botón principal vive FUERA del scroll, en un pie fijo: siempre a la mano del pulgar. */}
+      {/* Los botones viven FUERA del scroll, en un pie fijo: siempre a la mano del pulgar. */}
       <View style={[styles.pie, { paddingBottom: spacing.lg + insets.bottom }]}>
         {sinDias ? (
           <Text variant="bodySmall" color="textMuted" align="center" testID="reporte-ayuda-vacio">
             {TEXTO_AYUDA_VACIO}
           </Text>
         ) : null}
-        {falloAlCompartir ? (
+        {mensajeError !== null ? (
           <Text
             variant="bodySmall"
             color="danger"
@@ -140,18 +181,30 @@ export const MiReporteScreen = () => {
             accessibilityLiveRegion="polite"
             testID="reporte-error-compartir"
           >
-            {TEXTO_ERROR}
+            {mensajeError}
           </Text>
         ) : null}
         <Button
-          title="Compartir reporte"
+          title={preparando ? 'Preparando tu reporte…' : 'Compartir reporte'}
           leftIcon={Share2}
           size="lg"
           fullWidth
-          disabled={sinDias}
-          onPress={compartir}
+          disabled={sinDias || preparando}
+          onPress={compartirComoPdf}
+          testID="reporte-compartir-pdf"
+        />
+        <Button
+          title="Compartir solo el texto"
+          variant="outline"
+          size="md"
+          fullWidth
+          disabled={sinDias || preparando}
+          onPress={compartirComoTexto}
           testID="reporte-compartir"
         />
+        <Text variant="caption" color="textMuted" align="center" testID="reporte-ayuda-pdf">
+          {TEXTO_AYUDA_PDF}
+        </Text>
       </View>
     </SafeAreaView>
   );
@@ -182,19 +235,13 @@ const EnConstruccion = ({ senales }: { senales: Senales }) => {
 };
 
 /** La vista previa como un documento: lo mismo que viaja en el texto, en una hoja blanca. */
-const Hoja = ({
-  senales,
-  nombre,
-  negocio,
-}: {
-  senales: Senales;
-  nombre: string;
-  negocio: string;
-}) => {
-  const quien = [nombre, negocio]
+const Hoja = ({ senales, perfil }: { senales: Senales; perfil: Perfil }) => {
+  const quien = [perfil.nombre, perfil.negocio]
     .map(parte => parte.trim())
     .filter(parte => parte !== '')
     .join(' · ');
+  // Solo hay círculo si hay foto: la inicial no aporta nada a un documento.
+  const conFoto = avatarDe(perfil).tipo === 'foto';
   const { primerCierre, ultimoCierre } = senales;
   const hayDias = primerCierre !== undefined && ultimoCierre !== undefined;
   const hayMeses = senales.mesesCompletos > 0;
@@ -208,10 +255,17 @@ const Hoja = ({
         Crecemos
       </Text>
       <Text variant="bodyStrong">Reporte de actividad del negocio</Text>
-      {quien !== '' ? (
-        <Text variant="bodySmall" testID="reporte-quien">
-          {quien}
-        </Text>
+      {quien !== '' || conFoto ? (
+        <View style={styles.identidad}>
+          {conFoto ? (
+            <AvatarPerfil perfil={perfil} tamano={TAMANO_FOTO} testIDFoto="reporte-avatar-foto" />
+          ) : null}
+          {quien !== '' ? (
+            <Text variant="bodySmall" style={styles.quien} testID="reporte-quien">
+              {quien}
+            </Text>
+          ) : null}
+        </View>
       ) : null}
       <Text variant="caption" color="textMuted" testID="reporte-periodo">
         {hayDias
@@ -358,6 +412,8 @@ const styles = StyleSheet.create({
   },
   hojaAtenuada: { opacity: OPACIDAD_EN_CONSTRUCCION },
   marca: { fontWeight: '700', letterSpacing: 0.5 },
+  identidad: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  quien: { flex: 1 },
   linea: { height: 1, backgroundColor: colors.border, marginVertical: spacing.sm },
   filaDato: {
     flexDirection: 'row',

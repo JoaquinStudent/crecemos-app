@@ -9,11 +9,14 @@ import { createElement } from 'react';
 import { StyleSheet } from 'react-native';
 import ReactTestRenderer, { act, ReactTestInstance } from 'react-test-renderer';
 import { clearAllMockStorages } from '@react-native-async-storage/async-storage/jest';
+import { generatePDF } from 'react-native-html-to-pdf';
+import Share from 'react-native-share';
 import App from '../App';
 import { colors } from '@theme';
 import { restarDias } from '@dominio/fecha';
 import { formatoFechaCorta, formatoSoles } from '@dominio/formato';
 import type { Cierre, FechaNegocio, Perfil } from '@dominio/tipos';
+import { htmlReporte, NOMBRE_ARCHIVO_PDF } from '@analisis/htmlReporte';
 import { senalesBanco, textoReporte } from '@analisis/senales';
 import { compartirReporte } from '@services/compartir';
 import { guardarCierre, guardarPerfil } from '@storage/repositorio';
@@ -23,6 +26,8 @@ jest.mock('@services/compartir');
 const HOY: FechaNegocio = '2026-10-07';
 const INSTANTE = '2026-10-07T12:00:00-05:00';
 const MENSAJE_ERROR = 'No pudimos abrir la hoja para compartir. Inténtalo otra vez.';
+const MENSAJE_ERROR_PDF = 'No pudimos preparar el PDF. Inténtalo otra vez.';
+const FOTO = `data:image/jpeg;base64,${'A'.repeat(400)}`;
 
 // Solo el reloj es falso; los temporizadores siguen reales (la app espera promesas de verdad).
 const SIN_FALSEAR = [
@@ -43,6 +48,8 @@ const SIN_FALSEAR = [
 ] as const;
 
 const compartir = compartirReporte as jest.MockedFunction<typeof compartirReporte>;
+const generar = jest.mocked(generatePDF);
+const abrirHoja = jest.mocked(Share.open);
 
 const textoCompleto = (n: ReactTestInstance | string): string =>
   typeof n === 'string' ? n : n.children.map(textoCompleto).join('');
@@ -81,6 +88,13 @@ const montarApp = async () => {
       const b = nodo.props.onPress();
       await Promise.all([a, b]);
     });
+  // Empieza un toque y no lo espera: deja la acción en curso para mirar el estado a medias.
+  const empezarToque = (testID: string) =>
+    act(async () => {
+      nodoTocable(testID).props.onPress();
+    });
+  const imagen = (testID: string) =>
+    app.root.findAll(n => n.props.testID === testID && n.props.source !== undefined)[0];
   const existe = (testID: string) => app.root.findAll(n => n.props.testID === testID).length > 0;
   const textos = () => app.root.findAll(n => esHost(n, 'Text')).map(textoCompleto);
   // Solo lo que dice esta pantalla: Resumen sigue montado debajo, en el stack.
@@ -115,7 +129,11 @@ const montarApp = async () => {
   const enOrden = (ids: string[]) => {
     const vistos: string[] = [];
     app.root
-      .findAll(n => (esHost(n, 'Text') || esHost(n, 'View')) && ids.includes(n.props.testID))
+      .findAll(
+        n =>
+          (esHost(n, 'Text') || esHost(n, 'View') || esHost(n, 'Image')) &&
+          ids.includes(n.props.testID),
+      )
       .forEach(n => {
         if (!vistos.includes(n.props.testID)) vistos.push(n.props.testID);
       });
@@ -128,6 +146,8 @@ const montarApp = async () => {
   return {
     tocar,
     tocarDosVeces,
+    empezarToque,
+    imagen,
     existe,
     textos,
     textosDeLaPantalla,
@@ -656,5 +676,328 @@ describe('Mi reporte', () => {
     await app.tocar('reporte-compartir');
 
     expect(fetchSimulado).not.toHaveBeenCalled();
+  });
+  describe('el PDF', () => {
+    const FILE = '/tmp/prueba.pdf';
+    const senalesDeTresMeses = () => senalesBanco(tresMeses(), HOY);
+
+    beforeEach(() => {
+      generar.mockReset();
+      generar.mockResolvedValue({ filePath: FILE });
+      abrirHoja.mockReset();
+      abrirHoja.mockResolvedValue({ success: true } as Awaited<ReturnType<typeof Share.open>>);
+    });
+
+    it('al abrir la pantalla no se genera ni se comparte nada', async () => {
+      await sembrar(tresMeses(), FREDDY);
+      const app = await montarApp();
+      await abrirReporte(app);
+
+      expect(generar).not.toHaveBeenCalled();
+      expect(abrirHoja).not.toHaveBeenCalled();
+      expect(compartir).not.toHaveBeenCalled();
+    });
+
+    it('el botón principal dice "Compartir reporte" y prepara y comparte el PDF', async () => {
+      await sembrar(tresMeses(), FREDDY);
+      const app = await montarApp();
+      await abrirReporte(app);
+
+      expect(app.textosDeLaPantalla().filter(t => t === 'Compartir reporte')).toHaveLength(1);
+      await app.tocar('reporte-compartir-pdf');
+
+      expect(generar).toHaveBeenCalledTimes(1);
+      const opciones = generar.mock.calls[0][0];
+      expect(opciones.html).toBe(htmlReporte(senalesDeTresMeses(), FREDDY, HOY));
+      expect(opciones.fileName).toBe(NOMBRE_ARCHIVO_PDF(HOY));
+      expect(opciones.fileName).toBe('Reporte-Crecemos-2026-10-07');
+      expect(abrirHoja).toHaveBeenCalledTimes(1);
+      expect(abrirHoja).toHaveBeenCalledWith({
+        url: `file://${FILE}`,
+        type: 'application/pdf',
+        title: 'Reporte de actividad del negocio',
+        failOnCancel: false,
+      });
+      // El PDF no es el texto: el flujo del Sprint-06 no se toca.
+      expect(compartir).not.toHaveBeenCalled();
+      expect(app.existe('reporte-error-compartir')).toBe(false);
+    });
+
+    it('el documento del PDF lleva solo totales: ni Yape, ni titular, ni ubicación', async () => {
+      const perfil: Perfil = {
+        ...FREDDY,
+        ubicacion: 'Av. Los Olivos 123',
+        yapeAjeno: true,
+        yapeNumero: '987654321',
+        yapeTitular: 'Rosa Quispe',
+        yapeParentesco: 'hermana',
+      };
+      await sembrar(tresMeses(), perfil);
+      const app = await montarApp();
+      await abrirReporte(app);
+
+      await app.tocar('reporte-compartir-pdf');
+
+      const html = generar.mock.calls[0][0].html;
+      for (const dato of ['987654321', 'Rosa', 'Quispe', 'hermana', 'Olivos']) {
+        expect(html).not.toContain(dato);
+      }
+      expect(html).toContain('S/ 5,120.00');
+    });
+
+    it('mientras prepara, el botón dice "Preparando tu reporte…" y está desactivado', async () => {
+      let terminar!: (r: { filePath: string }) => void;
+      generar.mockImplementation(
+        () =>
+          new Promise(resolver => {
+            terminar = resolver;
+          }),
+      );
+      await sembrar(tresMeses(), FREDDY);
+      const app = await montarApp();
+      await abrirReporte(app);
+      expect(app.botonDesactivado('reporte-compartir-pdf')).toBe(false);
+
+      await app.empezarToque('reporte-compartir-pdf');
+
+      expect(app.textosDeLaPantalla()).toContain('Preparando tu reporte…');
+      expect(app.textosDeLaPantalla()).not.toContain('Compartir reporte');
+      expect(app.botonDesactivado('reporte-compartir-pdf')).toBe(true);
+      expect(abrirHoja).not.toHaveBeenCalled();
+
+      await act(async () => {
+        terminar({ filePath: FILE });
+        await new Promise(resolver => setTimeout(resolver, 0));
+      });
+
+      // Listo: el botón vuelve a su texto y se puede usar otra vez.
+      expect(abrirHoja).toHaveBeenCalledTimes(1);
+      expect(app.textosDeLaPantalla()).toContain('Compartir reporte');
+      expect(app.textosDeLaPantalla()).not.toContain('Preparando tu reporte…');
+      expect(app.botonDesactivado('reporte-compartir-pdf')).toBe(false);
+    });
+
+    it('un solo toque es una sola generación: dos toques seguidos no preparan dos PDF', async () => {
+      await sembrar(tresMeses(), FREDDY);
+      const app = await montarApp();
+      await abrirReporte(app);
+
+      await app.tocarDosVeces('reporte-compartir-pdf');
+
+      expect(generar).toHaveBeenCalledTimes(1);
+      expect(abrirHoja).toHaveBeenCalledTimes(1);
+      // Ya terminó: un toque nuevo vuelve a generar.
+      await app.tocar('reporte-compartir-pdf');
+      expect(generar).toHaveBeenCalledTimes(2);
+    });
+
+    it('un toque mientras prepara no hace nada', async () => {
+      generar.mockImplementation(() => new Promise(() => undefined));
+      await sembrar(tresMeses(), FREDDY);
+      const app = await montarApp();
+      await abrirReporte(app);
+
+      await app.empezarToque('reporte-compartir-pdf');
+      await app.tocar('reporte-compartir-pdf');
+      await app.tocar('reporte-compartir');
+
+      expect(generar).toHaveBeenCalledTimes(1);
+      expect(compartir).not.toHaveBeenCalled();
+    });
+
+    it('si no se puede preparar, dice un mensaje amable y ningún texto técnico', async () => {
+      generar.mockRejectedValue(new Error('boom: PDF_FAILED NO_SE_PUDO_PREPARAR'));
+      await sembrar(tresMeses(), FREDDY);
+      const app = await montarApp();
+      await abrirReporte(app);
+      expect(app.existe('reporte-error-compartir')).toBe(false);
+
+      await app.tocar('reporte-compartir-pdf');
+
+      expect(app.textoDe('reporte-error-compartir')).toBe(MENSAJE_ERROR_PDF);
+      expect(app.colorDe('reporte-error-compartir')).toBe(colors.danger);
+      expect(app.tamanoDe('reporte-error-compartir')).toBeGreaterThanOrEqual(14);
+      expect(abrirHoja).not.toHaveBeenCalled();
+      const todo = app.textosDeLaPantalla().join('\n');
+      expect(todo).not.toMatch(/boom|PDF_FAILED|NO_SE_PUDO|Error|Exception|undefined|\bnull\b/);
+      // El botón vuelve a estar a la mano; al lograrlo, el mensaje se va.
+      expect(app.textosDeLaPantalla()).toContain('Compartir reporte');
+      expect(app.botonDesactivado('reporte-compartir-pdf')).toBe(false);
+      generar.mockResolvedValue({ filePath: FILE });
+      await app.tocar('reporte-compartir-pdf');
+      expect(abrirHoja).toHaveBeenCalledTimes(1);
+      expect(app.existe('reporte-error-compartir')).toBe(false);
+    });
+
+    it('si la hoja no se puede abrir, dice el mensaje de la hoja y nada técnico', async () => {
+      abrirHoja.mockRejectedValue(new Error('boom: SHARE_FAILED'));
+      await sembrar(tresMeses(), FREDDY);
+      const app = await montarApp();
+      await abrirReporte(app);
+
+      await app.tocar('reporte-compartir-pdf');
+
+      expect(app.textoDe('reporte-error-compartir')).toBe(MENSAJE_ERROR);
+      const todo = app.textosDeLaPantalla().join('\n');
+      expect(todo).not.toMatch(/boom|SHARE_FAILED|NO_SE_PUDO|Error|Exception/);
+    });
+
+    it('cerrar la hoja sin compartir no muestra nada', async () => {
+      abrirHoja.mockResolvedValue({ success: false, dismissedAction: true } as Awaited<
+        ReturnType<typeof Share.open>
+      >);
+      await sembrar(tresMeses(), FREDDY);
+      const app = await montarApp();
+      await abrirReporte(app);
+
+      await app.tocar('reporte-compartir-pdf');
+
+      expect(app.existe('reporte-error-compartir')).toBe(false);
+      expect(app.textosDeLaPantalla()).toContain('Compartir reporte');
+    });
+
+    it('debajo del principal hay un botón secundario "Compartir solo el texto" con el flujo del Sprint-06', async () => {
+      await sembrar(tresMeses(), FREDDY);
+      const app = await montarApp();
+      await abrirReporte(app);
+
+      expect(app.textosDeLaPantalla()).toContain('Compartir solo el texto');
+      expect(app.enOrden(['reporte-compartir-pdf', 'reporte-compartir'])).toEqual([
+        'reporte-compartir-pdf',
+        'reporte-compartir',
+      ]);
+      expect(app.estiloDe('reporte-compartir').height).toBeGreaterThanOrEqual(48);
+
+      await app.tocar('reporte-compartir');
+
+      expect(compartir).toHaveBeenCalledTimes(1);
+      expect(compartir).toHaveBeenCalledWith(textoReporte(senalesDeTresMeses(), FREDDY));
+      expect(generar).not.toHaveBeenCalled();
+      expect(abrirHoja).not.toHaveBeenCalled();
+    });
+
+    it('los dos botones y el texto de ayuda van en el pie fijo, fuera del scroll', async () => {
+      await sembrar(tresMeses());
+      const app = await montarApp();
+      await abrirReporte(app);
+
+      const pantalla = montada?.root.findAll(n => n.props.testID === 'reporte-pantalla')[0];
+      const scroll = pantalla?.findAll(n => (n.type as unknown) === 'RCTScrollView')[0];
+      expect(scroll).toBeDefined();
+      for (const id of ['reporte-compartir-pdf', 'reporte-compartir', 'reporte-ayuda-pdf']) {
+        expect(app.existe(id)).toBe(true);
+        expect(scroll?.findAll(n => n.props.testID === id)).toHaveLength(0);
+      }
+      expect(app.estiloDe('reporte-compartir-pdf').height).toBeGreaterThanOrEqual(48);
+    });
+
+    it('el texto de ayuda dice que el PDF lleva solo totales, atenuado y de 14 px o más', async () => {
+      await sembrar(tresMeses());
+      const app = await montarApp();
+      await abrirReporte(app);
+
+      expect(app.textoDe('reporte-ayuda-pdf')).toBe(
+        'El PDF lleva solo totales. No lleva tu Yape ni tus movimientos.',
+      );
+      expect(app.colorDe('reporte-ayuda-pdf')).toBe(colors.textMuted);
+      expect(app.tamanoDe('reporte-ayuda-pdf')).toBeGreaterThanOrEqual(14);
+      expect(app.enOrden(['reporte-compartir', 'reporte-ayuda-pdf'])).toEqual([
+        'reporte-compartir',
+        'reporte-ayuda-pdf',
+      ]);
+    });
+
+    it('el aviso de privacidad de arriba no cambia', async () => {
+      await sembrar(tresMeses());
+      const app = await montarApp();
+      await abrirReporte(app);
+
+      expect(app.textoDe('reporte-aviso-privacidad-texto')).toBe(
+        'Tú decides qué compartes. Este reporte muestra totales, no tus movimientos uno por uno. Nada se envía si no tocas el botón.',
+      );
+    });
+
+    it('con foto de perfil, la hoja de pantalla muestra la foto circular', async () => {
+      await sembrar(tresMeses(), { ...FREDDY, fotoUri: FOTO });
+      const app = await montarApp();
+      await abrirReporte(app);
+
+      expect(app.imagen('reporte-avatar-foto').props.source).toEqual({ uri: FOTO });
+      // La foto va dentro de la hoja, junto al nombre, que sigue ahí.
+      expect(app.enOrden(['reporte-hoja', 'reporte-avatar-foto', 'reporte-quien'])).toEqual([
+        'reporte-hoja',
+        'reporte-avatar-foto',
+        'reporte-quien',
+      ]);
+      expect(app.textoDe('reporte-quien')).toBe('Freddy · Anticuchos Freddy');
+
+      await app.tocar('reporte-compartir-pdf');
+      expect(generar.mock.calls[0][0].html).toContain(`<img class="foto" src="${FOTO}" alt="">`);
+    });
+
+    it('sin foto, la hoja de pantalla no muestra ningún círculo', async () => {
+      await sembrar(tresMeses(), FREDDY);
+      const app = await montarApp();
+      await abrirReporte(app);
+
+      expect(app.existe('reporte-avatar-foto')).toBe(false);
+      expect(app.textoDe('reporte-quien')).toBe('Freddy · Anticuchos Freddy');
+    });
+
+    it('con 0 días los dos botones están desactivados y no se genera nada', async () => {
+      const app = await montarApp();
+      await abrirReporte(app);
+
+      expect(app.botonDesactivado('reporte-compartir-pdf')).toBe(true);
+      expect(app.botonDesactivado('reporte-compartir')).toBe(true);
+      expect(app.textoDe('reporte-ayuda-vacio')).toBe('Cierra tu primer día para armar tu reporte');
+
+      await app.tocar('reporte-compartir-pdf');
+      await app.tocar('reporte-compartir');
+
+      expect(generar).not.toHaveBeenCalled();
+      expect(abrirHoja).not.toHaveBeenCalled();
+      expect(compartir).not.toHaveBeenCalled();
+    });
+
+    it('en construcción el PDF sigue activo y avisa cuántos días faltan', async () => {
+      await sembrar(diasSeguidos(9), FREDDY);
+      const app = await montarApp();
+      await abrirReporte(app);
+
+      expect(app.botonDesactivado('reporte-compartir-pdf')).toBe(false);
+      await app.tocar('reporte-compartir-pdf');
+
+      const html = generar.mock.calls[0][0].html;
+      expect(html).toContain('Te faltan 21 días de registro para que tu reporte sea convincente');
+      expect(html).toContain('opacity');
+    });
+
+    it('generar el PDF no hace ninguna petición de red', async () => {
+      const fetchSimulado = global.fetch as jest.Mock;
+      fetchSimulado.mockClear();
+      await sembrar(tresMeses(), FREDDY);
+      const app = await montarApp();
+      await abrirReporte(app);
+
+      await app.tocar('reporte-compartir-pdf');
+
+      expect(fetchSimulado).not.toHaveBeenCalled();
+    });
+
+    it('ningún texto del pie baja de 14 px ni usa el naranja', async () => {
+      await sembrar(diasSeguidos(9), FREDDY);
+      const app = await montarApp();
+      await abrirReporte(app);
+
+      const textos = montada?.root
+        .findAll(n => n.props.testID === 'reporte-pantalla')[0]
+        .findAll(n => (n.type as unknown) === 'Text');
+      for (const t of textos ?? []) {
+        const estilo = StyleSheet.flatten(t.props.style);
+        expect(estilo.fontSize).toBeGreaterThanOrEqual(14);
+        expect(estilo.color).not.toBe(colors.accent);
+      }
+    });
   });
 });
