@@ -500,7 +500,7 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
   it('spec08_e18 el semaforo se distingue por palabra simbolo y color', () => {
     // Given: respuestas con el semáforo "bien", "ojo" y "urgente"
     // When: se muestran en el chat
-    // Then: cada una dice su palabra ("Todo bien", "Ojo", "Urgente"), lleva un símbolo distinto y un color distinto, con la letra siempre oscura sobre el fondo suave (el naranja nunca es el color del texto)
+    // Then: cada una dice su palabra ("Bien", "Ojo", "Urgente"), lleva un símbolo distinto y un color distinto, con la letra siempre oscura sobre el fondo suave (el naranja nunca es el color del texto)
     throw new Error('Rojo: no implementado');
   });
 });
