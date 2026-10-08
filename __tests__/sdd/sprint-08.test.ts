@@ -6,7 +6,7 @@
  * La tarea del sprint es ponerlos en verde sin relajar ninguna aserción.
  */
 
-describe('SPEC-08: Jev: preguntarle a mis datos', () => {
+describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
   // @spec08_e1 — Una pregunta sobre un día se responde con la cifra del dominio
   it('spec08_e1 una pregunta sobre un dia se responde con la cifra del dominio', () => {
     // Given: hoy 2026-10-07, un cierre del 2026-10-06 con venta de S/ 205.00, y que Jev interpreta "¿cuánto vendí ayer?" como la intención "venta de un día" con el día "ayer"
@@ -100,6 +100,22 @@ describe('SPEC-08: Jev: preguntarle a mis datos', () => {
     // Given: la app con la semilla cargada y servidores simulados de Jev y del redactor
     // When: se abre "Preguntarle a mis datos" y se pregunta "¿qué día me va peor?"
     // Then: la pantalla muestra una respuesta que nombra "miércoles" y una cifra en soles que coincide con la calculada por el código
+    throw new Error('Rojo: no implementado');
+  });
+
+  // @spec08_e13 — El chat muestra la pregunta y la respuesta, en orden
+  it('spec08_e13 el chat muestra la pregunta y la respuesta en orden', () => {
+    // Given: el chat abierto y la respuesta calculada "Ayer, martes 6 de octubre, vendiste S/ 205.00."
+    // When: se escribe "¿cuánto vendí ayer?" y se toca "Preguntar"
+    // Then: aparecen dos burbujas en orden, primero la pregunta y debajo la respuesta, y el campo de texto queda vacío y listo para otra pregunta
+    throw new Error('Rojo: no implementado');
+  });
+
+  // @spec08_e14 — El botón flotante de Inicio abre el chat
+  it('spec08_e14 el boton flotante de inicio abre el chat', () => {
+    // Given: la app con la semilla cargada, en Inicio
+    // When: se toca el botón flotante "Preguntar"
+    // Then: se abre el chat con las preguntas sugeridas visibles, y "Atrás" vuelve a Inicio sin haber enviado ninguna petición
     throw new Error('Rojo: no implementado');
   });
 });
