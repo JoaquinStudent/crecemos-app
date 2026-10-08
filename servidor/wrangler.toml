@@ -7,9 +7,10 @@ workers_dev = true
 
 # Variables públicas (no son secretos): se cambian aquí y se publican otra vez con `npx wrangler deploy`.
 [vars]
-# Modelo que clasifica primero. Si no responde, clasifica DeepSeek.
-JEV_MODELO = "typesafe/jev-router"
-# Modelo de respaldo para clasificar y único que redacta.
+# Jev, por la API tipada de OpenRouter (/api/v1/systemone). `jev-latest` es el alias del Jev más nuevo;
+# `jev-1.13` fija una versión. Si Jev falla o responde algo inválido, clasifica DeepSeek.
+JEV_MODELO = "jev-latest"
+# Respaldo para clasificar (chat de OpenRouter) y único que redacta.
 DEEPSEEK_MODELO = "deepseek/deepseek-v4-flash"
 # Proveedores de EE. UU. permitidos para DeepSeek (nombres de OpenRouter, separados por comas).
 DEEPSEEK_PROVEEDORES = "deepinfra,parasail,cloudflare,digitalocean"

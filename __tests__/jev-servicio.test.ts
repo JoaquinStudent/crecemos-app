@@ -91,7 +91,7 @@ afterEach(() => {
 
 describe('preguntarAJev', () => {
   it('una clasificación válida da la consulta', async () => {
-    const f = jest.fn(async () => json({ ...AYER, modelo: 'typesafe/jev-router' }));
+    const f = jest.fn(async () => json({ ...AYER, modelo: 'typesafe/jev-1.13-20260917' }));
 
     await expect(preguntarAJev(comoFetch(f), URL_PRUEBA, '¿cuánto vendí ayer?')).resolves.toEqual({
       ok: true,

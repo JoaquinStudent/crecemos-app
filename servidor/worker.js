@@ -4,13 +4,15 @@
 // tipos de petición, siempre con el mínimo de datos:
 //   { tipo: 'interpretar', texto }            -> { intencion, producto, dia, confianza, modelo }
 //   { tipo: 'redactar', hecho: {...} }        -> { texto }
-// Primero clasifica Jev; si falla o responde algo inválido, clasifica DeepSeek. Solo DeepSeek redacta.
+// Primero clasifica Jev por la API tipada de OpenRouter (/api/v1/systemone, preguntas "choice"); si falla
+// o responde algo inválido, clasifica DeepSeek por chat/completions. Solo DeepSeek redacta.
 // Sin dependencias, sin CORS (es una app nativa) y SIN ningún log: lo que escribe Freddy no se escribe
 // en ninguna parte. No hay ninguna clave en este archivo: llega por `env`.
 
 /* global Response, TextDecoder */
 
 const URL_OPENROUTER = 'https://openrouter.ai/api/v1/chat/completions';
+const URL_SYSTEMONE = 'https://openrouter.ai/api/v1/systemone';
 const REFERER = 'https://github.com/JoaquinStudent/crecemos-app';
 const TITULO = 'Crecemos';
 
@@ -29,7 +31,10 @@ const TIEMPO_JEV_MS = 4000;
 const PRESUPUESTO_MS = 7500;
 const TIEMPO_MINIMO_MS = 500;
 
-const MODELO_JEV_POR_DEFECTO = 'typesafe/jev-router';
+// `jev-latest` es el alias de la API tipada: OpenRouter lo enruta al Jev más nuevo (`~typesafe/jev-latest`).
+const MODELO_JEV_POR_DEFECTO = 'jev-latest';
+// Producto o día con menos confianza que esto se devuelve como "ninguno".
+const CONFIANZA_MINIMA_DETALLE = 0.5;
 const MODELO_DEEPSEEK_POR_DEFECTO = 'deepseek/deepseek-v4-flash';
 
 /**
@@ -134,6 +139,48 @@ const ESQUEMA_INTERPRETAR = {
   additionalProperties: false,
 };
 
+// Las tres preguntas "choice" para Jev. Cada opción lleva su descripción: el modelo ve los nombres
+// y las descripciones (no el id de la pregunta). Una "choice" siempre elige una opción, por eso hay
+// `noEntendi` y `ninguno`.
+const DESCRIPCION_PRODUCTO = {
+  anticucho: 'La pregunta nombra el anticucho.',
+  pancita: 'La pregunta nombra la pancita.',
+  rachi: 'La pregunta nombra el rachi.',
+  chicha: 'La pregunta nombra la chicha.',
+  ninguno: 'La pregunta no nombra ningún producto.',
+};
+const DESCRIPCION_DIA = {
+  hoy: 'La pregunta habla de hoy.',
+  ayer: 'La pregunta habla de ayer.',
+  lunes: 'La pregunta nombra el lunes.',
+  martes: 'La pregunta nombra el martes.',
+  miercoles: 'La pregunta nombra el miércoles.',
+  jueves: 'La pregunta nombra el jueves.',
+  viernes: 'La pregunta nombra el viernes.',
+  sabado: 'La pregunta nombra el sábado.',
+  domingo: 'La pregunta nombra el domingo.',
+  ninguno: 'La pregunta no nombra ningún día en concreto.',
+};
+
+const PREGUNTAS_JEV = {
+  intencion: {
+    type: 'choice',
+    instructions:
+      '¿Qué quiso preguntar el vendedor? Elige noEntendi si la pregunta no es sobre los negocios de un vendedor de anticuchos o si es ambigua.',
+    criteria: Object.fromEntries(INTENCIONES.map(i => [i.id, i.descripcion])),
+  },
+  producto: {
+    type: 'choice',
+    instructions: '¿De cuál producto habla la pregunta? Elige ninguno si no nombra ninguno.',
+    criteria: Object.fromEntries(PRODUCTOS.map(p => [p, DESCRIPCION_PRODUCTO[p]])),
+  },
+  dia: {
+    type: 'choice',
+    instructions: '¿De cuál día habla la pregunta? Elige ninguno si no nombra ningún día.',
+    criteria: Object.fromEntries(DIAS.map(d => [d, DESCRIPCION_DIA[d]])),
+  },
+};
+
 const PROMPT_REDACTAR =
   'Reescribe la frase con otras palabras, en español de Perú, tuteando, corta (máximo 200 caracteres) y cálida, como si hablaras con un vendedor ambulante. Conserva EXACTAMENTE todas las cifras, los montos y las fechas, tal cual; no agregues ninguna cifra ni dato nuevo; no uses emojis ni enlaces.';
 
@@ -236,6 +283,14 @@ const variable = (valor, porDefecto) =>
 
 // --- OpenRouter -----------------------------------------------------------------------------
 
+/** Los encabezados de toda llamada a OpenRouter. La clave viaja solo en `Authorization`. */
+const cabecerasOpenRouter = env => ({
+  Authorization: `Bearer ${env.OPENROUTER_API_KEY}`,
+  'Content-Type': 'application/json',
+  'HTTP-Referer': REFERER,
+  'X-Title': TITULO,
+});
+
 /**
  * Una llamada a /chat/completions con salida estructurada. Devuelve el JSON que el modelo escribió,
  * o `null` ante cualquier falla (HTTP no exitoso, "no endpoints", tiempo, cuerpo o JSON ilegible).
@@ -250,12 +305,7 @@ const llamarModelo = async (
   try {
     const respuesta = await fetch(URL_OPENROUTER, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${env.OPENROUTER_API_KEY}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': REFERER,
-        'X-Title': TITULO,
-      },
+      headers: cabecerasOpenRouter(env),
       body: JSON.stringify({
         model: modelo,
         messages: mensajes,
@@ -284,6 +334,70 @@ const llamarModelo = async (
   }
 };
 
+/** Un id de modelo que informa la API: solo letras, números y . _ ~ : / - (hasta 64). */
+const modeloInformado = (x, configurado) =>
+  typeof x === 'string' && /^[A-Za-z0-9._~:/-]{1,64}$/.test(x) ? x : configurado;
+
+/** Una respuesta "choice" de Jev: la opción (de `opciones`) y su confianza de 0 a 1; `null` si no sirve. */
+const leerChoice = (respuesta, opciones) => {
+  if (!esObjeto(respuesta) || respuesta.type !== 'choice') return null;
+  if (typeof respuesta.choice !== 'string' || !opciones.includes(respuesta.choice)) return null;
+  // `confidence` es opcional en la API: si falta, vale la probabilidad de la opción elegida.
+  const confianza =
+    respuesta.confidence !== undefined
+      ? respuesta.confidence
+      : esObjeto(respuesta.probabilities)
+      ? respuesta.probabilities[respuesta.choice]
+      : undefined;
+  if (typeof confianza !== 'number' || !Number.isFinite(confianza)) return null;
+  if (confianza < 0 || confianza > 1) return null;
+  return { opcion: respuesta.choice, confianza };
+};
+
+/**
+ * Pregunta a Jev por la API tipada /systemone: `state` es el texto tal cual y van las tres preguntas.
+ * Devuelve `{ interpretacion, modelo }` ya validada, o `null` ante cualquier falla (HTTP no exitoso,
+ * error en el cuerpo, tiempo, forma inválida). Producto y día con poca confianza valen "ninguno".
+ * Solo `data_collection` entre las preferencias de proveedor: es lo único que la API admite.
+ */
+const clasificarConJev = async (env, texto, modelo, tiempoMs) => {
+  const controlador = new AbortController();
+  const temporizador = setTimeout(() => controlador.abort(), tiempoMs);
+  try {
+    const respuesta = await fetch(URL_SYSTEMONE, {
+      method: 'POST',
+      headers: cabecerasOpenRouter(env),
+      body: JSON.stringify({
+        model: modelo,
+        state: texto,
+        questions: PREGUNTAS_JEV,
+        provider: { data_collection: 'deny' },
+      }),
+      signal: controlador.signal,
+    });
+    if (!respuesta.ok) return null;
+    const datos = await respuesta.json();
+    if (!esObjeto(datos) || datos.error || !esObjeto(datos.answers)) return null;
+    const intencion = leerChoice(datos.answers.intencion, IDS);
+    const producto = leerChoice(datos.answers.producto, PRODUCTOS);
+    const dia = leerChoice(datos.answers.dia, DIAS);
+    if (intencion === null || producto === null || dia === null) return null;
+    const interpretacion = interpretacionValida({
+      intencion: intencion.opcion,
+      producto: producto.confianza < CONFIANZA_MINIMA_DETALLE ? 'ninguno' : producto.opcion,
+      dia: dia.confianza < CONFIANZA_MINIMA_DETALLE ? 'ninguno' : dia.opcion,
+      confianza: intencion.confianza,
+    });
+    return interpretacion === null
+      ? null
+      : { interpretacion, modelo: modeloInformado(datos.model, modelo) };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(temporizador);
+  }
+};
+
 // --- Los dos tipos de petición --------------------------------------------------------------
 
 const interpretar = async (env, solicitud) => {
@@ -303,19 +417,12 @@ const interpretar = async (env, solicitud) => {
   const inicio = Date.now();
   const restante = () => PRESUPUESTO_MS - (Date.now() - inicio);
 
-  // 1) Jev, sin restringir proveedores.
+  // 1) Jev, por la API tipada. Cuatro segundos como mucho: la app corta a los ocho.
   const modeloJev = variable(env.JEV_MODELO, MODELO_JEV_POR_DEFECTO);
-  const deJev = interpretacionValida(
-    await llamarModelo(env, {
-      ...comun,
-      modelo: modeloJev,
-      proveedor: { data_collection: 'deny', require_parameters: true },
-      tiempoMs: Math.min(TIEMPO_JEV_MS, restante()),
-    }),
-  );
-  if (deJev !== null) return responder({ ...deJev, modelo: modeloJev });
+  const deJev = await clasificarConJev(env, texto, modeloJev, Math.min(TIEMPO_JEV_MS, restante()));
+  if (deJev !== null) return responder({ ...deJev.interpretacion, modelo: deJev.modelo });
 
-  // 2) Respaldo: DeepSeek, solo en proveedores de EE. UU. y con el tiempo que quede.
+  // 2) Respaldo: DeepSeek por chat con JSON-schema estricto, solo en proveedores de EE. UU.
   const modeloDeepseek = variable(env.DEEPSEEK_MODELO, MODELO_DEEPSEEK_POR_DEFECTO);
   const tiempoMs = Math.min(TIEMPO_LLAMADA_MS, restante());
   if (tiempoMs >= TIEMPO_MINIMO_MS) {

@@ -24,11 +24,12 @@ import worker, {
 const RAIZ = join(__dirname, '..');
 const URL_WORKER = 'https://asistente.ejemplo.test/';
 const URL_OPENROUTER = 'https://openrouter.ai/api/v1/chat/completions';
+const URL_SYSTEMONE = 'https://openrouter.ai/api/v1/systemone';
 // Una clave inventada y reconocible: así se puede buscar en todo lo que sale del Worker.
 const CLAVE = 'clave-de-prueba-que-no-existe-0123456789';
 const ENV = {
   OPENROUTER_API_KEY: CLAVE,
-  JEV_MODELO: 'typesafe/jev-router',
+  JEV_MODELO: 'jev-latest',
   DEEPSEEK_MODELO: 'deepseek/deepseek-v4-flash',
   DEEPSEEK_PROVEEDORES: 'deepinfra, parasail ,cloudflare',
 };
@@ -87,6 +88,31 @@ const chat = (contenido: unknown, status = 200) =>
     }),
     { status, headers: { 'Content-Type': 'application/json' } },
   );
+
+/** Una opción elegida en una pregunta "choice" de la API tipada (Jev). */
+const opcion = (choice: unknown, confidence?: unknown) => ({ type: 'choice', choice, confidence });
+/** Las tres respuestas de Jev para "cuánto vendí ayer". */
+const respuestasAyer = (): Record<string, unknown> => ({
+  intencion: opcion('ventaDelDia', 0.95),
+  producto: opcion('ninguno', 0.9),
+  dia: opcion('ayer', 0.97),
+});
+const MODELO_REAL_DE_JEV = 'typesafe/jev-1.13-20260917';
+/** Una respuesta de OpenRouter /systemone (la forma documentada en la referencia de la API). */
+const respuestaSysone = (answers: Record<string, unknown>, extra: Record<string, unknown> = {}) =>
+  new Response(
+    JSON.stringify({
+      id: 'gen-dec-1',
+      model: MODELO_REAL_DE_JEV,
+      provider: 'TypeSafe',
+      answers,
+      usage: { input_tokens: 900, output_tokens: 30, cost: 0.00003 },
+      ...extra,
+    }),
+    { status: 200, headers: { 'Content-Type': 'application/json' } },
+  );
+const JEV_AYER = () => respuestaSysone(respuestasAyer());
+
 const errorDeOpenRouter = (status: number, mensaje = 'No endpoints found') =>
   new Response(JSON.stringify({ error: { code: status, message: mensaje } }), { status });
 
@@ -140,7 +166,7 @@ describe('servidor: método, ruta y forma de las respuestas', () => {
   });
 
   it('responde siempre JSON y sin CORS (es una app nativa, no un navegador)', async () => {
-    conOpenRouter(chat(AYER));
+    conOpenRouter(JEV_AYER());
     const respuestas = [
       await llamar(interpretar()),
       await llamar('{ roto'),
@@ -223,14 +249,14 @@ describe('servidor: validación de lo que llega', () => {
   });
 
   it('interpretar: un texto de exactamente 200 caracteres pasa, y se recorta', async () => {
-    conOpenRouter(chat(AYER), chat(AYER));
+    conOpenRouter(JEV_AYER(), JEV_AYER());
 
     const r = await llamar(interpretar('a'.repeat(200)));
     const recortado = await llamar(interpretar('  ¿cuánto vendí ayer?  '));
 
     expect(r.status).toBe(200);
     expect(recortado.status).toBe(200);
-    expect(cuerpoDe(1).messages[1]).toEqual({ role: 'user', content: '¿cuánto vendí ayer?' });
+    expect(cuerpoDe(1).state).toBe('¿cuánto vendí ayer?');
   });
 
   it('redactar: un hecho mal formado se rechaza antes de llamar a nadie', async () => {
@@ -275,16 +301,16 @@ describe('servidor: validación de lo que llega', () => {
 });
 
 describe('servidor: interpretar', () => {
-  it('Jev responde: se pide primero a Jev, con salidas estructuradas y sin retención de datos', async () => {
-    conOpenRouter(chat(AYER));
+  it('Jev responde por la API tipada: una sola llamada a /systemone, con las 3 preguntas y sin retención de datos', async () => {
+    conOpenRouter(JEV_AYER());
 
     const r = await llamar(interpretar());
 
     expect(r.status).toBe(200);
-    expect(await jsonDe(r)).toEqual({ ...AYER, modelo: 'typesafe/jev-router' });
+    expect(await jsonDe(r)).toEqual({ ...AYER, modelo: MODELO_REAL_DE_JEV });
     expect(openrouter).toHaveBeenCalledTimes(1);
     const [url, init] = llamadasA()[0];
-    expect(url).toBe(URL_OPENROUTER);
+    expect(url).toBe(URL_SYSTEMONE);
     expect(init.method).toBe('POST');
     expect(init.headers).toEqual({
       Authorization: `Bearer ${CLAVE}`,
@@ -293,23 +319,234 @@ describe('servidor: interpretar', () => {
       'X-Title': 'Crecemos',
     });
     const cuerpo = cuerpoDe(0);
-    expect(cuerpo.model).toBe('typesafe/jev-router');
-    expect(cuerpo.temperature).toBe(0);
-    expect(cuerpo.max_tokens).toBe(120);
-    expect(cuerpo.stream).not.toBe(true);
-    expect(cuerpo.reasoning).toEqual({ enabled: false });
-    expect(cuerpo.provider).toEqual({ data_collection: 'deny', require_parameters: true });
-    expect(cuerpo.messages).toHaveLength(2);
-    expect(cuerpo.messages[0].role).toBe('system');
-    expect(cuerpo.messages[1]).toEqual({ role: 'user', content: '¿cuánto vendí ayer?' });
+    expect(Object.keys(cuerpo).sort()).toEqual(['model', 'provider', 'questions', 'state']);
+    expect(cuerpo.model).toBe('jev-latest');
+    // A Jev viaja solo el texto de la pregunta, tal cual.
+    expect(cuerpo.state).toBe('¿cuánto vendí ayer?');
+    // La API tipada solo admite estas preferencias de proveedor: no se manda nada más.
+    expect(cuerpo.provider).toEqual({ data_collection: 'deny' });
   });
 
-  it('el esquema que se manda es estricto y lista las 12 intenciones, los productos y los días', async () => {
-    conOpenRouter(chat(AYER));
+  it('las tres preguntas son de tipo "choice" y sus opciones son exactamente las de la app', async () => {
+    conOpenRouter(JEV_AYER());
 
     await llamar(interpretar());
 
-    const formato = cuerpoDe(0).response_format;
+    const { questions } = cuerpoDe(0);
+    expect(Object.keys(questions).sort()).toEqual(['dia', 'intencion', 'producto']);
+    for (const pregunta of Object.values(questions) as Array<{
+      type: string;
+      instructions: string;
+    }>) {
+      expect(pregunta.type).toBe('choice');
+      expect(typeof pregunta.instructions).toBe('string');
+      expect(pregunta.instructions.length).toBeGreaterThan(10);
+    }
+    expect(questions.intencion.instructions).toContain('¿Qué quiso preguntar el vendedor?');
+    expect(Object.keys(questions.intencion.criteria)).toEqual(INTENCIONES_APP.map(i => i.id));
+    expect(Object.keys(questions.intencion.criteria)).toHaveLength(12);
+    expect(questions.intencion.criteria).toEqual(
+      Object.fromEntries(INTENCIONES_APP.map(i => [i.id, i.descripcion])),
+    );
+    expect(Object.keys(questions.producto.criteria)).toEqual([
+      'anticucho',
+      'pancita',
+      'rachi',
+      'chicha',
+      'ninguno',
+    ]);
+    expect(Object.keys(questions.dia.criteria)).toEqual([...DIAS_CONSULTA]);
+    // Toda opción trae una descripción para que el modelo pueda separarlas.
+    for (const { criteria } of Object.values(questions) as Array<{
+      criteria: Record<string, string>;
+    }>) {
+      for (const descripcion of Object.values(criteria)) {
+        expect(typeof descripcion).toBe('string');
+        expect(descripcion.length).toBeGreaterThan(3);
+      }
+    }
+  });
+
+  it('la confianza es la "confidence" de la intención; producto y día se leen de su "choice"', async () => {
+    conOpenRouter(
+      respuestaSysone({
+        intencion: opcion('cuantoPreparar', 0.81),
+        producto: opcion('rachi', 0.9),
+        dia: opcion('ninguno', 0.99),
+      }),
+    );
+
+    const r = await llamar(interpretar('¿cuánto preparo de rachi?'));
+
+    expect(await jsonDe(r)).toEqual({
+      intencion: 'cuantoPreparar',
+      producto: 'rachi',
+      dia: 'ninguno',
+      confianza: 0.81,
+      modelo: MODELO_REAL_DE_JEV,
+    });
+  });
+
+  it('un producto o un día con confianza menor a 0.5 se devuelve como "ninguno"', async () => {
+    conOpenRouter(
+      respuestaSysone({
+        intencion: opcion('ventaDelDia', 0.9),
+        producto: opcion('pancita', 0.49),
+        dia: opcion('lunes', 0.2),
+      }),
+      respuestaSysone({
+        intencion: opcion('ventaDelDia', 0.9),
+        producto: opcion('pancita', 0.5),
+        dia: opcion('lunes', 0.5),
+      }),
+    );
+
+    const baja = await jsonDe(await llamar(interpretar()));
+    const justa = await jsonDe(await llamar(interpretar()));
+
+    expect(baja).toMatchObject({ intencion: 'ventaDelDia', producto: 'ninguno', dia: 'ninguno' });
+    expect(justa).toMatchObject({ producto: 'pancita', dia: 'lunes' });
+  });
+
+  it('sin "confidence" se usa la probabilidad de la opción elegida; sin ninguna de las dos, es una falla', async () => {
+    conOpenRouter(
+      respuestaSysone({
+        intencion: {
+          type: 'choice',
+          choice: 'peorDia',
+          probabilities: { peorDia: 0.7, mejorDia: 0.3 },
+        },
+        producto: opcion('ninguno', 0.9),
+        dia: opcion('ninguno', 0.9),
+      }),
+    );
+
+    const r = await llamar(interpretar());
+
+    expect(await jsonDe(r)).toMatchObject({ intencion: 'peorDia', confianza: 0.7 });
+
+    conOpenRouter(
+      respuestaSysone({
+        intencion: { type: 'choice', choice: 'peorDia' },
+        producto: opcion('ninguno', 0.9),
+        dia: opcion('ninguno', 0.9),
+      }),
+      chat(AYER),
+    );
+    const respaldo = await llamar(interpretar());
+    expect((await jsonDe(respaldo)).modelo).toBe('deepseek/deepseek-v4-flash');
+  });
+
+  it('"modelo" es el que informa la API; si no viene o no es un id razonable, el configurado', async () => {
+    conOpenRouter(
+      respuestaSysone(respuestasAyer(), { model: undefined }),
+      respuestaSysone(respuestasAyer(), { model: '<b>raro</b> con espacios' }),
+      respuestaSysone(respuestasAyer(), { model: 42 }),
+    );
+
+    const sinModelo = await jsonDe(await llamar(interpretar()));
+    const raro = await jsonDe(await llamar(interpretar()));
+    const numero = await jsonDe(await llamar(interpretar()));
+
+    expect(sinModelo.modelo).toBe('jev-latest');
+    expect(raro.modelo).toBe('jev-latest');
+    expect(numero.modelo).toBe('jev-latest');
+  });
+
+  it('solo reenvía los cuatro campos validados más el modelo: nunca el cuerpo crudo de OpenRouter', async () => {
+    conOpenRouter(
+      respuestaSysone(
+        {
+          ...respuestasAyer(),
+          intencion: {
+            ...opcion('ventaDelDia', 0.95),
+            secreto: 'x',
+            probabilities: { ventaDelDia: 1 },
+          },
+          extra: opcion('hackear', 1),
+        },
+        { secreto: 'x' },
+      ),
+    );
+
+    const r = await llamar(interpretar());
+
+    const salida = await jsonDe(r);
+    expect(Object.keys(salida).sort()).toEqual([
+      'confianza',
+      'dia',
+      'intencion',
+      'modelo',
+      'producto',
+    ]);
+    expect(JSON.stringify(salida)).not.toContain('gen-dec-1');
+    expect(JSON.stringify(salida)).not.toContain('secreto');
+    expect(JSON.stringify(salida)).not.toContain('usage');
+  });
+
+  it('si la API tipada falla de cualquier forma, clasifica DeepSeek por chat con el esquema estricto y los proveedores de EE. UU.', async () => {
+    const buena = respuestasAyer();
+    const fallosDeJev: Array<() => Response | Error> = [
+      () => errorDeOpenRouter(404),
+      () => errorDeOpenRouter(502, 'Provider returned error'),
+      () => errorDeOpenRouter(402, 'Insufficient credits'),
+      () => errorDeOpenRouter(429, 'Rate limit exceeded'),
+      () => errorDeOpenRouter(503, 'Service temporarily unavailable'),
+      () => new Error('Network connection lost'),
+      () => new Response('esto no es json', { status: 200 }),
+      () => new Response('<html>Bad gateway</html>', { status: 200 }),
+      () => new Response('', { status: 200 }),
+      () =>
+        new Response(JSON.stringify({ error: { code: 429, message: 'rate limited' } }), {
+          status: 200,
+        }),
+      () => new Response(JSON.stringify({ model: 'x', usage: {} }), { status: 200 }),
+      () => respuestaSysone({}),
+      () => respuestaSysone({ ...buena, intencion: undefined }),
+      () => respuestaSysone({ ...buena, producto: undefined }),
+      () => respuestaSysone({ ...buena, dia: undefined }),
+      () => respuestaSysone({ ...buena, intencion: opcion('hackear', 0.99) }),
+      () => respuestaSysone({ ...buena, intencion: opcion(7, 0.99) }),
+      () => respuestaSysone({ ...buena, producto: opcion('lomo', 0.99) }),
+      () => respuestaSysone({ ...buena, dia: opcion('antier', 0.99) }),
+      () => respuestaSysone({ ...buena, intencion: opcion('ventaDelDia', 7) }),
+      () => respuestaSysone({ ...buena, intencion: opcion('ventaDelDia', -0.1) }),
+      () => respuestaSysone({ ...buena, intencion: opcion('ventaDelDia', '0.9') }),
+      () => respuestaSysone({ ...buena, intencion: { type: 'noul', noul: 0.9 } }),
+      () => respuestaSysone({ ...buena, dia: { type: 'choice', choice: 'ayer' } }),
+      () => respuestaSysone([] as unknown as Record<string, unknown>),
+    ];
+    for (const falla of fallosDeJev) {
+      const dado = falla();
+      conOpenRouter(dado, chat(AYER));
+
+      const r = await llamar(interpretar());
+
+      expect(r.status).toBe(200);
+      expect(await jsonDe(r)).toEqual({ ...AYER, modelo: 'deepseek/deepseek-v4-flash' });
+      expect(openrouter).toHaveBeenCalledTimes(2);
+      expect(llamadasA()[0][0]).toBe(URL_SYSTEMONE);
+      expect(llamadasA()[1][0]).toBe(URL_OPENROUTER);
+      const deepseek = cuerpoDe(1);
+      expect(deepseek.model).toBe('deepseek/deepseek-v4-flash');
+      expect(deepseek.provider).toEqual({
+        only: ['deepinfra', 'parasail', 'cloudflare'],
+        data_collection: 'deny',
+        require_parameters: true,
+      });
+      expect(deepseek.temperature).toBe(0);
+      expect(deepseek.max_tokens).toBe(120);
+      expect(deepseek.reasoning).toEqual({ enabled: false });
+      expect(deepseek.messages[1]).toEqual({ role: 'user', content: '¿cuánto vendí ayer?' });
+    }
+  });
+
+  it('el respaldo de DeepSeek pide un esquema estricto con las 12 intenciones, los productos y los días', async () => {
+    conOpenRouter(errorDeOpenRouter(404), chat(AYER));
+
+    await llamar(interpretar());
+
+    const formato = cuerpoDe(1).response_format;
     expect(formato.type).toBe('json_schema');
     expect(formato.json_schema.strict).toBe(true);
     expect(typeof formato.json_schema.name).toBe('string');
@@ -330,12 +567,13 @@ describe('servidor: interpretar', () => {
     expect(esquema.properties.confianza.type).toBe('number');
   });
 
-  it('el mensaje de sistema explica las 12 intenciones y manda a "noEntendi" lo ambiguo', async () => {
-    conOpenRouter(chat(AYER));
+  it('el mensaje de sistema del respaldo explica las 12 intenciones y manda a "noEntendi" lo ambiguo', async () => {
+    conOpenRouter(errorDeOpenRouter(404), chat(AYER));
 
     await llamar(interpretar());
 
-    const sistema: string = cuerpoDe(0).messages[0].content;
+    const sistema: string = cuerpoDe(1).messages[0].content;
+    expect(cuerpoDe(1).messages[0].role).toBe('system');
     for (const { id, descripcion } of INTENCIONES_APP) {
       expect(sistema).toContain(id);
       expect(sistema).toContain(descripcion);
@@ -346,54 +584,7 @@ describe('servidor: interpretar', () => {
     expect(sistema).not.toContain('¿cuánto vendí ayer?');
   });
 
-  it('si Jev falla de cualquier forma, clasifica DeepSeek con el mismo esquema y los proveedores de EE. UU.', async () => {
-    const fallosDeJev: Array<() => Response | Promise<Response> | Error> = [
-      () => errorDeOpenRouter(404),
-      () => errorDeOpenRouter(502, 'Provider returned error'),
-      () => errorDeOpenRouter(402, 'Insufficient credits'),
-      () => new Error('Network connection lost'),
-      () => chat('esto no es json'),
-      () => chat(''),
-      () => chat({ ...AYER, intencion: 'hackear' }),
-      () => chat({ ...AYER, dia: 'antier' }),
-      () => chat({ ...AYER, producto: 'lomo' }),
-      () => chat({ ...AYER, confianza: 7 }),
-      () => chat({ ...AYER, confianza: '0.9' }),
-      () => chat({ intencion: 'ventaDelDia' }),
-      () => new Response('<html>Bad gateway</html>', { status: 200 }),
-      () =>
-        new Response(JSON.stringify({ error: { code: 429, message: 'rate limited' } }), {
-          status: 200,
-        }),
-      () => new Response(JSON.stringify({ choices: [] }), { status: 200 }),
-    ];
-    for (const falla of fallosDeJev) {
-      const dado = falla();
-      conOpenRouter(
-        dado instanceof Error ? dado : () => Promise.resolve(dado as Response),
-        chat(AYER),
-      );
-
-      const r = await llamar(interpretar());
-
-      expect(r.status).toBe(200);
-      expect(await jsonDe(r)).toEqual({ ...AYER, modelo: 'deepseek/deepseek-v4-flash' });
-      expect(openrouter).toHaveBeenCalledTimes(2);
-      expect(cuerpoDe(0).model).toBe('typesafe/jev-router');
-      const deepseek = cuerpoDe(1);
-      expect(deepseek.model).toBe('deepseek/deepseek-v4-flash');
-      expect(deepseek.provider).toEqual({
-        only: ['deepinfra', 'parasail', 'cloudflare'],
-        data_collection: 'deny',
-        require_parameters: true,
-      });
-      expect(deepseek.response_format).toEqual(cuerpoDe(0).response_format);
-      expect(deepseek.messages).toEqual(cuerpoDe(0).messages);
-      expect(deepseek.temperature).toBe(0);
-    }
-  });
-
-  it('si Jev no contesta a tiempo se corta y se sigue con DeepSeek dentro del límite de la app', async () => {
+  it('si la API tipada no contesta a tiempo se corta y se sigue con DeepSeek dentro del límite de la app', async () => {
     jest.useFakeTimers();
     conOpenRouter(
       () =>
@@ -455,7 +646,7 @@ describe('servidor: interpretar', () => {
     expect(openrouter).toHaveBeenCalledTimes(2);
   });
 
-  it('si Jev falla y DeepSeek contesta fuera del enum, responde 502', async () => {
+  it('si la API tipada falla y DeepSeek contesta fuera del enum, responde 502', async () => {
     conOpenRouter(errorDeOpenRouter(404), chat({ ...AYER, intencion: 'borrarTodo' }));
 
     const r = await llamar(interpretar());
@@ -464,21 +655,23 @@ describe('servidor: interpretar', () => {
     expect(await jsonDe(r)).toEqual({ error: 'NO_DISPONIBLE' });
   });
 
-  it('solo reenvía los cuatro campos validados: nunca el cuerpo crudo de OpenRouter', async () => {
-    conOpenRouter(chat({ ...AYER, secreto: 'x', razon: 'porque sí', reasoning: 'pensé' }));
-
-    const r = await llamar(interpretar());
-
-    const salida = await jsonDe(r);
-    expect(Object.keys(salida).sort()).toEqual([
-      'confianza',
-      'dia',
-      'intencion',
-      'modelo',
-      'producto',
-    ]);
-    expect(JSON.stringify(salida)).not.toContain('gen-1');
-    expect(JSON.stringify(salida)).not.toContain('secreto');
+  it('si DeepSeek responde algo que no es el JSON del esquema, se descarta', async () => {
+    const malas: Response[] = [
+      chat('esto no es json'),
+      chat(''),
+      chat({ ...AYER, dia: 'antier' }),
+      chat({ ...AYER, producto: 'lomo' }),
+      chat({ ...AYER, confianza: 7 }),
+      chat({ ...AYER, confianza: '0.9' }),
+      chat({ intencion: 'ventaDelDia' }),
+      new Response(JSON.stringify({ choices: [] }), { status: 200 }),
+      new Response(JSON.stringify({ error: { code: 429, message: 'x' } }), { status: 200 }),
+    ];
+    for (const mala of malas) {
+      conOpenRouter(errorDeOpenRouter(404), mala);
+      const r = await llamar(interpretar());
+      expect(r.status).toBe(502);
+    }
   });
 
   it('usa los modelos y los proveedores por defecto cuando faltan las variables', async () => {
@@ -486,7 +679,7 @@ describe('servidor: interpretar', () => {
 
     await llamar(interpretar(), { OPENROUTER_API_KEY: CLAVE });
 
-    expect(cuerpoDe(0).model).toBe('typesafe/jev-router');
+    expect(cuerpoDe(0).model).toBe('jev-latest');
     expect(cuerpoDe(1).model).toBe('deepseek/deepseek-v4-flash');
     expect(PROVEEDORES_POR_DEFECTO.length).toBeGreaterThan(0);
     expect(cuerpoDe(1).provider.only).toEqual(PROVEEDORES_POR_DEFECTO);
@@ -501,11 +694,11 @@ describe('servidor: interpretar', () => {
 
     const r = await llamar(interpretar(), {
       ...ENV,
-      JEV_MODELO: 'otro/router',
+      JEV_MODELO: 'jev-1.13',
       DEEPSEEK_MODELO: 'otro/modelo',
     });
 
-    expect(cuerpoDe(0).model).toBe('otro/router');
+    expect(cuerpoDe(0).model).toBe('jev-1.13');
     expect(cuerpoDe(1).model).toBe('otro/modelo');
     expect((await jsonDe(r)).modelo).toBe('otro/modelo');
   });
@@ -522,6 +715,9 @@ describe('servidor: redactar', () => {
     expect(openrouter).toHaveBeenCalledTimes(1);
     expect(llamadasA()[0][0]).toBe(URL_OPENROUTER);
     const cuerpo = cuerpoDe(0);
+    // Redactar no cambió: sigue siendo una sola llamada de chat a DeepSeek, nunca a la API tipada de Jev.
+    expect(llamadasA().every(([url]) => url !== URL_SYSTEMONE)).toBe(true);
+    expect(cuerpo.questions).toBeUndefined();
     expect(cuerpo.model).toBe('deepseek/deepseek-v4-flash');
     expect(cuerpo.provider).toEqual({
       only: ['deepinfra', 'parasail', 'cloudflare'],
@@ -609,7 +805,7 @@ describe('servidor: privacidad', () => {
     },
   ];
   const caminos: Array<[string, () => Promise<Response>]> = [
-    camino('interpretar con Jev', [chat(AYER)], interpretar()),
+    camino('interpretar con Jev', [JEV_AYER()], interpretar()),
     camino('interpretar con el respaldo', [errorDeOpenRouter(404), chat(AYER)], interpretar()),
     camino('interpretar sin servicio', [errorDeOpenRouter(404), new Error('x')], interpretar()),
     camino('redactar', [chat({ texto: 'Vendiste S/ 205.00.' })], redactar()),
@@ -656,7 +852,7 @@ describe('servidor: privacidad', () => {
   it('no escribe ningún log: ni la pregunta, ni la frase, ni nada', async () => {
     const espias = conConsola();
     for (const [, correr] of caminos) await correr();
-    conOpenRouter(chat(AYER));
+    conOpenRouter(JEV_AYER());
     const r = await llamar(interpretar('mi pregunta privada sobre S/ 999.99'));
     expect(r.status).toBeGreaterThanOrEqual(200);
 
@@ -671,7 +867,7 @@ describe('servidor: privacidad', () => {
   });
 
   it('a OpenRouter no le llegan datos del usuario más allá de la pregunta o del hecho', async () => {
-    conOpenRouter(chat(AYER));
+    conOpenRouter(JEV_AYER());
     await llamar(interpretar(), ENV, {
       headers: {
         'Content-Type': 'application/json',
@@ -690,7 +886,7 @@ describe('servidor: privacidad', () => {
 
 describe('servidor: límite por IP', () => {
   it('sin el binding configurado (como en las pruebas) se omite sin fallar', async () => {
-    conOpenRouter(chat(AYER));
+    conOpenRouter(JEV_AYER());
 
     const r = await llamar(interpretar(), { ...ENV, LIMITE: undefined });
 
@@ -698,7 +894,7 @@ describe('servidor: límite por IP', () => {
   });
 
   it('con el binding, cuenta por la IP de Cloudflare', async () => {
-    conOpenRouter(chat(AYER));
+    conOpenRouter(JEV_AYER());
     const limit = jest.fn(async () => ({ success: true }));
 
     const r = await llamar(
@@ -726,7 +922,7 @@ describe('servidor: límite por IP', () => {
   });
 
   it('si el binding mismo falla, no se bloquea a nadie por eso', async () => {
-    conOpenRouter(chat(AYER));
+    conOpenRouter(JEV_AYER());
     const limit = jest.fn(async () => {
       throw new Error('límite caído');
     });

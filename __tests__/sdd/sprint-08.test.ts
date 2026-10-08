@@ -94,7 +94,7 @@ const interpretacion = (intencion: string, dia = 'ninguno') => ({
   producto: 'ninguno',
   dia,
   confianza: 0.95,
-  modelo: 'typesafe/jev-router',
+  modelo: 'typesafe/jev-1.13-20260917',
 });
 
 type Llamada = [string, { method?: string; headers?: Record<string, string>; body?: string }];
