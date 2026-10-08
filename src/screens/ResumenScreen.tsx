@@ -2,8 +2,8 @@
 // "Resumen" (mock 04): el ciclo de compra actual. "El primer día es para el capital y el
 // segundo es la ganancia" dibujado como una barra, y cuánto de la mercadería se vendió.
 // Con 2 ciclos o más, una fila compara con el ciclo anterior: el texto y el monto, nunca solo un
-// porcentaje. Termina con el botón a "Qué me deja cada uno". Sin "Este mes / Todo", sin gráfico
-// de ciclos y sin buscar.
+// porcentaje. Termina con los botones a "Qué me deja cada uno" y "Mi reporte". Sin "Este mes /
+// Todo", sin gráfico de ciclos y sin buscar.
 // Las barras son Views de ancho porcentual, sin librerías.
 import React from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
@@ -77,14 +77,24 @@ export const ResumenScreen = () => {
         )}
 
         {cargando ? null : (
-          <Button
-            title="Qué me deja cada uno"
-            variant="outline"
-            size="lg"
-            fullWidth
-            testID="resumen-que-me-deja"
-            onPress={() => navigation.navigate('QueMeDeja')}
-          />
+          <>
+            <Button
+              title="Qué me deja cada uno"
+              variant="outline"
+              size="lg"
+              fullWidth
+              testID="resumen-que-me-deja"
+              onPress={() => navigation.navigate('QueMeDeja')}
+            />
+            <Button
+              title="Mi reporte"
+              variant="outline"
+              size="lg"
+              fullWidth
+              testID="resumen-mi-reporte"
+              onPress={() => navigation.navigate('MiReporte')}
+            />
+          </>
         )}
       </ScrollView>
     </SafeAreaView>
