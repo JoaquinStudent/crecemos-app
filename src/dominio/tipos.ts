@@ -198,3 +198,43 @@ export interface SemillaMaterializada {
   productos: Producto[];
   cierres: Cierre[];
 }
+
+/** Un mes completo que entró en los promedios del reporte. */
+export interface MesCompleto {
+  /** 'YYYY-MM'. */
+  mes: string;
+  /** Venta del mes (suma de la venta de cada cierre). */
+  venta: number;
+  /** "Te queda" del mes: venta menos gastos. No es el margen "te deja". */
+  teQueda: number;
+  /** Días distintos con cierre en ese mes. */
+  dias: number;
+}
+
+/** Las señales que Freddy puede mostrarle al banco: aritmética sobre sus cierres, sin score (Arquitectura §4). */
+export interface Senales {
+  /** 0–100: días registrados sobre días transcurridos de los últimos 90. */
+  constancia: number;
+  /** Días distintos con cierre dentro de los últimos 90 días. */
+  diasRegistrados: number;
+  /** Denominador de la constancia: 90, o menos si el primer cierre es más nuevo que la ventana. */
+  diasTranscurridos: number;
+  ventaPromedioMensual: number;
+  /** Promedio del "te queda" mensual (la palabra del banco es "ganancia"). */
+  gananciaPromedioMensual: number;
+  /** Hasta los 3 últimos meses completos, en orden cronológico: las barras de la pantalla. */
+  meses: MesCompleto[];
+  /** Cuántos meses entraron en los promedios (`meses.length`). */
+  mesesCompletos: number;
+  /** Primer y último cierre dentro de los últimos 90 días. */
+  primerCierre?: FechaNegocio;
+  ultimoCierre?: FechaNegocio;
+  /** Primer cierre de todo el registro. */
+  registraDesde?: FechaNegocio;
+  /** Días desde `registraDesde` hasta hoy; 0 sin cierres. */
+  antiguedadDias: number;
+  /** Menos de 30 días registrados: el reporte aún no es convincente. */
+  enConstruccion: boolean;
+  /** Cuántos días más hacen falta para llegar a 30; nunca negativo. */
+  diasFaltantes: number;
+}
