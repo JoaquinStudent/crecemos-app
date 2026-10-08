@@ -120,3 +120,55 @@ export interface GrupoDia {
   cierreId: string;
   movimientos: Movimiento[];
 }
+
+/** Lo que Inicio muestra en "Yape por cobrar". */
+export interface ResumenPorCobrar {
+  total: number;
+  pagos: number;
+  /** Fecha del pago pendiente más antiguo. */
+  desde?: FechaNegocio;
+}
+
+/** Producto del JSON del Mock API: la fecha entra como `actualizadoDiasAtras`. */
+export interface ProductoSemilla {
+  id: string;
+  nombre: string;
+  unidad: 'porcion' | 'vaso';
+  precioVenta: number;
+  costoUnitario: number;
+  actualizadoDiasAtras: number;
+}
+
+export interface LineaSemilla {
+  productoId: string;
+  preparadas: number;
+  sobrantes: number;
+  precioUnitario: number;
+  costoUnitario: number;
+}
+
+export interface CierreSemilla {
+  diasAtras: number;
+  lineas: LineaSemilla[];
+  montoYape: number;
+  yapePendiente: boolean;
+  gastos: Gasto[];
+  abreCiclo: boolean;
+  cobradoDiasAtras?: number;
+}
+
+/** El JSON del Mock API (sdd/api-contracts.md). */
+export interface SemillaJSON {
+  version: number;
+  semilla: string;
+  /** Día de la semana (`Date.getDay()`, 0 = domingo) de `diasAtras = 0` al generarla. */
+  diaSemanaBase: number;
+  productos: ProductoSemilla[];
+  cierres: CierreSemilla[];
+}
+
+/** La semilla ya con fechas locales, ids e instantes: lista para guardar. */
+export interface SemillaMaterializada {
+  productos: Producto[];
+  cierres: Cierre[];
+}

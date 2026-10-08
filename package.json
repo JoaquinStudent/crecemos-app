@@ -12,6 +12,7 @@
     "format:check": "prettier --check .",
     "format:write": "prettier --write .",
     "start": "react-native start",
+    "semilla": "node scripts/generar-semilla.js",
     "test": "jest"
   },
   "dependencies": {

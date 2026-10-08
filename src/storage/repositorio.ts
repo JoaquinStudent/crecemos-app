@@ -3,7 +3,8 @@
 // Claves y formato: sdd/database/esquema.md, "Claves de AsyncStorage".
 import { createAsyncStorage } from '@react-native-async-storage/async-storage';
 import { PRODUCTOS_POR_DEFECTO } from '@dominio/productosPorDefecto';
-import type { Cierre, Perfil, Producto } from '@dominio/tipos';
+import { marcarCobrados } from '@dominio/cobro';
+import type { Cierre, FechaNegocio, Perfil, Producto } from '@dominio/tipos';
 
 const CLAVE_CIERRES = '@crecemos/cierres';
 const CLAVE_PRODUCTOS = '@crecemos/productos';
@@ -35,6 +36,14 @@ export const eliminarCierre = async (id: string): Promise<void> => {
   const restantes = cierres.filter(c => c.id !== id);
   if (restantes.length === cierres.length) return;
   await base().setItem(CLAVE_CIERRES, JSON.stringify(restantes));
+};
+
+/** Pone `cobradoEn` en los cierres pedidos y reescribe la lista completa (e2). */
+export const marcarCobrado = async (ids: string[], fecha: FechaNegocio): Promise<void> => {
+  const cierres = await listarCierres();
+  const cobrados = marcarCobrados(cierres, ids, fecha);
+  if (cobrados.every((c, i) => c === cierres[i])) return; // nada pendiente que cobrar
+  await base().setItem(CLAVE_CIERRES, JSON.stringify(cobrados));
 };
 
 /** Sin productos guardados devuelve los por defecto, sin escribirlos. */

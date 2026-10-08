@@ -14,6 +14,7 @@ import {
   listarCierres,
   guardarPerfil,
   listarProductos,
+  marcarCobrado,
   obtenerPerfil,
 } from '@storage/repositorio';
 
@@ -133,5 +134,54 @@ describe('Repositorio: eliminar cierres', () => {
     await eliminarCierre('c-2026-10-04');
 
     expect(await listarCierres()).toEqual([]);
+  });
+});
+
+describe('Repositorio: marcar cobrado', () => {
+  beforeEach(() => {
+    clearAllMockStorages();
+  });
+
+  const conYape = (fecha: string, monto: number, cobradoEn?: string): Cierre => ({
+    ...cierreDe(fecha),
+    montoYape: monto,
+    yapePendiente: true,
+    ...(cobradoEn ? { cobradoEn } : {}),
+  });
+
+  it('pone la fecha de cobro en los ids pedidos y deja el resto igual', async () => {
+    await guardarCierre(conYape('2026-10-04', 50));
+    await guardarCierre(conYape('2026-10-05', 46));
+    await guardarCierre(cierreDe('2026-10-06'));
+
+    await marcarCobrado(['c-2026-10-04', 'c-2026-10-05'], '2026-10-07');
+
+    const cierres = await listarCierres();
+    expect(cierres).toHaveLength(3);
+    const por = (id: string) => cierres.find(c => c.id === id);
+    expect(por('c-2026-10-04')?.cobradoEn).toBe('2026-10-07');
+    expect(por('c-2026-10-05')?.cobradoEn).toBe('2026-10-07');
+    expect(por('c-2026-10-06')?.cobradoEn).toBeUndefined();
+  });
+
+  it('un id que no existe no cambia nada ni falla', async () => {
+    await guardarCierre(conYape('2026-10-04', 50));
+
+    await expect(marcarCobrado(['no-existe'], '2026-10-07')).resolves.toBeUndefined();
+
+    expect((await listarCierres())[0].cobradoEn).toBeUndefined();
+  });
+
+  it('con el almacenamiento vacio no falla ni escribe nada', async () => {
+    await expect(marcarCobrado(['lo-que-sea'], '2026-10-07')).resolves.toBeUndefined();
+    expect(await listarCierres()).toEqual([]);
+  });
+
+  it('no pisa la fecha de un cobro anterior', async () => {
+    await guardarCierre(conYape('2026-10-04', 50, '2026-10-05'));
+
+    await marcarCobrado(['c-2026-10-04'], '2026-10-07');
+
+    expect((await listarCierres())[0].cobradoEn).toBe('2026-10-05');
   });
 });
