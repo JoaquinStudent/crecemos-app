@@ -1,13 +1,15 @@
 // src/screens/ResumenScreen.tsx
 // "Resumen" (mock 04): el ciclo de compra actual. "El primer día es para el capital y el
 // segundo es la ganancia" dibujado como una barra, y cuánto de la mercadería se vendió.
-// Sin comparación con el ciclo anterior (es del Sprint-05), sin "Este mes / Todo", sin
-// gráfico de ciclos y sin buscar. Las barras son Views de ancho porcentual, sin librerías.
+// Termina con el botón a "Qué me deja cada uno". Sin comparación con el ciclo anterior (llega
+// después en el Sprint-05), sin "Este mes / Todo", sin gráfico de ciclos y sin buscar.
+// Las barras son Views de ancho porcentual, sin librerías.
 import React from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, type CompositeNavigationProp } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { TriangleAlert } from 'lucide-react-native';
 import { colors, radius, spacing } from '@theme';
 import { Text } from '@components/atoms/Text';
@@ -17,7 +19,13 @@ import { agruparCiclos, mercaderiaDelCiclo, resumirCiclo, textoCapital } from '@
 import { formatoFechaCorta, formatoSoles } from '@dominio/formato';
 import type { Ciclo } from '@dominio/tipos';
 import { useCrecemos } from '@context/CrecemosProvider';
+import type { RootStackParamList } from '@navigation/RootStack';
 import type { TabsParamList } from '@navigation/Tabs';
+
+type ResumenNavigation = CompositeNavigationProp<
+  BottomTabNavigationProp<TabsParamList, 'Resumen'>,
+  NativeStackNavigationProp<RootStackParamList>
+>;
 
 // Por debajo de este porcentaje vendido, la barra de un producto va en naranja (solo relleno).
 const VENDIDO_MINIMO = 70;
@@ -32,7 +40,7 @@ const rango = (ciclo: Ciclo): string =>
 
 export const ResumenScreen = () => {
   const { cierres, cargando } = useCrecemos();
-  const navigation = useNavigation<BottomTabNavigationProp<TabsParamList, 'Resumen'>>();
+  const navigation = useNavigation<ResumenNavigation>();
 
   // El ciclo actual es el último.
   const ciclos = agruparCiclos(cierres);
@@ -63,6 +71,17 @@ export const ResumenScreen = () => {
               onPress={() => navigation.navigate('CerrarDia')}
             />
           </View>
+        )}
+
+        {cargando ? null : (
+          <Button
+            title="Qué me deja cada uno"
+            variant="outline"
+            size="lg"
+            fullWidth
+            testID="resumen-que-me-deja"
+            onPress={() => navigation.navigate('QueMeDeja')}
+          />
         )}
       </ScrollView>
     </SafeAreaView>

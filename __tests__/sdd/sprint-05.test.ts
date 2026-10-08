@@ -6,7 +6,15 @@
  * La tarea del sprint es ponerlos en verde sin relajar ninguna aserción.
  */
 
+import { readFileSync } from 'fs';
+import { join } from 'path';
+import { createElement } from 'react';
+import ReactTestRenderer, { act, ReactTestInstance } from 'react-test-renderer';
+import { clearAllMockStorages } from '@react-native-async-storage/async-storage/jest';
+import App from '../../App';
 import { resumirCiclo, agruparCiclos } from '@dominio/ciclo';
+import { fechaLocal, restarDias } from '@dominio/fecha';
+import { materializarSemilla, validarSemilla } from '@dominio/semilla';
 import type {
   Cierre,
   FechaNegocio,
@@ -95,7 +103,64 @@ const cierresDeOctubre = (): Cierre[] => [
 const porVendido = (g: GananciaProducto[]) => [...g].sort((a, b) => b.seVende - a.seVende);
 const porPorcion = (g: GananciaProducto[]) => [...g].sort((a, b) => b.teDeja - a.teDeja);
 
+// La app real, montada como en el teléfono (como en spec04_e10): con el almacenamiento vacío pide la
+// semilla, la guarda y queda lista. Se deja correr el arranque antes de devolverla.
+const RUTA_SEMILLA = join(__dirname, '..', '..', 'seed', 'semilla.json');
+let montada: ReactTestRenderer.ReactTestRenderer | null = null;
+const montarApp = async () => {
+  await act(async () => {
+    montada = ReactTestRenderer.create(createElement(App));
+  });
+  for (let i = 0; i < 5; i += 1) {
+    await act(async () => {
+      await new Promise(resolver => setTimeout(resolver, 0));
+    });
+  }
+};
+const desmontarApp = async () => {
+  const app = montada;
+  montada = null;
+  if (app) await act(async () => app.unmount());
+};
+const raiz = (): ReactTestInstance => {
+  if (!montada) throw new Error('La app no está montada');
+  return (montada as ReactTestRenderer.ReactTestRenderer).root;
+};
+const tocar = (testID: string) =>
+  act(async () => {
+    const nodo = raiz().findAll(
+      n => n.props.testID === testID && typeof n.props.onPress === 'function',
+    )[0];
+    if (!nodo) throw new Error(`No hay nada con testID "${testID}" que responda a onPress`);
+    await nodo.props.onPress();
+  });
+const hayTexto = (testID: string): boolean =>
+  raiz().findAll(n => (n.type as unknown) === 'Text' && n.props.testID === testID).length > 0;
+// Las tarjetas de producto, en el orden en que están en pantalla.
+const idsDeTarjetas = (): string[] =>
+  raiz()
+    .findAll(
+      n => (n.type as unknown) === 'View' && String(n.props.testID ?? '').startsWith('queme-tarjeta-'),
+    )
+    .map(n => String(n.props.testID).replace('queme-tarjeta-', ''));
+// ¿Esa etiqueta está dentro de la tarjeta de ese producto?
+const etiquetaEnTarjeta = (etiqueta: 'vendes' | 'deja', productoId: string): boolean => {
+  const tarjeta = raiz().findAll(
+    n => (n.type as unknown) === 'View' && n.props.testID === `queme-tarjeta-${productoId}`,
+  )[0];
+  if (!tarjeta) throw new Error(`No hay ninguna tarjeta con testID "queme-tarjeta-${productoId}"`);
+  return (
+    tarjeta.findAll(
+      n => (n.type as unknown) === 'Text' && n.props.testID === `queme-etiqueta-${etiqueta}-${productoId}`,
+    ).length > 0
+  );
+};
+
 describe('SPEC-05: Motor de decisiones', () => {
+  afterEach(async () => {
+    await desmontarApp();
+  });
+
   // @spec05_e1 — Separa lo que se vende de lo que deja
   it('spec05_e1 separa lo que se vende de lo que deja', () => {
     // Given: en octubre, 410 porciones de pancita vendidas que dejan S/ 1.00 cada una y 270 de anticucho que dejan S/ 1.80 cada una
@@ -367,6 +432,48 @@ describe('SPEC-05: Motor de decisiones', () => {
     // Given: la app con la semilla cargada
     // When: se abre "Qué me deja cada uno"
     // Then: la etiqueta "El que más vendes" está en la tarjeta de Pancita, "El que más te deja" en la de Anticucho, y las 4 tarjetas están ordenadas por ganancia
-    throw new Error('Rojo: no implementado');
+    return (async () => {
+      clearAllMockStorages();
+      const texto = readFileSync(RUTA_SEMILLA, 'utf8');
+      const validada = validarSemilla(JSON.parse(texto));
+      if (!validada.ok) throw new Error('La semilla del repositorio no valida');
+      const fetchPorDefecto = global.fetch;
+      global.fetch = jest.fn(
+        async () => ({ ok: true, status: 200, text: async () => texto } as unknown as Response),
+      ) as unknown as typeof fetch;
+      try {
+        await montarApp();
+
+        // Resumen → "Qué me deja cada uno".
+        await tocar('tab-resumen');
+        await tocar('resumen-que-me-deja');
+
+        // Lo esperado sale del dominio, con la misma semilla y el mismo "hoy" que usa la app.
+        const hoy = fechaLocal(new Date());
+        const { cierres } = materializarSemilla(validada.semilla, new Date());
+        const g = gananciaPorProducto(cierres, restarDias(hoy, 30));
+        expect(g).toHaveLength(4);
+        const masVendido = porVendido(g)[0];
+        const masDeja = porPorcion(g)[0];
+        expect(masVendido.nombre).toBe('Pancita');
+        expect(masDeja.nombre).toBe('Anticucho');
+
+        // Las 4 tarjetas, ordenadas por ganancia (de mayor a menor).
+        const ids = idsDeTarjetas();
+        expect(ids).toEqual(g.map(x => x.productoId));
+        expect(g.map(x => x.ganancia)).toEqual(g.map(x => x.ganancia).sort((a, b) => b - a));
+
+        // "El que más vendes" en Pancita y "El que más te deja" en Anticucho, y en ninguna otra.
+        expect(etiquetaEnTarjeta('vendes', 'p-pancita')).toBe(true);
+        expect(etiquetaEnTarjeta('deja', 'p-anticucho')).toBe(true);
+        for (const id of ids) {
+          expect(etiquetaEnTarjeta('vendes', id)).toBe(id === 'p-pancita');
+          expect(etiquetaEnTarjeta('deja', id)).toBe(id === 'p-anticucho');
+        }
+        expect(hayTexto('queme-insight-texto')).toBe(true);
+      } finally {
+        global.fetch = fetchPorDefecto;
+      }
+    })();
   });
 });
