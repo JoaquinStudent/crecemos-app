@@ -444,7 +444,7 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
   it('spec08_e11 nada se envia sin tocar el boton', () => {
     // Given: la pantalla "Preguntarle a mis datos" con una pregunta escrita
     // When: se abre la pantalla y luego se toca "Preguntar"
-    // Then: no hay ninguna petición de red al abrir ni al escribir, y al tocar el botón se hace 1 petición para interpretar y, si hay respuesta, 1 para redactar
+    // Then: no hay ninguna petición de red al abrir ni al escribir, y al tocar el botón se hace 1 petición para interpretar y, si hay respuesta, 1 para redactar y, solo en las intenciones que se pueden juzgar, 1 para juzgar (las dos últimas se piden a la vez)
     throw new Error('Rojo: no implementado');
   });
 
@@ -469,6 +469,38 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
     // Given: la app con la semilla cargada, en Inicio
     // When: se toca el botón flotante "Preguntar"
     // Then: se abre el chat con las preguntas sugeridas visibles, y "Atrás" vuelve a Inicio sin haber enviado ninguna petición
+    throw new Error('Rojo: no implementado');
+  });
+
+  // @spec08_e15 — Jev juzga el resultado ya calculado
+  it('spec08_e15 jev juzga el resultado ya calculado', () => {
+    // Given: la respuesta calculada "Ganaste S/ 78.00 menos que el ciclo pasado." de la intención "comparar ciclo" y un Jev que juzga "ojo" con confianza de 0.8
+    // When: se pide el juicio
+    // Then: la respuesta lleva el semáforo "Ojo" junto a la frase calculada
+    throw new Error('Rojo: no implementado');
+  });
+
+  // @spec08_e16 — A Jev solo viaja el hecho calculado y señales con nombre
+  it('spec08_e16 a jev solo viaja el hecho calculado y señales con nombre', () => {
+    // Given: un perfil con nombre, número de Yape y 75 cierres, y la respuesta calculada "Ganaste S/ 78.00 menos que el ciclo pasado."
+    // When: se pide el juicio
+    // Then: la petición es exactamente el tipo "juzgar" con la intención, la frase, las cifras y las señales con nombre (tendencia y magnitud), y no contiene el perfil, el Yape ni ningún cierre
+    throw new Error('Rojo: no implementado');
+  });
+
+  // @spec08_e17 — Sin juicio posible o con falla, la respuesta sale igual
+  it('spec08_e17 sin juicio posible o con falla la respuesta sale igual', () => {
+    // Given: la intención "venta de un día" (que no se puede juzgar) y, por otro lado, una intención juzgable con un Jev que falla, tarda más de 8 segundos o responde con confianza de 0.3
+    // When: se arma la respuesta
+    // Then: en el primer caso no se hace ninguna petición de juicio, y en el segundo la respuesta se muestra sin semáforo y sin ningún mensaje técnico
+    throw new Error('Rojo: no implementado');
+  });
+
+  // @spec08_e18 — El semáforo se distingue por palabra, símbolo y color
+  it('spec08_e18 el semaforo se distingue por palabra simbolo y color', () => {
+    // Given: respuestas con el semáforo "bien", "ojo" y "urgente"
+    // When: se muestran en el chat
+    // Then: cada una dice su palabra ("Todo bien", "Ojo", "Urgente"), lleva un símbolo distinto y un color distinto, con la letra siempre oscura sobre el fondo suave (el naranja nunca es el color del texto)
     throw new Error('Rojo: no implementado');
   });
 });
