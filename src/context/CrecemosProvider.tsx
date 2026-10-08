@@ -13,6 +13,7 @@ import React, {
 import { editarCierre, nuevoCierre } from '@dominio/cierre';
 import { marcarCobrados } from '@dominio/cobro';
 import { fechaLocal } from '@dominio/fecha';
+import { quitarFoto as quitarFotoDelPerfil, validarFoto } from '@dominio/foto';
 import { normalizarPerfil, PERFIL_POR_DEFECTO } from '@dominio/perfil';
 import { cambiarPrecio } from '@dominio/producto';
 import { materializarSemilla } from '@dominio/semilla';
@@ -109,6 +110,8 @@ interface ContextoCrecemos extends Estado {
   /** Borra el cierre con ese id. */
   eliminarDia: (id: string) => Promise<void>;
   guardarPerfil: (parcial: Partial<Perfil>) => Promise<void>;
+  guardarFoto: (fotoUri: string) => Promise<ResultadoValidacion>;
+  quitarFoto: () => Promise<void>;
   /** Valida y cambia precio y costo desde hoy. Devuelve los errores si no pasa. */
   cambiarPrecioProducto: (
     productoId: string,
@@ -230,6 +233,25 @@ export const CrecemosProvider = ({ children }: { children: React.ReactNode }) =>
     [estado.perfil],
   );
 
+  const guardarFoto = useCallback(
+    async (fotoUri: string): Promise<ResultadoValidacion> => {
+      const resultado = validarFoto(fotoUri);
+      if (resultado.ok) await guardarPerfil({ fotoUri });
+      return resultado;
+    },
+    [guardarPerfil],
+  );
+
+  const quitarFoto = useCallback(async (): Promise<void> => {
+    // No pasa por `guardarPerfil`: mezclar `{ fotoUri: undefined }` dejaría el campo en el objeto.
+    const perfil: Perfil = {
+      ...quitarFotoDelPerfil(estado.perfil),
+      actualizadoEn: new Date().toISOString(),
+    };
+    await guardarPerfilRepo(perfil);
+    dispatch({ tipo: 'perfilGuardado', perfil });
+  }, [estado.perfil]);
+
   const cambiarPrecioProducto = useCallback(
     async (productoId: string, precio: number, costo: number): Promise<ResultadoValidacion> => {
       const resultado = validarProducto({ precioVenta: precio, costoUnitario: costo });
@@ -264,6 +286,8 @@ export const CrecemosProvider = ({ children }: { children: React.ReactNode }) =>
       guardarDia,
       eliminarDia,
       guardarPerfil,
+      guardarFoto,
+      quitarFoto,
       cambiarPrecioProducto,
       cargarDatosDeEjemplo,
       marcarCobrado,
@@ -273,6 +297,8 @@ export const CrecemosProvider = ({ children }: { children: React.ReactNode }) =>
       guardarDia,
       eliminarDia,
       guardarPerfil,
+      guardarFoto,
+      quitarFoto,
       cambiarPrecioProducto,
       cargarDatosDeEjemplo,
       marcarCobrado,

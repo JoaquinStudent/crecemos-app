@@ -6,12 +6,18 @@
  * La tarea del sprint es ponerlos en verde sin relajar ninguna aserción.
  */
 
+import { createElement } from 'react';
+import ReactTestRenderer, { act } from 'react-test-renderer';
+import { clearAllMockStorages } from '@react-native-async-storage/async-storage/jest';
+import { launchImageLibrary } from 'react-native-image-picker';
+import App from '../../App';
 import { restarDias } from '@dominio/fecha';
-import { avatarDe, FOTO_MAX_BYTES, quitarFoto, validarFoto } from '@dominio/foto';
+import { armarFotoUri, avatarDe, FOTO_MAX_BYTES, quitarFoto, validarFoto } from '@dominio/foto';
 import { formatoSoles } from '@dominio/formato';
 import type { Cierre, FechaNegocio, Perfil, Senales } from '@dominio/tipos';
 import { htmlReporte } from '@analisis/htmlReporte';
 import { senalesBanco } from '@analisis/senales';
+import { guardarPerfil, obtenerPerfil } from '@storage/repositorio';
 
 // "Hoy" es explícito: el reloj no decide ningún resultado.
 const HOY: FechaNegocio = '2026-10-07';
@@ -91,11 +97,77 @@ describe('SPEC-07: Foto de perfil y reporte en PDF', () => {
   });
 
   // @spec07_e2 — Guardar la foto la conserva
-  it('spec07_e2 guardar la foto la conserva', () => {
+  it('spec07_e2 guardar la foto la conserva', async () => {
     // Given: un perfil sin foto
     // When: se guarda una foto válida y se vuelve a abrir la app
     // Then: el perfil guardado trae exactamente la misma foto y el avatar de Inicio la muestra
-    throw new Error('Rojo: no implementado');
+    // La app real y el almacenamiento real de Jest: la foto entra por el selector de la galería
+    // (simulado), se guarda desde Perfil, se desmonta la app y se vuelve a montar.
+    clearAllMockStorages();
+    await guardarPerfil(perfilDe({ nombre: 'Freddy' }));
+    expect((await obtenerPerfil())?.fotoUri).toBeUndefined();
+
+    const base64 = base64DeBytes(20 * 1024);
+    const esperada = armarFotoUri(base64, 'image/jpg');
+    expect(validarFoto(esperada)).toEqual({ ok: true });
+    jest
+      .mocked(launchImageLibrary)
+      .mockResolvedValueOnce({ assets: [{ base64, type: 'image/jpg' }] });
+
+    let app: ReactTestRenderer.ReactTestRenderer | null = null;
+    const montar = async () => {
+      await act(async () => {
+        app = ReactTestRenderer.create(createElement(App));
+      });
+      for (let i = 0; i < 5; i += 1) {
+        await act(async () => {
+          await new Promise(resolver => setTimeout(resolver, 0));
+        });
+      }
+    };
+    const desmontar = async () => {
+      const actual = app as ReactTestRenderer.ReactTestRenderer | null;
+      app = null;
+      if (actual) await act(async () => actual.unmount());
+    };
+    const hay = (testID: string): boolean =>
+      (app as unknown as ReactTestRenderer.ReactTestRenderer).root.findAll(
+        n => n.props.testID === testID,
+      ).length > 0;
+    const tocar = (testID: string) =>
+      act(async () => {
+        const nodo = (app as unknown as ReactTestRenderer.ReactTestRenderer).root.findAll(
+          n => n.props.testID === testID && typeof n.props.onPress === 'function',
+        )[0];
+        if (!nodo) throw new Error(`No hay nada con testID "${testID}" que responda a onPress`);
+        await nodo.props.onPress();
+      });
+
+    try {
+      await montar();
+      expect(hay('inicio-avatar-iniciales')).toBe(true);
+      expect(hay('inicio-avatar-foto')).toBe(false);
+
+      await tocar('abrir-perfil');
+      await tocar('perfil-foto-galeria');
+      expect((await obtenerPerfil())?.fotoUri).toBe(esperada);
+    } finally {
+      await desmontar();
+    }
+
+    // Se vuelve a abrir la app: lo guardado manda.
+    expect((await obtenerPerfil())?.fotoUri).toBe(esperada);
+    try {
+      await montar();
+      expect(hay('inicio-avatar-foto')).toBe(true);
+      expect(hay('inicio-avatar-iniciales')).toBe(false);
+      const imagen = (app as unknown as ReactTestRenderer.ReactTestRenderer).root.findAll(
+        n => n.props.testID === 'inicio-avatar-foto' && n.props.source !== undefined,
+      )[0];
+      expect(imagen.props.source).toEqual({ uri: esperada });
+    } finally {
+      await desmontar();
+    }
   });
 
   // @spec07_e3 — Sin foto, el avatar muestra la inicial
