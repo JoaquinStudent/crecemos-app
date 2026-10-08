@@ -1,14 +1,19 @@
 // src/screens/InicioScreen.tsx
-// Responde "¿cómo me fue?": cuánto te queda del último día cerrado.
+// Responde "¿cómo me fue?" y "¿qué decido hoy?". De arriba hacia abajo: saludo, ciclo de compra,
+// el insight, las recomendaciones, el Yape por cobrar, el último día y el botón "Cerrar mi día".
 import React, { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { CompositeNavigationProp, useNavigation } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { ArrowRight, Lightbulb } from 'lucide-react-native';
 import { colors, radius, spacing } from '@theme';
 import { Text } from '@components/atoms/Text';
 import { Button } from '@components/atoms/Button';
+import { Icon } from '@components/atoms/Icon';
+import { gananciaPorProducto, insight } from '@analisis/metricas';
+import { evaluarReglas } from '@analisis/reglas';
 import { calcularCierre } from '@dominio/cierre';
 import {
   agruparCiclos,
@@ -17,11 +22,11 @@ import {
   textoCapital,
 } from '@dominio/ciclo';
 import { totalPorCobrar } from '@dominio/cobro';
-import { fechaLocal } from '@dominio/fecha';
+import { fechaLocal, restarDias } from '@dominio/fecha';
 import { formatoFecha, formatoSoles } from '@dominio/formato';
 import { inicialesAvatar } from '@dominio/perfil';
 import { useCrecemos, type EstadoSemilla } from '@context/CrecemosProvider';
-import type { Ciclo } from '@dominio/tipos';
+import type { Ciclo, Recomendacion } from '@dominio/tipos';
 import type { RootStackParamList } from '@navigation/RootStack';
 import type { TabsParamList } from '@navigation/Tabs';
 
@@ -30,20 +35,31 @@ type InicioNavigation = CompositeNavigationProp<
   NativeStackNavigationProp<RootStackParamList>
 >;
 
+/** El mismo periodo que mira "Qué me deja cada uno": los últimos 30 días, contando el día 30. */
+const DIAS_DEL_INSIGHT = 30;
+
 export const InicioScreen = () => {
-  const { cierres, perfil, cargando, semilla, cargarDatosDeEjemplo, marcarCobrado } = useCrecemos();
+  const { cierres, productos, perfil, cargando, semilla, cargarDatosDeEjemplo, marcarCobrado } =
+    useCrecemos();
   const navigation = useNavigation<InicioNavigation>();
+  const hoy = fechaLocal(new Date());
 
   // 'YYYY-MM-DD' ordena igual como texto que como fecha.
   const ultimo = cierres.reduce<(typeof cierres)[number] | null>(
     (masReciente, c) => (masReciente === null || c.fecha > masReciente.fecha ? c : masReciente),
     null,
   );
-  const cicloActual = useMemo(() => {
-    const ciclos = agruparCiclos(cierres);
-    return ciclos[ciclos.length - 1];
-  }, [cierres]);
+  const ciclos = useMemo(() => agruparCiclos(cierres), [cierres]);
+  const cicloActual = ciclos[ciclos.length - 1];
   const porCobrar = useMemo(() => totalPorCobrar(cierres), [cierres]);
+  const frase = useMemo(
+    () => insight(gananciaPorProducto(cierres, restarDias(hoy, DIAS_DEL_INSIGHT))),
+    [cierres, hoy],
+  );
+  const recomendaciones = useMemo(
+    () => evaluarReglas({ cierres, productos, hoy }),
+    [cierres, productos, hoy],
+  );
   const nombre = perfil.nombre.trim();
   const irACerrarDia = () => navigation.navigate('CerrarDia');
 
@@ -80,8 +96,11 @@ export const InicioScreen = () => {
 
         {cargando ? null : ultimo && cicloActual ? (
           <>
-            <ResumenDelDia fecha={ultimo.fecha} resumen={calcularCierre(ultimo)} />
             <TarjetaCiclo ciclo={cicloActual} />
+            {frase ? (
+              <TarjetaInsight frase={frase} alVer={() => navigation.navigate('QueMeDeja')} />
+            ) : null}
+            <Recomendaciones recomendaciones={recomendaciones} ciclos={ciclos.length} />
             {porCobrar.pagos > 0 ? (
               <TarjetaPorCobrar
                 pagos={porCobrar.pagos}
@@ -89,6 +108,7 @@ export const InicioScreen = () => {
                 alCobrar={marcarCobrado}
               />
             ) : null}
+            <ResumenDelDia fecha={ultimo.fecha} resumen={calcularCierre(ultimo)} />
             {/* La única acción principal de la pantalla (UX, regla 2). */}
             <Button
               title="Cerrar mi día"
@@ -242,6 +262,71 @@ const TarjetaCiclo = ({ ciclo }: { ciclo: Ciclo }) => {
   );
 };
 
+/**
+ * La frase que contrasta lo que se vende con lo que deja. El naranja es solo fondo, borde e ícono
+ * (UX, regla 5): el texto va en letra oscura y el enlace, en el color de marca.
+ */
+const TarjetaInsight = ({ frase, alVer }: { frase: string; alVer: () => void }) => (
+  <View style={styles.insight} testID="inicio-insight">
+    <View style={styles.insightFrase}>
+      <Icon icon={Lightbulb} color="accent" size="lg" />
+      <Text variant="bodyStrong" style={styles.insightTexto} testID="inicio-insight-texto">
+        {frase}
+      </Text>
+    </View>
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="Ver qué me deja cada uno"
+      onPress={alVer}
+      style={styles.enlace}
+      testID="inicio-ver-que-me-deja"
+    >
+      <Text variant="bodyStrong" color="primary" testID="inicio-ver-que-me-deja-texto">
+        Ver qué me deja cada uno
+      </Text>
+      <Icon icon={ArrowRight} color="primary" size="md" />
+    </Pressable>
+  </View>
+);
+
+/**
+ * Hasta 2 decisiones para hoy, por prioridad. Con cierres pero menos de 2 ciclos, el motor no
+ * inventa: lo dice. Con 2 ciclos o más y ninguna recomendación, no muestra nada.
+ */
+const Recomendaciones = ({
+  recomendaciones,
+  ciclos,
+}: {
+  recomendaciones: Recomendacion[];
+  ciclos: number;
+}) => {
+  if (recomendaciones.length === 0) {
+    return ciclos < 2 ? (
+      <View style={styles.tarjeta}>
+        <Text color="textMuted" testID="inicio-sin-recomendaciones">
+          Cierra 2 ciclos para ver recomendaciones
+        </Text>
+      </View>
+    ) : null;
+  }
+  return (
+    <View style={styles.recomendaciones} testID="inicio-recomendaciones">
+      <Text variant="h3" accessibilityRole="header">
+        Para decidir hoy
+      </Text>
+      {recomendaciones.map(r => (
+        <View
+          key={r.reglaId}
+          style={styles.tarjetaBorde}
+          testID={`inicio-recomendacion-${r.reglaId}`}
+        >
+          <Text testID={`inicio-recomendacion-${r.reglaId}-texto`}>{r.mensaje}</Text>
+        </View>
+      ))}
+    </View>
+  );
+};
+
 /** El Yape que entró a una cuenta ajena y todavía no recibe. Confirma diciendo cuánto, en la misma tarjeta. */
 const TarjetaPorCobrar = ({
   pagos,
@@ -378,6 +463,24 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     padding: spacing.lg,
   },
+  insight: {
+    backgroundColor: colors.accentSoft,
+    borderLeftWidth: 4,
+    borderLeftColor: colors.accent,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
+  },
+  insightFrase: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md },
+  insightTexto: { flex: 1 },
+  enlace: {
+    alignSelf: 'flex-start',
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  recomendaciones: { gap: spacing.md },
   separado: { marginTop: spacing.md },
   separadoChico: { marginTop: spacing.sm },
   filaSpace: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },

@@ -25,6 +25,7 @@ import type {
 } from '@dominio/tipos';
 import { gananciaPorProducto, insight, compararCiclos } from '@analisis/metricas';
 import { evaluarReglas, REGLAS } from '@analisis/reglas';
+import { guardarCierre } from '@storage/repositorio';
 
 // Mediodía del 2026-10-07 en Lima: solo alimenta el instante de creación; "hoy" y la fecha de cada cierre son explícitas.
 const ahora = new Date('2026-10-07T12:00:00-05:00');
@@ -424,7 +425,37 @@ describe('SPEC-05: Motor de decisiones', () => {
     // Given: un solo ciclo registrado
     // When: se evalúan las reglas
     // Then: el motor devuelve 0 recomendaciones y la pantalla muestra "Cierra 2 ciclos para ver recomendaciones"
-    throw new Error('Rojo: no implementado');
+    return (async () => {
+      clearAllMockStorages();
+      // Un solo ciclo, de dos días: hace 2 días abre el ciclo y ayer lo continúa. Con cierres guardados
+      // la app no pide la semilla (D46), así que Inicio muestra exactamente estos datos.
+      const hoyReal = fechaLocal(new Date());
+      const cierres = [
+        cierreDe(restarDias(hoyReal, 2), {
+          abreCiclo: true,
+          lineas: [linea('Anticucho', 20, 0, 10, 8.2)],
+          gastos: [{ categoria: 'mercaderia', monto: 100 }],
+        }),
+        cierreDe(restarDias(hoyReal, 1), { lineas: [linea('Anticucho', 20, 2, 10, 8.2)] }),
+      ];
+      for (const c of cierres) await guardarCierre(c);
+      expect(agruparCiclos(cierres)).toHaveLength(1);
+
+      // El motor: con un solo ciclo no inventa.
+      const ctx = { cierres, productos: [producto('Anticucho', 10, 8.2)], hoy: hoyReal };
+      expect(evaluarReglas(ctx)).toHaveLength(0);
+
+      // La pantalla de Inicio, la real: lo dice con las palabras del SPEC y no muestra ninguna recomendación.
+      await montarApp();
+      const aviso = raiz().findAll(
+        n => (n.type as unknown) === 'Text' && n.props.testID === 'inicio-sin-recomendaciones',
+      )[0];
+      if (!aviso) throw new Error('No hay ningún texto con testID "inicio-sin-recomendaciones"');
+      expect([aviso.props.children].flat().join('')).toBe('Cierra 2 ciclos para ver recomendaciones');
+      for (const id of ['cobro', 'precio', 'preparar', 'retiro', 'diaFlojo', 'comparacion']) {
+        expect(hayTexto(`inicio-recomendacion-${id}-texto`)).toBe(false);
+      }
+    })();
   });
 
   // @spec05_e12 — e2e: el insight aparece con los datos de ejemplo

@@ -84,6 +84,22 @@ const montarApp = async () => {
   const pestanaActiva = (testID: string) =>
     app.root.findAll(n => n.props.testID === testID && n.props.accessibilityState)[0]?.props
       .accessibilityState.selected === true;
+  // Los testID pedidos, en el orden en que están en pantalla (de arriba hacia abajo), sin repetir.
+  const enOrden = (ids: string[]) => {
+    const vistos: string[] = [];
+    app.root
+      .findAll(n => (esHost(n, 'Text') || esHost(n, 'View')) && ids.includes(n.props.testID))
+      .forEach(n => {
+        if (!vistos.includes(n.props.testID)) vistos.push(n.props.testID);
+      });
+    return vistos;
+  };
+  // El color (hexadecimal) con que se dibujó el ícono dentro de esa vista.
+  const colorDelIcono = (testID: string): string | undefined => {
+    const vista = app.root.findAll(n => esHost(n, 'View') && n.props.testID === testID)[0];
+    if (!vista) throw new Error(`No hay ninguna vista con testID "${testID}"`);
+    return vista.findAll(n => /^#[0-9A-Fa-f]{6}$/.test(String(n.props.color)))[0]?.props.color;
+  };
   // Los títulos de día, en el orden en que aparecen.
   const titulosDeDia = () =>
     app.root
@@ -105,6 +121,8 @@ const montarApp = async () => {
     cuantos,
     pestanaActiva,
     titulosDeDia,
+    enOrden,
+    colorDelIcono,
   };
 };
 
@@ -855,5 +873,160 @@ describe('Resumen', () => {
     // Sin el día 6: venta S/ 279.00, capital S/ 220.00.
     expect(textoDe('resumen-capital')).toBe('Capital S/ 220.00');
     expect(textoDe('resumen-te-queda')).toBe('S/ 59.00');
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Sprint-05 · oleada C: Resumen compara el ciclo actual con el anterior (decisión D42, escenario 9).
+// ---------------------------------------------------------------------------------------------
+
+describe('Resumen: comparación con el ciclo anterior', () => {
+  beforeEach(() => {
+    clearAllMockStorages();
+  });
+  afterEach(async () => {
+    const app = montada;
+    montada = null;
+    if (app) await act(async () => app.unmount());
+  });
+
+  // Anticucho a S/ 10.00 la porción. El ciclo anterior (del 14) vendió 30 porciones: S/ 300.00,
+  // menos S/ 86.00 de mercadería → te queda S/ 214.00. El actual (del 28) vende `porciones`.
+  const sembrarAnterior = () =>
+    sembrar('2026-09-14', {
+      abreCiclo: true,
+      lineas: [{ productoId: 'p-anticucho', preparadas: 30, sobrantes: 0 }],
+      gastos: [{ categoria: 'mercaderia', monto: 86 }],
+    });
+  const sembrarActual = (porciones: number, gasto: number) =>
+    sembrar('2026-09-28', {
+      abreCiclo: true,
+      lineas: [{ productoId: 'p-anticucho', preparadas: porciones, sobrantes: 0 }],
+      gastos: [{ categoria: 'mercaderia', monto: gasto }],
+    });
+
+  it('ganó más: dice cuánto más, con el monto del ciclo anterior debajo (escenario 9)', async () => {
+    await sembrarAnterior();
+    await sembrarActual(40, 138); // S/ 400.00 − S/ 138.00 = S/ 262.00
+    const { tocar, textoDe } = await montarApp();
+    await tocar('tab-resumen');
+
+    expect(textoDe('resumen-te-queda')).toBe('S/ 262.00');
+    expect(textoDe('resumen-comparacion')).toBe('Ganaste S/ 48.00 más que el ciclo pasado');
+    expect(textoDe('resumen-comparacion-anterior')).toBe('Ciclo anterior: S/ 214.00');
+  });
+
+  it('ganó menos: lo dice con palabras, el monto sigue ahí y el texto va en letra oscura', async () => {
+    await sembrarAnterior();
+    await sembrarActual(20, 100); // S/ 200.00 − S/ 100.00 = S/ 100.00
+    const { tocar, textoDe, colorDe, colorDelIcono } = await montarApp();
+    await tocar('tab-resumen');
+
+    expect(textoDe('resumen-comparacion')).toBe('Ganaste S/ 114.00 menos que el ciclo pasado');
+    expect(textoDe('resumen-comparacion-anterior')).toBe('Ciclo anterior: S/ 214.00');
+    expect(colorDe('resumen-comparacion')).toBe(colors.text);
+    // El color acompaña, no es la única señal: el ícono baja a rojo.
+    expect(colorDelIcono('resumen-comparacion-icono')).toBe(colors.danger);
+  });
+
+  it('ganó más: el ícono sube y va en verde, con el texto en letra oscura', async () => {
+    await sembrarAnterior();
+    await sembrarActual(40, 138);
+    const { tocar, colorDe, colorDelIcono } = await montarApp();
+    await tocar('tab-resumen');
+
+    expect(colorDelIcono('resumen-comparacion-icono')).toBe(colors.success);
+    expect(colorDe('resumen-comparacion')).toBe(colors.text);
+    expect(colorDe('resumen-comparacion-anterior')).not.toBe(colors.accent);
+  });
+
+  it('igual: dice que ganó lo mismo, y el ícono va en verde', async () => {
+    await sembrarAnterior();
+    await sembrarActual(30, 86); // S/ 300.00 − S/ 86.00 = S/ 214.00, igual que el anterior
+    const { tocar, textoDe, colorDelIcono } = await montarApp();
+    await tocar('tab-resumen');
+
+    expect(textoDe('resumen-comparacion')).toBe('Ganaste lo mismo que el ciclo pasado');
+    expect(textoDe('resumen-comparacion-anterior')).toBe('Ciclo anterior: S/ 214.00');
+    expect(colorDelIcono('resumen-comparacion-icono')).toBe(colors.success);
+  });
+
+  it('si el ciclo anterior cerró en pérdida, el monto lleva su signo menos', async () => {
+    await sembrar('2026-09-14', {
+      abreCiclo: true,
+      lineas: [{ productoId: 'p-anticucho', preparadas: 10, sobrantes: 0 }],
+      gastos: [{ categoria: 'mercaderia', monto: 120 }],
+    }); // S/ 100.00 − S/ 120.00 = −S/ 20.00
+    await sembrarActual(40, 138);
+    const { tocar, textoDe } = await montarApp();
+    await tocar('tab-resumen');
+
+    expect(textoDe('resumen-comparacion-anterior')).toBe('Ciclo anterior: -S/ 20.00');
+    expect(textoDe('resumen-comparacion')).toBe('Ganaste S/ 282.00 más que el ciclo pasado');
+  });
+
+  it('con tres ciclos compara el último con el penúltimo, no con el primero', async () => {
+    await sembrar('2026-09-01', {
+      abreCiclo: true,
+      lineas: [{ productoId: 'p-anticucho', preparadas: 100, sobrantes: 0 }],
+    }); // S/ 1,000.00: el primero, que no debe contar
+    await sembrarAnterior();
+    await sembrarActual(40, 138);
+    const { tocar, textoDe } = await montarApp();
+    await tocar('tab-resumen');
+
+    expect(textoDe('resumen-comparacion')).toBe('Ganaste S/ 48.00 más que el ciclo pasado');
+    expect(textoDe('resumen-comparacion-anterior')).toBe('Ciclo anterior: S/ 214.00');
+  });
+
+  it('con un solo ciclo no hay comparación', async () => {
+    await sembrarActual(40, 138);
+    const { tocar, existe, textos } = await montarApp();
+    await tocar('tab-resumen');
+
+    expect(existe('resumen-te-queda')).toBe(true);
+    expect(existe('resumen-comparacion')).toBe(false);
+    expect(existe('resumen-comparacion-anterior')).toBe(false);
+    expect(existe('resumen-comparacion-icono')).toBe(false);
+    expect(textos().some(t => t.includes('ciclo pasado'))).toBe(false);
+  });
+
+  it('sin cierres tampoco', async () => {
+    const { tocar, existe } = await montarApp();
+    await tocar('tab-resumen');
+
+    expect(existe('resumen-comparacion')).toBe(false);
+  });
+
+  it('va entre la tarjeta del ciclo y "Tu mercadería"', async () => {
+    await sembrarAnterior();
+    await sembrarActual(40, 138);
+    const { tocar, enOrden } = await montarApp();
+    await tocar('tab-resumen');
+
+    expect(
+      enOrden([
+        'resumen-te-queda',
+        'resumen-comparacion',
+        'mercaderia-p-anticucho',
+        'resumen-que-me-deja',
+      ]),
+    ).toEqual([
+      'resumen-te-queda',
+      'resumen-comparacion',
+      'mercaderia-p-anticucho',
+      'resumen-que-me-deja',
+    ]);
+  });
+
+  it('los testID de siempre siguen: te queda, capital, ganancia y el botón a "Qué me deja cada uno"', async () => {
+    await sembrarAnterior();
+    await sembrarActual(40, 138);
+    const { tocar, existe, textoDe } = await montarApp();
+    await tocar('tab-resumen');
+
+    expect(textoDe('resumen-capital')).toBe('Capital S/ 138.00');
+    expect(textoDe('resumen-ganancia')).toBe('Ganancia S/ 262.00');
+    expect(existe('resumen-que-me-deja')).toBe(true);
   });
 });
