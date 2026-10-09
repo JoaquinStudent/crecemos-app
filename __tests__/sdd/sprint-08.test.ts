@@ -16,12 +16,19 @@ import type {
   Consulta,
   ContextoAnalisis,
   FechaNegocio,
+  Gasto,
   Hecho,
   LineaCierre,
   Perfil,
   Producto,
 } from '@dominio/tipos';
 import { interpretarRespuesta, responderConsulta } from '@analisis/intenciones';
+import {
+  armarHechoParaJuicio,
+  ETIQUETA_SEMAFORO,
+  interpretarJuicio,
+  senalesDeJuicio,
+} from '@analisis/semaforo';
 import { extraerCifras, validarRedaccion } from '@analisis/validarRedaccion';
 import { consultar, redactarRespuesta } from '@services/jev';
 
@@ -46,6 +53,7 @@ const linea = (
 
 interface Opciones {
   lineas?: LineaCierre[];
+  gastos?: Gasto[];
   abreCiclo?: boolean;
   montoYape?: number;
   yapePendiente?: boolean;
@@ -54,14 +62,14 @@ interface Opciones {
 // Cierre armado a mano: la fecha es explícita y el reloj no decide nada.
 const cierreDe = (
   fecha: FechaNegocio,
-  { lineas = [], abreCiclo = false, montoYape = 0, yapePendiente = false }: Opciones = {},
+  { lineas = [], gastos = [], abreCiclo = false, montoYape = 0, yapePendiente = false }: Opciones = {},
 ): Cierre => ({
   id: `c-${fecha}`,
   fecha,
   lineas,
   montoYape,
   yapePendiente,
-  gastos: [],
+  gastos,
   abreCiclo,
   creadoEn: ahora.toISOString(),
   actualizadoEn: ahora.toISOString(),
@@ -477,7 +485,39 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
     // Given: la respuesta calculada "Ganaste S/ 78.00 menos que el ciclo pasado." de la intención "comparar ciclo" y un Jev que juzga "ojo" con confianza de 0.8
     // When: se pide el juicio
     // Then: la respuesta lleva el semáforo "Ojo" junto a la frase calculada
-    throw new Error('Rojo: no implementado');
+    // Ciclo anterior: venta 400 − gastos 131 = te queda 269. Ciclo actual: 300 − 109 = 191 (−29 %).
+    const cierres = [
+      cierreDe('2026-09-14', {
+        abreCiclo: true,
+        lineas: [linea('Anticucho', 40, 0, 10, 8)],
+        gastos: [{ categoria: 'mercaderia', monto: 131 }],
+      }),
+      cierreDe('2026-09-28', {
+        abreCiclo: true,
+        lineas: [linea('Anticucho', 30, 0, 10, 8)],
+        gastos: [{ categoria: 'mercaderia', monto: 109 }],
+      }),
+    ];
+    const ctx = ctxDe(cierres);
+    const consulta = jevInterpreta({
+      intencion: 'compararCiclo',
+      producto: 'ninguno',
+      dia: 'ninguno',
+      confianza: 0.9,
+    });
+    const hecho = responderConsulta(consulta, ctx);
+    expect(hecho.frase).toBe('Ganaste S/ 78.00 menos que el ciclo pasado.');
+    const senales = senalesDeJuicio(consulta, ctx);
+    expect(senales).toEqual({ tendencia: 'baja', magnitud: 'grande' });
+
+    // Un Jev simulado juzga "ojo" con confianza de 0.8
+    const juicio = interpretarJuicio({ semaforo: 'ojo', confianza: 0.8 });
+
+    expect(juicio).toEqual({ semaforo: 'ojo', confianza: 0.8 });
+    // La respuesta lleva la palabra "Ojo" junto a la frase calculada (que no cambia)
+    expect(ETIQUETA_SEMAFORO[juicio?.semaforo ?? 'bien']).toBe('Ojo');
+    expect(ETIQUETA_SEMAFORO.ojo).toBe('Ojo');
+    expect(hecho.frase).toBe('Ganaste S/ 78.00 menos que el ciclo pasado.');
   });
 
   // @spec08_e16 — A Jev solo viaja el hecho calculado y señales con nombre
@@ -485,7 +525,32 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
     // Given: un perfil con nombre, número de Yape y 75 cierres, y la respuesta calculada "Ganaste S/ 78.00 menos que el ciclo pasado."
     // When: se pide el juicio
     // Then: la petición es exactamente el tipo "juzgar" con la intención, la frase, las cifras y las señales con nombre (tendencia y magnitud), y no contiene el perfil, el Yape ni ningún cierre
-    throw new Error('Rojo: no implementado');
+    // (La petición de red la arma el servicio en la oleada B3; aquí se prueba su cuerpo: lo único que puede viajar.)
+    const { cierres, productos, perfil, hoy } = datosDeFreddy();
+    const ctx = ctxDe(cierres, productos, hoy);
+    const consulta = jevInterpreta({
+      intencion: 'compararCiclo',
+      producto: 'ninguno',
+      dia: 'ninguno',
+      confianza: 0.9,
+    });
+    const hecho = responderConsulta(consulta, ctx);
+    expect(hecho.frase).toBe('Ganaste S/ 78.00 menos que el ciclo pasado.');
+    const senales = senalesDeJuicio(consulta, ctx);
+    expect(senales).not.toBeNull();
+
+    const cuerpo = armarHechoParaJuicio(hecho, senales ?? {});
+
+    expect(cuerpo).toEqual({
+      intencion: 'compararCiclo',
+      frase: 'Ganaste S/ 78.00 menos que el ciclo pasado.',
+      cifras: ['78.00'],
+      senales: { tendencia: 'baja', magnitud: 'grande' },
+    });
+    // Exactamente estas cuatro llaves y ninguna más
+    expect(Object.keys(cuerpo).sort()).toEqual(['cifras', 'frase', 'intencion', 'senales']);
+    // El perfil, el Yape y los cierres no viajan
+    noFiltraNadaDeFreddy(JSON.stringify(cuerpo), cierres, perfil);
   });
 
   // @spec08_e17 — Sin juicio posible o con falla, la respuesta sale igual

@@ -213,7 +213,7 @@ const conArticulo = (nombre: string): string =>
   `${articulo(nombre) === 'la' ? 'La' : 'El'} ${nombre}`;
 
 /** El producto de la consulta, si la app lo tiene y está activo. */
-const productoDe = (consulta: Consulta, ctx: ContextoAnalisis): Producto | undefined =>
+export const productoDe = (consulta: Consulta, ctx: ContextoAnalisis): Producto | undefined =>
   ctx.productos.find(p => p.id === consulta.producto && p.activo);
 
 const pedirProducto = (intencion: IntencionId, ejemplo: string): Hecho =>

@@ -78,6 +78,8 @@ export interface CaidaDePrecio {
   nombre: string;
   caida: number;
   mes: string;
+  /** El "te deja" por porción de la línea de referencia: de lo que se mide la caída. */
+  margenAnterior: number;
 }
 
 /** Cuánto cayó el "te deja" de hoy de ese producto contra su línea más reciente de hace 90 días o más; `null` si no cayó lo suficiente. */
@@ -94,7 +96,12 @@ export const caidaDePrecio = (ctx: ContextoAnalisis, p: Producto): CaidaDePrecio
   const caida = redondearSoles(referencia.margen - teDeja(p).monto);
   return caida < CAIDA_PRECIO_SOLES
     ? null
-    : { nombre: p.nombre, caida, mes: nombreMes(referencia.fecha) };
+    : {
+        nombre: p.nombre,
+        caida,
+        mes: nombreMes(referencia.fecha),
+        margenAnterior: referencia.margen,
+      };
 };
 
 /** El producto activo cuyo "te deja" de hoy más cayó contra su línea más reciente de hace 90 días o más. */
@@ -194,6 +201,8 @@ export interface DiaMedido {
   promedio: number;
   /** `general − promedio`: positivo si el día está por debajo del promedio general, negativo si por encima. */
   diferencia: number;
+  /** Cierres de ese día de la semana que entraron en el promedio. */
+  cierres: number;
 }
 
 /**
@@ -223,21 +232,41 @@ const medirDias = (ctx: ContextoAnalisis): { general: number; dias: DiaMedido[] 
   for (const [dia, ganancias] of porDia) {
     if (ganancias.length < CIERRES_MINIMOS_DIA_FLOJO) continue;
     const delDia = promedio(ganancias);
-    dias.push({ dia, promedio: delDia, diferencia: redondearSoles(general - delDia) });
+    dias.push({
+      dia,
+      promedio: delDia,
+      diferencia: redondearSoles(general - delDia),
+      cierres: ganancias.length,
+    });
   }
   return { general, dias };
+};
+
+/**
+ * El día de la semana que más baja del promedio, sin importar cuánto, con el promedio general y los
+ * cierres de ese día (para juzgar si son pocos). `null` si no hay datos o ninguno baja.
+ */
+export const peorDiaMedido = (
+  ctx: ContextoAnalisis,
+): { dia: number; diferencia: number; general: number; cierres: number } | null => {
+  const medido = medirDias(ctx);
+  let peor: DiaMedido | null = null;
+  for (const d of medido?.dias ?? []) if (peor === null || d.diferencia > peor.diferencia) peor = d;
+  if (medido === null || peor === null || peor.diferencia <= 0) return null;
+  return {
+    dia: peor.dia,
+    diferencia: peor.diferencia,
+    general: medido.general,
+    cierres: peor.cierres,
+  };
 };
 
 /** El día de la semana que más baja del promedio, sin importar cuánto. `null` si no hay datos para juzgar o ninguno baja. */
 export const peorDiaDeLaSemana = (
   ctx: ContextoAnalisis,
 ): { dia: number; diferencia: number } | null => {
-  const medido = medirDias(ctx);
-  let peor: DiaMedido | null = null;
-  for (const d of medido?.dias ?? []) if (peor === null || d.diferencia > peor.diferencia) peor = d;
-  return peor === null || peor.diferencia <= 0
-    ? null
-    : { dia: peor.dia, diferencia: peor.diferencia };
+  const peor = peorDiaMedido(ctx);
+  return peor === null ? null : { dia: peor.dia, diferencia: peor.diferencia };
 };
 
 /** El día de la semana que más sube sobre el promedio. `diferencia` es cuánto gana de más. `null` si ninguno sube. */
