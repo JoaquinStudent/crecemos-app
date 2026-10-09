@@ -5,10 +5,18 @@
  * aquí se le pasa uno simulado y la red nunca se toca.
  */
 
-import type { Cierre, ContextoAnalisis, Hecho, LineaCierre } from '@dominio/tipos';
+import type {
+  Cierre,
+  ContextoAnalisis,
+  Gasto,
+  Hecho,
+  HechoJuicio,
+  LineaCierre,
+} from '@dominio/tipos';
 import { extraerCifras } from '@analisis/validarRedaccion';
 import {
   consultar,
+  juzgarRespuesta,
   MAX_CARACTERES_PREGUNTA,
   preguntarAJev,
   redactarRespuesta,
@@ -582,5 +590,302 @@ describe('consultar', () => {
 
     expect(textos.length).toBe(7);
     for (const texto of textos) expect(texto).not.toMatch(TECNICO);
+  });
+});
+
+// --- El semáforo: juzgarRespuesta y su lugar en consultar ------------------------------------------
+
+const FRASE_CICLO = 'Ganaste S/ 78.00 menos que el ciclo pasado.';
+const REDACCION_CICLO = 'Este ciclo te quedaron S/ 78.00 menos que en el pasado.';
+const HECHO_JUICIO: HechoJuicio = {
+  ...hechoDe(FRASE_CICLO),
+  intencion: 'compararCiclo',
+  senales: { tendencia: 'baja', magnitud: 'grande' },
+};
+const JUICIO = { semaforo: 'ojo', confianza: 0.8, modelo: 'typesafe/jev-1.13-20260917' };
+const CICLO = { intencion: 'compararCiclo', producto: 'ninguno', dia: 'ninguno', confianza: 0.9 };
+
+const cierreCiclo = (fecha: string, lineas: LineaCierre[], mercaderia: number): Cierre => ({
+  ...cierreDe(fecha, lineas),
+  abreCiclo: true,
+  gastos: [{ categoria: 'mercaderia', monto: mercaderia } as Gasto],
+});
+/** El ciclo anterior dejó S/ 269 y el actual S/ 191: "Ganaste S/ 78.00 menos que el ciclo pasado." */
+const CTX_CICLO: ContextoAnalisis = {
+  cierres: [
+    cierreCiclo('2026-09-14', [linea('Anticucho', 40, 10, 8)], 131),
+    cierreCiclo('2026-09-28', [linea('Anticucho', 30, 10, 8)], 109),
+  ],
+  productos: [],
+  hoy: HOY,
+};
+
+describe('juzgarRespuesta', () => {
+  it('un juicio con confianza suficiente da el semáforo y la confianza', async () => {
+    const f = jest.fn(async () => json(JUICIO));
+
+    await expect(juzgarRespuesta(comoFetch(f), URL_PRUEBA, HECHO_JUICIO)).resolves.toEqual({
+      semaforo: 'ojo',
+      confianza: 0.8,
+    });
+  });
+
+  it('es un POST con un solo encabezado y el cuerpo exacto: el tipo y el hecho con sus señales', async () => {
+    const f = jest.fn(async () => json(JUICIO));
+
+    await juzgarRespuesta(comoFetch(f), URL_PRUEBA, HECHO_JUICIO);
+
+    expect(f).toHaveBeenCalledTimes(1);
+    const [url, init] = llamadas(f)[0];
+    expect(url).toBe(URL_PRUEBA);
+    expect(init.method).toBe('POST');
+    expect(init.headers).toEqual({ 'Content-Type': 'application/json' });
+    expect(init.body).toBe(
+      JSON.stringify({
+        tipo: 'juzgar',
+        hecho: {
+          intencion: 'compararCiclo',
+          frase: FRASE_CICLO,
+          cifras: ['78.00'],
+          senales: { tendencia: 'baja', magnitud: 'grande' },
+        },
+      }),
+    );
+    expect(Object.keys(init).sort()).toEqual(['body', 'headers', 'method', 'signal']);
+  });
+
+  it('solo viajan la intención, la frase, las cifras y las señales aunque el hecho traiga algo más', async () => {
+    const f = jest.fn(async () => json(JUICIO));
+    const conExtra = { ...HECHO_JUICIO, nombre: 'Freddy', yape: '987654321' } as HechoJuicio;
+
+    await juzgarRespuesta(comoFetch(f), URL_PRUEBA, conExtra);
+
+    const cuerpo = llamadas(f)[0][1].body ?? '';
+    expect(cuerpo).not.toContain('Freddy');
+    expect(cuerpo).not.toContain('987654321');
+    expect(Object.keys(JSON.parse(cuerpo).hecho).sort()).toEqual([
+      'cifras',
+      'frase',
+      'intencion',
+      'senales',
+    ]);
+  });
+
+  it('con confianza menor a 0.6, sin semáforo, con uno inválido o con la forma equivocada es null', async () => {
+    const respuestas: unknown[] = [
+      { ...JUICIO, confianza: 0.3 },
+      { ...JUICIO, confianza: 0.59 },
+      { ...JUICIO, semaforo: null },
+      { ...JUICIO, semaforo: 'rojo' },
+      { ...JUICIO, confianza: 1.5 },
+      { ...JUICIO, confianza: '0.9' },
+      { semaforo: 'ojo' },
+      [],
+      null,
+      'texto',
+    ];
+    for (const dada of respuestas) {
+      const f = jest.fn(async () => json(dada));
+      await expect(juzgarRespuesta(comoFetch(f), URL_PRUEBA, HECHO_JUICIO)).resolves.toBeNull();
+    }
+    // Justo el mínimo sí vale.
+    const justo = jest.fn(async () => json({ ...JUICIO, confianza: 0.6 }));
+    await expect(juzgarRespuesta(comoFetch(justo), URL_PRUEBA, HECHO_JUICIO)).resolves.toEqual({
+      semaforo: 'ojo',
+      confianza: 0.6,
+    });
+  });
+
+  it('sin red, con error HTTP, con JSON roto o con más de 4 KB es null y no lanza', async () => {
+    const caminos: Array<() => Promise<Response>> = [
+      () => Promise.reject(new TypeError('Network request failed')),
+      async () => json({ error: 'NO_DISPONIBLE' }, false, 502),
+      async () => respuesta('{ roto'),
+      async () =>
+        respuesta(JSON.stringify({ ...JUICIO, relleno: 'ñ'.repeat(TAMANO_MAXIMO_BYTES) })),
+    ];
+    for (const camino of caminos) {
+      const f = jest.fn(camino);
+      await expect(juzgarRespuesta(comoFetch(f), URL_PRUEBA, HECHO_JUICIO)).resolves.toBeNull();
+      expect(f).toHaveBeenCalledTimes(1);
+    }
+    const lanza = jest.fn(() => {
+      throw new Error('boom');
+    });
+    await expect(juzgarRespuesta(comoFetch(lanza), URL_PRUEBA, HECHO_JUICIO)).resolves.toBeNull();
+  });
+
+  it('a los 8 segundos sin respuesta aborta y devuelve null, sin reintentar', async () => {
+    jest.useFakeTimers();
+    const f = colgado();
+    let resultado: unknown = 'pendiente';
+    const pendiente = juzgarRespuesta(comoFetch(f), URL_PRUEBA, HECHO_JUICIO).then(r => {
+      resultado = r;
+    });
+
+    await jest.advanceTimersByTimeAsync(7999);
+    expect(resultado).toBe('pendiente');
+    await jest.advanceTimersByTimeAsync(1);
+    await pendiente;
+
+    expect(resultado).toBeNull();
+    expect(f).toHaveBeenCalledTimes(1);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+});
+
+describe('consultar con semáforo', () => {
+  /** Un servidor que contesta según el tipo de la petición. */
+  const servidor = (
+    contesta: Partial<Record<'interpretar' | 'redactar' | 'juzgar', () => Promise<Response>>>,
+  ) =>
+    jest.fn(async (_url: string, init: { body?: string }) => {
+      const tipo = JSON.parse(init.body ?? '{}').tipo as 'interpretar' | 'redactar' | 'juzgar';
+      const camino = contesta[tipo];
+      if (camino === undefined) throw new Error(`no se esperaba ${tipo}`);
+      return camino();
+    });
+  const tiposDe = (f: jest.Mock) =>
+    llamadas(f).map(([, init]) => JSON.parse(init.body ?? '{}').tipo);
+  const interpreta = async () => json(CICLO);
+  const redacta = async () => json({ texto: REDACCION_CICLO });
+
+  it('en una intención juzgable pide redactar y juzgar, y la respuesta lleva el semáforo', async () => {
+    const f = servidor({
+      interpretar: interpreta,
+      redactar: redacta,
+      juzgar: async () => json(JUICIO),
+    });
+
+    const r = await consultar(
+      comoFetch(f),
+      URL_PRUEBA,
+      '¿cómo voy contra el ciclo pasado?',
+      CTX_CICLO,
+    );
+
+    expect(r).toMatchObject({
+      tipo: 'respuesta',
+      texto: REDACCION_CICLO,
+      frase: FRASE_CICLO,
+      redactada: true,
+      semaforo: 'ojo',
+    });
+    expect(f).toHaveBeenCalledTimes(3);
+    expect(tiposDe(f)[0]).toBe('interpretar');
+    expect(tiposDe(f).slice(1).sort()).toEqual(['juzgar', 'redactar']);
+    // Lo que se manda a juzgar sale del dominio: la frase, las cifras y las señales con nombre.
+    const juicio = llamadas(f)
+      .map(([, init]) => JSON.parse(init.body ?? '{}'))
+      .find(c => c.tipo === 'juzgar');
+    expect(juicio.hecho).toEqual({
+      intencion: 'compararCiclo',
+      frase: FRASE_CICLO,
+      cifras: ['78.00'],
+      senales: { tendencia: 'baja', magnitud: 'grande' },
+    });
+  });
+
+  it('pide la redacción y el juicio a la vez, sin esperar a uno para pedir el otro', async () => {
+    let enVuelo = 0;
+    let maximo = 0;
+    const lento = (cuerpo: unknown) => async () => {
+      enVuelo += 1;
+      maximo = Math.max(maximo, enVuelo);
+      await new Promise(resolver => setTimeout(resolver, 0));
+      enVuelo -= 1;
+      return json(cuerpo);
+    };
+    const f = servidor({
+      interpretar: interpreta,
+      redactar: lento({ texto: REDACCION_CICLO }),
+      juzgar: lento(JUICIO),
+    });
+
+    await consultar(comoFetch(f), URL_PRUEBA, 'hola', CTX_CICLO);
+
+    expect(maximo).toBe(2);
+  });
+
+  it('si el juicio falla, tarda, o su confianza es menor a 0.6, sale igual sin semáforo ni mensaje técnico', async () => {
+    const fallos: Array<() => Promise<Response>> = [
+      () => Promise.reject(new TypeError('Network request failed')),
+      async () => json({ error: 'NO_DISPONIBLE' }, false, 502),
+      async () => json({ ...JUICIO, confianza: 0.3 }),
+      async () => json({ semaforo: null, confianza: 0 }),
+      async () => respuesta('{ roto'),
+    ];
+    for (const juzgar of fallos) {
+      const f = servidor({ interpretar: interpreta, redactar: redacta, juzgar });
+      const r = await consultar(comoFetch(f), URL_PRUEBA, 'hola', CTX_CICLO);
+      expect(r).toMatchObject({ tipo: 'respuesta', texto: REDACCION_CICLO, redactada: true });
+      expect(r).not.toHaveProperty('semaforo');
+      expect(JSON.stringify(r)).not.toMatch(TECNICO);
+    }
+  });
+
+  it('si el redactor falla pero el juicio llega, sale la frase fija con el semáforo', async () => {
+    const f = servidor({
+      interpretar: interpreta,
+      redactar: () => Promise.reject(new TypeError('Network request failed')),
+      juzgar: async () => json(JUICIO),
+    });
+
+    const r = await consultar(comoFetch(f), URL_PRUEBA, 'hola', CTX_CICLO);
+
+    expect(r).toMatchObject({ texto: FRASE_CICLO, redactada: false, semaforo: 'ojo' });
+  });
+
+  it('si el juicio no llega a 8 segundos, la respuesta sale igual sin semáforo', async () => {
+    jest.useFakeTimers();
+    const lento = colgado();
+    const f = jest
+      .fn()
+      .mockResolvedValueOnce(json(CICLO))
+      .mockResolvedValueOnce(json({ texto: REDACCION_CICLO }))
+      .mockImplementationOnce((url: unknown, init?: { signal?: AbortSignal }) => lento(url, init));
+    let resultado: unknown;
+    const pendiente = consultar(comoFetch(f), URL_PRUEBA, 'hola', CTX_CICLO).then(r => {
+      resultado = r;
+    });
+
+    await jest.advanceTimersByTimeAsync(8000);
+    await pendiente;
+
+    expect(resultado).toMatchObject({ tipo: 'respuesta', texto: REDACCION_CICLO, redactada: true });
+    expect(resultado).not.toHaveProperty('semaforo');
+  });
+
+  it('una intención que no se juzga no pide ningún juicio', async () => {
+    const f = servidor({
+      interpretar: async () => json(AYER),
+      redactar: async () => json({ texto: 'Ayer, martes 6 de octubre, te entraron S/ 205.00.' }),
+    });
+
+    const r = await consultar(comoFetch(f), URL_PRUEBA, '¿cuánto vendí ayer?', CTX);
+
+    expect(r).toMatchObject({ tipo: 'respuesta', redactada: true });
+    expect(r).not.toHaveProperty('semaforo');
+    expect(tiposDe(f)).toEqual(['interpretar', 'redactar']);
+  });
+
+  it('una respuesta juzgable sin datos ("todavía no…") no pide ni redactar ni juzgar', async () => {
+    const f = servidor({ interpretar: interpreta });
+    const sinCiclos: ContextoAnalisis = { cierres: [], productos: [], hoy: HOY };
+
+    const r = await consultar(comoFetch(f), URL_PRUEBA, 'hola', sinCiclos);
+
+    expect(r).toMatchObject({ tipo: 'respuesta', redactada: false });
+    expect(r).not.toHaveProperty('semaforo');
+    expect(tiposDe(f)).toEqual(['interpretar']);
+  });
+
+  it('si la redacción es válida pero la intención no se pudo interpretar, no se juzga nada', async () => {
+    const f = servidor({ interpretar: async () => json({ ...CICLO, confianza: 0.2 }) });
+
+    const r = await consultar(comoFetch(f), URL_PRUEBA, 'hola', CTX_CICLO);
+
+    expect(r).toEqual({ tipo: 'noEntendi', texto: TEXTO_NO_ENTENDI });
+    expect(tiposDe(f)).toEqual(['interpretar']);
   });
 });

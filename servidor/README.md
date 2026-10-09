@@ -3,16 +3,22 @@
 Un Cloudflare Worker. **La app nunca habla con OpenRouter**: habla con este Worker, que guarda la
 clave como secreto y reenvía solo lo necesario.
 
-| La app manda                                                    | El Worker hace                                                                                                                       | Responde                                          |
-| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------- |
-| `{ "tipo": "interpretar", "texto": "¿cuánto vendí ayer?" }`     | Pide a **Jev** (API tipada) que elija una de las 12 preguntas conocidas. Si Jev falla o responde algo inválido, lo hace **DeepSeek** | `{ intencion, producto, dia, confianza, modelo }` |
-| `{ "tipo": "redactar", "hecho": { intencion, frase, cifras } }` | Pide a **DeepSeek** que diga la frase con otras palabras                                                                             | `{ texto }`                                       |
+| La app manda                                                           | El Worker hace                                                                                                                              | Responde                                          |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| `{ "tipo": "interpretar", "texto": "¿cuánto vendí ayer?" }`            | Pide a **Jev** (API tipada) que elija una de las 12 preguntas conocidas. Si Jev falla o responde algo inválido, lo hace **DeepSeek**        | `{ intencion, producto, dia, confianza, modelo }` |
+| `{ "tipo": "redactar", "hecho": { intencion, frase, cifras } }`        | Pide a **DeepSeek** que diga la frase con otras palabras                                                                                    | `{ texto }`                                       |
+| `{ "tipo": "juzgar", "hecho": { intencion, frase, cifras, senales } }` | Pide **solo a Jev** que juzgue la respuesta ya calculada: `bien`, `ojo` o `urgente`. Sin respaldo: si Jev falla o duda, responde sin juicio | `{ semaforo, confianza, modelo }`                 |
 
 Todo pasa por OpenRouter, con **la misma clave** (`OPENROUTER_API_KEY`) para las dos APIs:
 
 - **Jev** clasifica por la API tipada, `https://openrouter.ai/api/v1/systemone`: se le manda el texto
   de la pregunta y tres preguntas de opción (la intención, el producto y el día) y devuelve la opción
   elegida con su confianza. Jev no genera texto, solo decide.
+- Jev también **juzga** (el semáforo): la pregunta es una opción entre `bien`, `ojo` y `urgente`. No
+  califica números: lee la frase ya calculada y unas **señales con nombre** que arma el código de la
+  app (por ejemplo `tendencia: baja`, `magnitud: grande`). Solo se juzgan las respuestas que
+  aceptan juicio (comparar ciclos, cobros, retiro para la casa, cuánto preparar, revisar un precio y el
+  peor día).
 - **DeepSeek** (respaldo para clasificar y único que redacta) va por el chat,
   `https://openrouter.ai/api/v1/chat/completions`, con salidas estructuradas (JSON con valores
   permitidos).
@@ -102,13 +108,34 @@ Debe responder algo como (las palabras cambian, las cifras no):
 { "texto": "Ayer, martes 6 de octubre, te entraron S/ 205.00." }
 ```
 
+Juzgar una respuesta ya calculada (el semáforo):
+
+```sh
+curl -s -X POST https://crecemos-asistente.joaquiningsoft.workers.dev \
+  -H 'Content-Type: application/json' \
+  -d '{"tipo":"juzgar","hecho":{"intencion":"compararCiclo","frase":"Ganaste S/ 78.00 menos que el ciclo pasado.","cifras":["78.00"],"senales":{"tendencia":"baja","magnitud":"grande"}}}'
+```
+
+Debe responder algo como:
+
+```json
+{ "semaforo": "ojo", "confianza": 0.8, "modelo": "typesafe/jev-1.13-20260917" }
+```
+
+- `semaforo` es `bien`, `ojo` o `urgente`. Si es `null`, no hay juicio: Jev falló o dudó (confianza menor
+  a 0.6). La app muestra entonces la respuesta sin semáforo y sin ningún mensaje. **No hay respaldo con
+  DeepSeek** para esto: si `semaforo` sale siempre `null`, revisa el saldo y la clave (paso 8).
+- Solo se aceptan estas intenciones: `compararCiclo`, `cuantoPorCobrar`, `cuantoSacarParaLaCasa`,
+  `cuantoPreparar`, `revisarPrecio` y `peorDia`. Las señales son palabras en minúsculas (como mucho 6) y el
+  `hecho` completo no puede pasar de 600 caracteres.
+
 Si responde un error:
 
 | Respuesta                           | Qué significa                                                                                                                           |
 | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
 | `{"error":"NO_CONFIGURADO"}`        | Falta el paso 3 (la clave)                                                                                                              |
 | `{"error":"NO_DISPONIBLE"}`         | Ningún modelo contestó a tiempo o con la forma pedida. Revisa el saldo y el tope de la clave en OpenRouter, y los proveedores (punto 8) |
-| `{"error":"DEMASIADAS_PETICIONES"}` | Pasaste las 20 peticiones por minuto de tu IP; espera un minuto                                                                         |
+| `{"error":"DEMASIADAS_PETICIONES"}` | Pasaste las 20 peticiones por minuto de tu IP (una pregunta del chat gasta hasta 3); espera un minuto                                   |
 | `{"error":"SOLICITUD_INVALIDA"}`    | El cuerpo no tiene la forma pedida (texto de 1 a 200 caracteres, frase de hasta 300)                                                    |
 
 ### 5. Saber quién respondió: Jev o el respaldo

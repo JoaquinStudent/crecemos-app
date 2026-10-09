@@ -163,6 +163,66 @@ const ventaDeAyer = (): ContextoAnalisis =>
 
 const CODIGOS_TECNICOS = /SIN_RED|TIEMPO_AGOTADO|RESPUESTA_INVALIDA|REDACCION_DESCARTADA|NO_DISPONIBLE|Network|Abort|HTTP|\b5\d\d\b|undefined|error/i;
 
+
+// --- Apoyo de e11 y e17: un servidor intermedio que contesta según el tipo de petición ------------
+
+/** Lo que contesta el servidor a "juzgar": el semáforo y su confianza. */
+const juicioDe = (semaforo: string | null, confianza: number) => ({
+  semaforo,
+  confianza,
+  modelo: 'typesafe/jev-1.13-20260917',
+});
+
+/** El ciclo anterior le dejó S/ 269 y el actual S/ 191: "Ganaste S/ 78.00 menos que el ciclo pasado." */
+const ctxCompararCiclo = (): ContextoAnalisis =>
+  ctxDe([
+    cierreDe('2026-09-14', {
+      abreCiclo: true,
+      lineas: [linea('Anticucho', 40, 0, 10, 8)],
+      gastos: [{ categoria: 'mercaderia', monto: 131 }],
+    }),
+    cierreDe('2026-09-28', {
+      abreCiclo: true,
+      lineas: [linea('Anticucho', 30, 0, 10, 8)],
+      gastos: [{ categoria: 'mercaderia', monto: 109 }],
+    }),
+  ]);
+const FRASE_CICLO = 'Ganaste S/ 78.00 menos que el ciclo pasado.';
+const REDACCION_CICLO = 'Este ciclo te quedaron S/ 78.00 menos que en el pasado.';
+
+interface ServidorSimulado {
+  fetch: jest.Mock;
+  /** Los tipos de petición que llegaron, en orden. */
+  tipos: () => string[];
+  /** Cuántas peticiones estuvieron en vuelo a la vez, como máximo. */
+  simultaneas: () => number;
+}
+
+/** Un servidor que contesta a `interpretar`, `redactar` y `juzgar`; cada respuesta tarda un instante. */
+const servidorSimulado = (
+  contesta: Record<'interpretar' | 'redactar' | 'juzgar', () => Promise<Response>>,
+): ServidorSimulado => {
+  let enVuelo = 0;
+  let maximo = 0;
+  const f = jest.fn(async (_url: string, init: { body?: string }) => {
+    const tipo = JSON.parse(init.body ?? '{}').tipo as 'interpretar' | 'redactar' | 'juzgar';
+    enVuelo += 1;
+    maximo = Math.max(maximo, enVuelo);
+    try {
+      await new Promise(resolver => setTimeout(resolver, 0));
+      return await contesta[tipo]();
+    } finally {
+      enVuelo -= 1;
+    }
+  });
+  return {
+    fetch: f,
+    tipos: () => llamadasDe(f).map(([, init]) => JSON.parse(init.body ?? '{}').tipo),
+    simultaneas: () => maximo,
+  };
+};
+const responde = (cuerpo: unknown) => () => Promise.resolve(respuestaJson(cuerpo));
+
 describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
   // @spec08_e1 — Una pregunta sobre un día se responde con la cifra del dominio
   it('spec08_e1 una pregunta sobre un dia se responde con la cifra del dominio', () => {
@@ -453,7 +513,61 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
     // Given: la pantalla "Preguntarle a mis datos" con una pregunta escrita
     // When: se abre la pantalla y luego se toca "Preguntar"
     // Then: no hay ninguna petición de red al abrir ni al escribir, y al tocar el botón se hace 1 petición para interpretar y, si hay respuesta, 1 para redactar y, solo en las intenciones que se pueden juzgar, 1 para juzgar (las dos últimas se piden a la vez)
-    throw new Error('Rojo: no implementado');
+    // (La parte de la pantalla —abrir y escribir sin enviar— la prueba la oleada C; aquí se prueba el
+    // servicio que el botón dispara: no hace nada hasta que se lo llama y luego pide exactamente esto.)
+    return (async () => {
+      const pregunta = '¿cómo voy contra el ciclo pasado?';
+      const juzgable = servidorSimulado({
+        interpretar: responde(interpretacion('compararCiclo')),
+        redactar: responde({ texto: REDACCION_CICLO }),
+        juzgar: responde(juicioDe('ojo', 0.8)),
+      });
+      // Antes de tocar "Preguntar" no hay ninguna petición.
+      expect(juzgable.fetch).not.toHaveBeenCalled();
+
+      const r = await consultar(
+        juzgable.fetch as unknown as typeof fetch,
+        URL_JEV,
+        pregunta,
+        ctxCompararCiclo(),
+      );
+
+      // Intención juzgable: 1 para interpretar y, después, 1 para redactar y 1 para juzgar a la vez.
+      expect(r).toMatchObject({ tipo: 'respuesta', redactada: true, semaforo: 'ojo' });
+      expect(juzgable.fetch).toHaveBeenCalledTimes(3);
+      const tipos = juzgable.tipos();
+      expect(tipos[0]).toBe('interpretar');
+      expect([...tipos.slice(1)].sort()).toEqual(['juzgar', 'redactar']);
+      expect(juzgable.simultaneas()).toBe(2);
+
+      // Intención que no se juzga: 1 para interpretar y 1 para redactar, ninguna para juzgar.
+      const simple = servidorSimulado({
+        interpretar: responde(interpretacion('ventaDelDia', 'ayer')),
+        redactar: responde({ texto: 'Ayer, martes 6 de octubre, te entraron S/ 205.00.' }),
+        juzgar: responde(juicioDe('bien', 0.9)),
+      });
+      await consultar(
+        simple.fetch as unknown as typeof fetch,
+        URL_JEV,
+        '¿cuánto vendí ayer?',
+        ventaDeAyer(),
+      );
+      expect(simple.tipos()).toEqual(['interpretar', 'redactar']);
+
+      // Sin respuesta que mostrar (no la entendió): solo la de interpretar.
+      const dudosa = servidorSimulado({
+        interpretar: responde({ ...interpretacion('compararCiclo'), confianza: 0.3 }),
+        redactar: responde({ texto: REDACCION_CICLO }),
+        juzgar: responde(juicioDe('ojo', 0.8)),
+      });
+      await consultar(
+        dudosa.fetch as unknown as typeof fetch,
+        URL_JEV,
+        'algo raro',
+        ctxCompararCiclo(),
+      );
+      expect(dudosa.tipos()).toEqual(['interpretar']);
+    })();
   });
 
   // @spec08_e12 — e2e: preguntar con los datos de ejemplo
@@ -558,7 +672,103 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
     // Given: la intención "venta de un día" (que no se puede juzgar) y, por otro lado, una intención juzgable con un Jev que falla, tarda más de 8 segundos o responde con confianza de 0.3
     // When: se arma la respuesta
     // Then: en el primer caso no se hace ninguna petición de juicio, y en el segundo la respuesta se muestra sin semáforo y sin ningún mensaje técnico
-    throw new Error('Rojo: no implementado');
+    return (async () => {
+      const interpreta = responde(interpretacion('compararCiclo'));
+      const redacta = responde({ texto: REDACCION_CICLO });
+      const sinSemaforo = (r: unknown) => {
+        expect(r).toMatchObject({ tipo: 'respuesta', texto: REDACCION_CICLO, frase: FRASE_CICLO });
+        expect(r).not.toHaveProperty('semaforo');
+        expect(JSON.stringify(r)).not.toMatch(CODIGOS_TECNICOS);
+      };
+
+      // Primer caso: "venta de un día" no se juzga, así que no hay ninguna petición de juicio.
+      const noJuzgable = servidorSimulado({
+        interpretar: responde(interpretacion('ventaDelDia', 'ayer')),
+        redactar: responde({ texto: 'Ayer, martes 6 de octubre, te entraron S/ 205.00.' }),
+        juzgar: responde(juicioDe('urgente', 0.99)),
+      });
+      const venta = await consultar(
+        noJuzgable.fetch as unknown as typeof fetch,
+        URL_JEV,
+        '¿cuánto vendí ayer?',
+        ventaDeAyer(),
+      );
+      expect(noJuzgable.tipos()).not.toContain('juzgar');
+      expect(venta).toMatchObject({ tipo: 'respuesta', texto: expect.stringContaining('S/ 205.00') });
+      expect(venta).not.toHaveProperty('semaforo');
+
+      // Control: con un Jev que sí juzga con confianza, una intención juzgable lleva el semáforo.
+      const bien = servidorSimulado({
+        interpretar: interpreta,
+        redactar: redacta,
+        juzgar: responde(juicioDe('ojo', 0.8)),
+      });
+      const conJuicio = await consultar(
+        bien.fetch as unknown as typeof fetch,
+        URL_JEV,
+        '¿cómo voy contra el ciclo pasado?',
+        ctxCompararCiclo(),
+      );
+      expect(conJuicio).toMatchObject({ tipo: 'respuesta', texto: REDACCION_CICLO, semaforo: 'ojo' });
+
+      // Segundo caso (a): Jev falla (error del servidor) y (b) responde con confianza de 0.3.
+      const fallas: Array<() => Promise<Response>> = [
+        () => Promise.resolve(respuestaJson({ error: 'NO_DISPONIBLE' }, false, 502)),
+        () => Promise.reject(new TypeError('Network request failed')),
+        responde(juicioDe('urgente', 0.3)),
+        responde(juicioDe(null, 0)),
+        responde({ semaforo: 'rojo', confianza: 0.9 }),
+      ];
+      for (const falla of fallas) {
+        const servidor = servidorSimulado({ interpretar: interpreta, redactar: redacta, juzgar: falla });
+        const r = await consultar(
+          servidor.fetch as unknown as typeof fetch,
+          URL_JEV,
+          '¿cómo voy contra el ciclo pasado?',
+          ctxCompararCiclo(),
+        );
+        sinSemaforo(r);
+        expect(servidor.tipos()).toContain('juzgar');
+      }
+
+      // Segundo caso (c): Jev tarda más de 8 segundos; se corta y la respuesta sale igual.
+      jest.useFakeTimers();
+      try {
+        const lento = (_url: string, init: { signal?: AbortSignal }) =>
+          new Promise<Response>((_resolver, rechazar) => {
+            init.signal?.addEventListener('abort', () => {
+              const aborto = new Error('Aborted');
+              aborto.name = 'AbortError';
+              rechazar(aborto);
+            });
+          });
+        const f = jest
+          .fn()
+          .mockResolvedValueOnce(respuestaJson(interpretacion('compararCiclo')))
+          .mockResolvedValueOnce(respuestaJson({ texto: REDACCION_CICLO }))
+          .mockImplementationOnce(lento);
+        let resultado: unknown;
+        const pendiente = consultar(
+          f as unknown as typeof fetch,
+          URL_JEV,
+          '¿cómo voy contra el ciclo pasado?',
+          ctxCompararCiclo(),
+        ).then(r => {
+          resultado = r;
+        });
+
+        await jest.advanceTimersByTimeAsync(7999);
+        expect(resultado).toBeUndefined();
+        await jest.advanceTimersByTimeAsync(1);
+        await pendiente;
+
+        sinSemaforo(resultado);
+        expect(f).toHaveBeenCalledTimes(3);
+        expect(jest.getTimerCount()).toBe(0);
+      } finally {
+        jest.useRealTimers();
+      }
+    })();
   });
 
   // @spec08_e18 — El semáforo se distingue por palabra, símbolo y color

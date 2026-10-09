@@ -1,9 +1,10 @@
 // servidor/worker.js
 // Servidor intermedio del chat "Preguntarle a mis datos" (Cloudflare Worker). Es lo ÚNICO con lo que
-// habla la app: guarda la clave de OpenRouter como secreto (`OPENROUTER_API_KEY`) y reenvía dos
+// habla la app: guarda la clave de OpenRouter como secreto (`OPENROUTER_API_KEY`) y reenvía tres
 // tipos de petición, siempre con el mínimo de datos:
 //   { tipo: 'interpretar', texto }            -> { intencion, producto, dia, confianza, modelo }
 //   { tipo: 'redactar', hecho: {...} }        -> { texto }
+//   { tipo: 'juzgar', hecho: {..., senales} } -> { semaforo, confianza, modelo }   (solo Jev, sin respaldo)
 // Primero clasifica Jev por la API tipada de OpenRouter (/api/v1/systemone, preguntas "choice"); si falla
 // o responde algo inválido, clasifica DeepSeek por chat/completions. Solo DeepSeek redacta.
 // Sin dependencias, sin CORS (es una app nativa) y SIN ningún log: lo que escribe Freddy no se escribe
@@ -33,6 +34,10 @@ const TIEMPO_MINIMO_MS = 500;
 
 // `jev-latest` es el alias de la API tipada: OpenRouter lo enruta al Jev más nuevo (`~typesafe/jev-latest`).
 const MODELO_JEV_POR_DEFECTO = 'jev-latest';
+// Un juicio con menos confianza que esta se descarta (es el mismo mínimo de la app).
+const CONFIANZA_MINIMA_JUICIO = 0.6;
+const MAX_HECHO_JUICIO = 600;
+const MAX_SENALES = 6;
 // Producto o día con menos confianza que esto se devuelve como "ninguno".
 const CONFIANZA_MINIMA_DETALLE = 0.5;
 const MODELO_DEEPSEEK_POR_DEFECTO = 'deepseek/deepseek-v4-flash';
@@ -96,6 +101,15 @@ export const INTENCIONES = [
     descripcion: 'La pregunta no habla del negocio o no encaja en ninguna de las demás.',
   },
 ];
+// Las intenciones cuya respuesta se juzga (copia de `INTENCIONES_JUZGABLES` en `src/analisis/semaforo.ts`).
+export const INTENCIONES_JUZGABLES = [
+  'compararCiclo',
+  'cuantoPorCobrar',
+  'cuantoSacarParaLaCasa',
+  'cuantoPreparar',
+  'revisarPrecio',
+  'peorDia',
+];
 export const PRODUCTOS = ['anticucho', 'pancita', 'rachi', 'chicha', 'ninguno'];
 export const DIAS = [
   'hoy',
@@ -111,6 +125,7 @@ export const DIAS = [
 ];
 
 const IDS = INTENCIONES.map(i => i.id);
+const SEMAFOROS = ['bien', 'ojo', 'urgente'];
 
 // --- Lo que se le pide a los modelos --------------------------------------------------------
 
@@ -181,6 +196,20 @@ const PREGUNTAS_JEV = {
   },
 };
 
+// La pregunta del semáforo: Jev JUZGA la respuesta ya calculada leyendo señales con nombre; no calcula.
+const PREGUNTA_SEMAFORO = {
+  semaforo: {
+    type: 'choice',
+    instructions:
+      'Según las señales con nombre, ¿cómo va esto para el negocio de un vendedor ambulante de anticuchos? Juzga con las señales; no hagas cuentas con las cifras.',
+    criteria: {
+      bien: 'Va bien o mejor que antes: no hace falta hacer nada.',
+      ojo: 'Conviene prestar atención o revisarlo pronto, pero todavía no es una emergencia.',
+      urgente: 'Es un problema serio que el vendedor debería atender hoy mismo.',
+    },
+  },
+};
+
 const PROMPT_REDACTAR =
   'Reescribe la frase con otras palabras, en español de Perú, tuteando, corta (máximo 200 caracteres) y cálida, como si hablaras con un vendedor ambulante. Conserva EXACTAMENTE todas las cifras, los montos y las fechas, tal cual; no agregues ninguna cifra ni dato nuevo; no uses emojis ni enlaces.';
 
@@ -223,6 +252,27 @@ const hechoValido = x => {
   if (!Array.isArray(x.cifras) || x.cifras.length > MAX_CIFRAS) return null;
   if (!x.cifras.every(c => typeof c === 'string' && c.length <= MAX_CIFRA)) return null;
   return { intencion: x.intencion, frase, cifras: [...x.cifras] };
+};
+
+/**
+ * El hecho que se juzga: intención juzgable, frase, cifras y señales con nombre (llaves y valores de
+ * una sola palabra en minúsculas). Todo junto, 600 caracteres como mucho.
+ */
+const hechoParaJuzgarValido = x => {
+  if (!esObjeto(x) || !INTENCIONES_JUZGABLES.includes(x.intencion)) return null;
+  const hecho = hechoValido(x);
+  if (hecho === null || !esObjeto(x.senales)) return null;
+  const llaves = Object.keys(x.senales);
+  const palabra = /^[a-z0-9]{1,24}$/;
+  if (llaves.length > MAX_SENALES) return null;
+  if (
+    !llaves.every(
+      k => palabra.test(k) && typeof x.senales[k] === 'string' && palabra.test(x.senales[k]),
+    )
+  )
+    return null;
+  const completo = { ...hecho, senales: { ...x.senales } };
+  return JSON.stringify(completo).length <= MAX_HECHO_JUICIO ? completo : null;
 };
 
 /** Lo que dijo el clasificador: enum, rango y tipos. Solo salen estos cuatro campos. */
@@ -355,12 +405,11 @@ const leerChoice = (respuesta, opciones) => {
 };
 
 /**
- * Pregunta a Jev por la API tipada /systemone: `state` es el texto tal cual y van las tres preguntas.
- * Devuelve `{ interpretacion, modelo }` ya validada, o `null` ante cualquier falla (HTTP no exitoso,
- * error en el cuerpo, tiempo, forma inválida). Producto y día con poca confianza valen "ninguno".
+ * Una llamada a la API tipada /systemone. Devuelve las respuestas (`answers`) y el modelo que informa
+ * la API, o `null` ante cualquier falla (HTTP no exitoso, error en el cuerpo, tiempo, forma inválida).
  * Solo `data_collection` entre las preferencias de proveedor: es lo único que la API admite.
  */
-const clasificarConJev = async (env, texto, modelo, tiempoMs) => {
+const llamarJev = async (env, { modelo, state, questions, tiempoMs }) => {
   const controlador = new AbortController();
   const temporizador = setTimeout(() => controlador.abort(), tiempoMs);
   try {
@@ -369,8 +418,8 @@ const clasificarConJev = async (env, texto, modelo, tiempoMs) => {
       headers: cabecerasOpenRouter(env),
       body: JSON.stringify({
         model: modelo,
-        state: texto,
-        questions: PREGUNTAS_JEV,
+        state,
+        questions,
         provider: { data_collection: 'deny' },
       }),
       signal: controlador.signal,
@@ -378,19 +427,7 @@ const clasificarConJev = async (env, texto, modelo, tiempoMs) => {
     if (!respuesta.ok) return null;
     const datos = await respuesta.json();
     if (!esObjeto(datos) || datos.error || !esObjeto(datos.answers)) return null;
-    const intencion = leerChoice(datos.answers.intencion, IDS);
-    const producto = leerChoice(datos.answers.producto, PRODUCTOS);
-    const dia = leerChoice(datos.answers.dia, DIAS);
-    if (intencion === null || producto === null || dia === null) return null;
-    const interpretacion = interpretacionValida({
-      intencion: intencion.opcion,
-      producto: producto.confianza < CONFIANZA_MINIMA_DETALLE ? 'ninguno' : producto.opcion,
-      dia: dia.confianza < CONFIANZA_MINIMA_DETALLE ? 'ninguno' : dia.opcion,
-      confianza: intencion.confianza,
-    });
-    return interpretacion === null
-      ? null
-      : { interpretacion, modelo: modeloInformado(datos.model, modelo) };
+    return { answers: datos.answers, modelo: modeloInformado(datos.model, modelo) };
   } catch {
     return null;
   } finally {
@@ -398,7 +435,54 @@ const clasificarConJev = async (env, texto, modelo, tiempoMs) => {
   }
 };
 
-// --- Los dos tipos de petición --------------------------------------------------------------
+/**
+ * Clasifica la pregunta con Jev: `state` es el texto tal cual y van las tres preguntas. Devuelve
+ * `{ interpretacion, modelo }` ya validada o `null`. Producto y día con poca confianza valen "ninguno".
+ */
+const clasificarConJev = async (env, texto, modelo, tiempoMs) => {
+  const jev = await llamarJev(env, { modelo, state: texto, questions: PREGUNTAS_JEV, tiempoMs });
+  if (jev === null) return null;
+  const intencion = leerChoice(jev.answers.intencion, IDS);
+  const producto = leerChoice(jev.answers.producto, PRODUCTOS);
+  const dia = leerChoice(jev.answers.dia, DIAS);
+  if (intencion === null || producto === null || dia === null) return null;
+  const interpretacion = interpretacionValida({
+    intencion: intencion.opcion,
+    producto: producto.confianza < CONFIANZA_MINIMA_DETALLE ? 'ninguno' : producto.opcion,
+    dia: dia.confianza < CONFIANZA_MINIMA_DETALLE ? 'ninguno' : dia.opcion,
+    confianza: intencion.confianza,
+  });
+  return interpretacion === null ? null : { interpretacion, modelo: jev.modelo };
+};
+
+/**
+ * Juzga con Jev una respuesta ya calculada. `state` lleva la frase, las cifras y las señales con
+ * nombre (y el tema, que es texto fijo de este archivo). Devuelve `{ semaforo, confianza, modelo }`
+ * validado, o `null`. Con menos de `CONFIANZA_MINIMA_JUICIO` el semáforo es `null` (sin juicio).
+ */
+const juzgarConJev = async (env, hecho, modelo, tiempoMs) => {
+  const jev = await llamarJev(env, {
+    modelo,
+    state: {
+      tema: INTENCIONES.find(i => i.id === hecho.intencion).descripcion,
+      frase: hecho.frase,
+      cifras: hecho.cifras,
+      senales: hecho.senales,
+    },
+    questions: PREGUNTA_SEMAFORO,
+    tiempoMs,
+  });
+  if (jev === null) return null;
+  const juicio = leerChoice(jev.answers.semaforo, SEMAFOROS);
+  if (juicio === null) return null;
+  return {
+    semaforo: juicio.confianza >= CONFIANZA_MINIMA_JUICIO ? juicio.opcion : null,
+    confianza: juicio.confianza,
+    modelo: jev.modelo,
+  };
+};
+
+// --- Los tres tipos de petición --------------------------------------------------------------
 
 const interpretar = async (env, solicitud) => {
   const texto = textoValido(solicitud.texto, MAX_TEXTO);
@@ -441,6 +525,16 @@ const interpretar = async (env, solicitud) => {
     if (deDeepseek !== null) return responder({ ...deDeepseek, modelo: modeloDeepseek });
   }
   return error('NO_DISPONIBLE', 502);
+};
+
+const juzgar = async (env, solicitud) => {
+  const hecho = hechoParaJuzgarValido(solicitud.hecho);
+  if (hecho === null) return error('SOLICITUD_INVALIDA', 400);
+
+  // Solo Jev y sin respaldo: si falla o duda, la respuesta sale sin semáforo.
+  const modelo = variable(env.JEV_MODELO, MODELO_JEV_POR_DEFECTO);
+  const juicio = await juzgarConJev(env, hecho, modelo, TIEMPO_LLAMADA_MS);
+  return responder(juicio ?? { semaforo: null, confianza: 0, modelo });
 };
 
 const redactar = async (env, solicitud) => {
@@ -511,6 +605,7 @@ const manejar = async (request, env) => {
 
   if (solicitud.tipo === 'interpretar') return interpretar(env, solicitud);
   if (solicitud.tipo === 'redactar') return redactar(env, solicitud);
+  if (solicitud.tipo === 'juzgar') return juzgar(env, solicitud);
   return error('SOLICITUD_INVALIDA', 400);
 };
 

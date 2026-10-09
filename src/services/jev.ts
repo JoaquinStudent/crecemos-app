@@ -6,8 +6,21 @@
 // NADA del usuario más que lo que él mismo escribió o la cifra ya calculada. Un intento, 8 s de
 // límite, nunca lanza y ningún código técnico llega a un texto que lea Freddy.
 import { interpretarRespuesta, responderConsulta } from '@analisis/intenciones';
+import {
+  armarHechoParaJuicio,
+  esJuzgable,
+  interpretarJuicio,
+  senalesDeJuicio,
+} from '@analisis/semaforo';
 import { validarRedaccion } from '@analisis/validarRedaccion';
-import type { Consulta, ContextoAnalisis, Hecho } from '@dominio/tipos';
+import type {
+  Consulta,
+  ContextoAnalisis,
+  Hecho,
+  HechoJuicio,
+  Juicio,
+  Semaforo,
+} from '@dominio/tipos';
 import { bytesUtf8 } from './seed';
 
 export type ErrorJev = 'SIN_RED' | 'TIEMPO_AGOTADO' | 'RESPUESTA_INVALIDA';
@@ -20,7 +33,15 @@ export type ResultadoRedactar =
 
 /** Lo que el chat pone en pantalla; `texto` es siempre lo que lee Freddy. */
 export type RespuestaChat =
-  | { tipo: 'respuesta'; texto: string; frase: string; redactada: boolean; hecho: Hecho }
+  | {
+      tipo: 'respuesta';
+      texto: string;
+      frase: string;
+      redactada: boolean;
+      hecho: Hecho;
+      /** El juicio de Jev, solo en las intenciones que se juzgan y si llegó con confianza suficiente. */
+      semaforo?: Semaforo;
+    }
   | { tipo: 'noEntendi'; texto: string }
   | { tipo: 'sinInternet'; texto: string };
 
@@ -121,6 +142,25 @@ export const redactarRespuesta = async (
     : { ok: false, error: 'REDACCION_DESCARTADA' };
 };
 
+/**
+ * Le pide al servidor que juzgue una respuesta YA calculada (el semáforo). Viaja SOLO
+ * `{ tipo: 'juzgar', hecho: { intencion, frase, cifras, senales } }`: la frase, las cifras y las
+ * señales con nombre que armó el código; nada del perfil, del Yape ni de los cierres. Devuelve el
+ * juicio si llegó con confianza suficiente (`interpretarJuicio`) y `null` en cualquier otro caso:
+ * sin red, 8 s, respuesta inválida o duda. Nunca lanza.
+ */
+export const juzgarRespuesta = async (
+  fetchFn: typeof fetch,
+  url: string,
+  hecho: HechoJuicio,
+): Promise<Juicio | null> => {
+  const publicada = await publicar(fetchFn, url, {
+    tipo: 'juzgar',
+    hecho: armarHechoParaJuicio(hecho, hecho.senales),
+  });
+  return publicada.ok ? interpretarJuicio(publicada.json) : null;
+};
+
 const noEntendi = (): RespuestaChat => ({ tipo: 'noEntendi', texto: TEXTO_NO_ENTENDI });
 
 /**
@@ -153,11 +193,19 @@ export const consultar = async (
       redactada: false,
       hecho,
     };
-    // Sin cifras no hay nada que vigilar: la frase fija ya es la respuesta.
-    if (hecho.cifras.length === 0) return fija;
-
-    const redaccion = await redactarRespuesta(fetchFn, url, hecho);
-    return redaccion.ok ? { ...fija, texto: redaccion.texto, redactada: true } : fija;
+    // La redacción y el juicio se piden a la vez; ninguno de los dos hace falta para mostrar la frase.
+    const senales = esJuzgable(hecho.intencion)
+      ? senalesDeJuicio(interpretada.consulta, ctx)
+      : null;
+    const [redaccion, juicio] = await Promise.all([
+      hecho.cifras.length > 0 ? redactarRespuesta(fetchFn, url, hecho) : null,
+      senales === null ? null : juzgarRespuesta(fetchFn, url, armarHechoParaJuicio(hecho, senales)),
+    ]);
+    return {
+      ...fija,
+      ...(redaccion?.ok ? { texto: redaccion.texto, redactada: true } : {}),
+      ...(juicio ? { semaforo: juicio.semaforo } : {}),
+    };
   } catch {
     return noEntendi();
   }
