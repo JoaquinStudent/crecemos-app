@@ -1,0 +1,26 @@
+# Configuración del servidor intermedio del chat "Preguntarle a mis datos" (Cloudflare Worker).
+# Aquí NO va ninguna clave: OPENROUTER_API_KEY se guarda con `npx wrangler secret put` (ver README.md).
+name = "crecemos-asistente"
+main = "worker.js"
+compatibility_date = "2026-10-08"
+workers_dev = true
+
+# Variables públicas (no son secretos): se cambian aquí y se publican otra vez con `npx wrangler deploy`.
+[vars]
+# Jev, por la API tipada de OpenRouter (/api/v1/systemone). `jev-latest` es el alias del Jev más nuevo;
+# `jev-1.13` fija una versión. Si Jev falla o responde algo inválido, clasifica DeepSeek.
+JEV_MODELO = "jev-latest"
+# Respaldo para clasificar (chat de OpenRouter) y único que redacta.
+DEEPSEEK_MODELO = "deepseek/deepseek-v4-flash"
+# Proveedores de EE. UU. permitidos para DeepSeek (nombres de OpenRouter, separados por comas).
+DEEPSEEK_PROVEEDORES = "deepinfra,parasail,cloudflare,digitalocean"
+
+# Límite por IP: 20 peticiones por minuto en cada ubicación de Cloudflare (period solo admite 10 o 60).
+# Requiere Wrangler 4.36.0 o más nuevo. `namespace_id` es un número que elegimos y debe ser único en la cuenta.
+[[ratelimits]]
+name = "LIMITE"
+namespace_id = "48210"
+
+  [ratelimits.simple]
+  limit = 20
+  period = 60

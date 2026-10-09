@@ -24,7 +24,8 @@ Freddy compra mercadería cada 2 días y razona por ciclos: "el primer día es p
 | Cobros del Yape               | Suma lo que entró a una cuenta ajena y falta cobrar, y permite marcarlo como cobrado.                                                            |
 | Qué me deja cada uno          | Contrasta lo que más se vende con lo que más deja por porción.                                                                                   |
 | Recomendaciones               | Seis reglas fijas (cobro, precio, cuánto preparar, cuánto retirar, día flojo, comparación con el ciclo anterior). Muestra las 2 más importantes. |
-| Mi reporte                    | Un reporte con totales para el banco: venta y ganancia promedio mensual, y constancia de registro. Freddy decide si lo comparte.                 |
+| Mi reporte                    | Un reporte con totales para el banco: venta y ganancia promedio mensual, y constancia de registro, en texto o en PDF. Freddy decide si lo comparte. |
+| Preguntarle a mis datos       | Un chat opcional para preguntar con sus palabras ("¿qué día me va peor?"). Necesita internet. Ver [El chat](#el-chat-preguntarle-a-mis-datos).     |
 
 No es un score que decide créditos. Las reglas son aritmética sobre lo que él registró y cada una se puede explicar línea por línea.
 
@@ -75,9 +76,22 @@ Necesita `ANDROID_HOME` y JDK 17. El APK queda en `android/app/build/outputs/apk
 
 El nombre que ve la persona es **Crecemos**. Los identificadores nativos conservan el nombre anterior del proyecto (`CuadramosApp`).
 
+## El chat "Preguntarle a mis datos"
+
+Es una función **opcional**: la app entera funciona sin ella. Se abre con el botón redondo del robot en Inicio (o desde Resumen) y le permite a Freddy escribir o tocar una pregunta ("¿cuánto vendí ayer?", "¿qué día me va peor?", "¿cuánto me deben?").
+
+- **Solo con internet y solo al enviar.** Abrir la pantalla o escribir no manda nada; cada petición sale al tocar "Preguntar". Sin internet el chat lo dice con una frase sencilla y el resto de la app sigue igual. Un saludo ("hola") se contesta en el propio teléfono, sin red.
+- **Las cifras las calcula la app, no el modelo.** Un modelo de lenguaje solo entiende a cuál de doce preguntas conocidas se refiere, opina con un semáforo (Bien, Ojo, Urgente) sobre una respuesta ya calculada y, si hace falta, la redacta con otras palabras. Si la redacción cambia una sola cifra, la app la descarta y muestra la frase fija calculada.
+- **Qué viaja y qué no.** Viaja el texto de la pregunta y, para redactar o juzgar, la respuesta ya calculada con sus totales. **Nunca** viajan el nombre, el Yape, el perfil ni los movimientos de un día. La pantalla avisa de esto al abrirse. La conversación no se guarda en el teléfono: se pierde al salir de la pantalla.
+- **La clave del proveedor no está en la app ni en el repositorio.** La app habla con un servidor intermedio propio (un Cloudflare Worker, en `servidor/`) que guarda la clave como secreto y reenvía lo mínimo a un proveedor de modelos (OpenRouter). El servidor valida el tamaño de lo que recibe y limita las peticiones por dirección IP. El endpoint es público: la protección de MVP es ese límite y un tope de gasto en la clave; una autenticación real queda fuera.
+- **Las dos únicas direcciones de red de la app** son `src/services/seed.ts` (los datos de ejemplo) y `src/services/jev.ts` (este chat). La dirección del servidor está en `src/config.ts`.
+- **Los modelos los alojan terceros.** Se pide a los proveedores que no guarden ni entrenen con los datos y, para el redactor, se limitan a proveedores de EE. UU.; eso reduce el riesgo pero no lo elimina.
+
+Para usar tu propio servidor, sigue los pasos de [`servidor/README.md`](servidor/README.md): publicar el Worker (`npx wrangler deploy`), guardar la clave como secreto (`npx wrangler secret put OPENROUTER_API_KEY`) y poner su dirección en `src/config.ts`.
+
 ## Datos de ejemplo
 
-La primera vez que abre, si el almacenamiento está vacío, la app descarga **una sola vez** `seed/semilla.json` desde GitHub (unos 34 KB, 75 cierres de día en unos 90 días, con 4 productos). Es la **única llamada de red** de la app y su dirección está en `src/config.ts`.
+La primera vez que abre, si el almacenamiento está vacío, la app descarga **una sola vez** `seed/semilla.json` desde GitHub (unos 34 KB, 75 cierres de día en unos 90 días, con 4 productos). Es la **primera de las dos llamadas de red** de la app (la otra es el chat, ver arriba) y su dirección está en `src/config.ts`.
 
 - Sin señal, abre vacía y ofrece el botón "Cargar datos de ejemplo". Nunca muestra un error técnico.
 - Una vez resuelta, no vuelve a pedirla. Un teléfono que ya tiene cierres propios no la descarga.
@@ -96,15 +110,17 @@ La primera vez que abre, si el almacenamiento está vacío, la app descarga **un
 | 04     | Cobros del Yape, datos de ejemplo descargados una sola vez (también sin señal) e Inicio con el ciclo.                        |
 | 05     | Motor de decisiones: insight, seis reglas, "Qué me deja cada uno" y comparación entre ciclos.                                |
 | 06     | Reporte para el banco con vista previa y compartir, semilla de 75 cierres y documentación de entrega.                        |
+| 07     | Foto de perfil desde la galería o la cámara y reporte en PDF de una página para compartir.                                   |
+| 08     | El chat "Preguntarle a mis datos": las cifras las calcula la app, el modelo entiende la pregunta y la redacta; servidor propio. |
 
-Un séptimo sprint de auditoría estaba planeado para verificar, no para agregar funciones.
+Un noveno sprint de auditoría está planeado para verificar, no para agregar funciones.
 
 ### Metodología
 
 Se trabajó con **SDD + TDD con compuerta**. Cada sprint tiene un SPEC con escenarios Given-When-Then. Cada escenario tiene su prueba antes que su código. Un sprint no cierra si falla una sola prueba, y la compuerta la corre un rol separado del que construye:
 
 ```sh
-python3 scripts/gate.py --sprint 06 --e2e "sh scripts/e2e.sh 06 --android"
+python3 scripts/gate.py --sprint 08 --e2e "sh scripts/e2e.sh 08"
 ```
 
 El trabajo lo ejecutaron agentes de desarrollo bajo reglas de proyecto escritas. Los SPEC y la memoria del proyecto no se publican en este repositorio, así que la compuerta completa necesita esa carpeta; las pruebas sí corren con solo clonar.
@@ -138,13 +154,14 @@ Jest fija la zona horaria a `America/Lima`: la fecha del negocio es la fecha loc
 ```
 src/
   dominio/      Reglas del negocio y tipos. TypeScript puro, sin React.
-  analisis/     Métricas, reglas de decisión y señales del reporte. Puro.
+  analisis/     Métricas, reglas de decisión, señales del reporte y lógica del chat (intenciones, semáforo, charla). Puro.
   storage/      Repositorio sobre AsyncStorage (guarda en SQLite por dentro).
   context/      Estado de la app: un solo proveedor.
   navigation/   Pestañas y pantallas apiladas.
-  screens/      Inicio, Cerrar mi día, Historial, Resumen, Qué me deja cada uno, Perfil, Mi reporte.
+  screens/      Inicio, Cerrar mi día, Historial, Resumen, Qué me deja cada uno, Perfil, Mi reporte, Preguntarle a mis datos.
   components/   Átomos, moléculas y organismos reutilizables.
-  services/     La única red (seed.ts) y la hoja de compartir (compartir.ts).
+  services/     La red (seed.ts y jev.ts), la hoja de compartir, la foto y el PDF.
+servidor/       Servidor intermedio del chat (Cloudflare Worker): guarda la clave y reenvía.
   theme/        Colores, espaciado y tipografía.
 ```
 
@@ -152,23 +169,24 @@ src/
 
 ## Privacidad y datos
 
-- Todo vive en el teléfono, en una base propia de la app. Registrar, ver el historial y calcular recomendaciones usa cero bytes de red.
+- Todo vive en el teléfono, en una base propia de la app. Registrar, ver el historial y calcular recomendaciones usa cero bytes de red. Solo el chat (opcional) usa internet, al tocar "Preguntar".
 - Nada sale sin una acción explícita. El reporte se comparte con la hoja nativa del teléfono, solo cuando se toca "Compartir reporte", y se ve antes la vista previa.
 - El reporte es texto plano de unos 500 caracteres (el tope es 2,000). Lleva el nombre y el negocio del perfil, la venta y la ganancia promedio mensual, la constancia de registro y los días registrados por mes. **Nunca** lleva el número de Yape, el titular, el parentesco, la ubicación ni el monto de un cierre suelto.
 - Sin analítica, sin publicidad, sin reporte de errores y sin cuentas ni inicio de sesión.
 - La descarga de la semilla es una petición `GET` sin cuerpo, sin encabezados propios y sin datos de la persona.
+- Las peticiones del chat son `POST` al servidor intermedio, solo con el texto de la pregunta o con una respuesta ya calculada; nunca el nombre, el Yape ni los movimientos. Ver [El chat](#el-chat-preguntarle-a-mis-datos).
 
 ## Limitaciones conocidas
 
 | Limitación                                                                                                                                          |
 | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Los precios y costos de la semilla son supuestos y no se confirmaron con el vendedor. Cuando se confirmen, se cambian y se corre `npm run semilla`. |
-| No hay foto de perfil: el avatar muestra las iniciales.                                                                                             |
 | Solo se puede cambiar el precio de los 4 productos que trae la app; no se pueden agregar productos nuevos.                                          |
 | No existe "Anotar un yape" suelto: el Yape se anota al cerrar el día.                                                                               |
-| El reporte comparte texto plano con un periodo fijo; no hay PDF ni selector de periodo.                                                             |
+| El reporte tiene un periodo fijo (los últimos 3 meses completos); no hay selector de periodo.                                                       |
+| El chat solo funciona con internet, entiende doce tipos de preguntas, no guarda la conversación y su endpoint es público (con límite por IP y tope de gasto, sin autenticación). |
 | iPhone: con la firma gratuita de Apple la app dura 7 días.                                                                                          |
-| No se verificó en un iPhone chico, con el texto del sistema agrandado ni en Android.                                                                |
+| No se verificó en un iPhone chico, con el texto del sistema agrandado ni en Android. El chat con el teclado abierto en un iPhone chico tampoco.    |
 | La carga automática de datos de ejemplo no está pensada para el teléfono de un usuario real, y falta un "Borrar datos de ejemplo".                  |
 | Con el simulador encendido, las pruebas de interfaz son lentas y pueden agotar el tiempo (ver Cómo probarla).                                       |
 | Sin backend ni inicio de sesión, por decisión de diseño. Si se pierde el teléfono, se pierden los datos: no hay respaldo ni importación.            |

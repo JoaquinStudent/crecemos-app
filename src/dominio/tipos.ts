@@ -155,6 +155,72 @@ export interface ContextoAnalisis {
   hoy: FechaNegocio;
 }
 
+/** Las doce preguntas que el chat "Preguntarle a mis datos" sabe responder (Sprint-08). */
+export type IntencionId =
+  | 'ventaDelDia'
+  | 'mejorDia'
+  | 'peorDia'
+  | 'productoQueMasDeja'
+  | 'productoQueMasSeVende'
+  | 'cuantoPorCobrar'
+  | 'cuantoSacarParaLaCasa'
+  | 'cuantoPreparar'
+  | 'compararCiclo'
+  | 'revisarPrecio'
+  | 'cuandoRecupereCapital'
+  | 'noEntendi';
+
+/** De qué día habla la pregunta; `ninguno` si no nombra ninguno. */
+export type DiaConsulta =
+  | 'hoy'
+  | 'ayer'
+  | 'lunes'
+  | 'martes'
+  | 'miercoles'
+  | 'jueves'
+  | 'viernes'
+  | 'sabado'
+  | 'domingo'
+  | 'ninguno';
+
+/** Lo que el clasificador entendió de la pregunta: solo clasifica, nunca calcula. */
+export interface Consulta {
+  intencion: IntencionId;
+  /** Id de producto ('p-rachi'); sin producto si la pregunta no nombra ninguno. */
+  producto?: string;
+  dia?: DiaConsulta;
+  /** 0 a 1. */
+  confianza: number;
+}
+
+/** La respuesta calculada por el código: la frase fija y todas las cifras que lleva. */
+export interface Hecho {
+  intencion: IntencionId;
+  /** La plantilla ya escrita, con voz de Freddy. */
+  frase: string;
+  /** Todas las cifras de `frase`, normalizadas (`extraerCifras`): '205.00', '6', '1.80'. */
+  cifras: string[];
+}
+
+/** El juicio de Jev sobre una respuesta ya calculada (solo en el chat). */
+export type Semaforo = 'bien' | 'ojo' | 'urgente';
+
+/**
+ * Señales con nombre que arma el código para que Jev juzgue sin calcular: cada valor sale de un
+ * vocabulario cerrado ('baja', 'grande', 'vencido'…). Jamás un número crudo.
+ */
+export type SenalesJuicio = Record<string, string>;
+
+/** Lo único que viaja a Jev para juzgar: el hecho ya calculado y sus señales. */
+export type HechoJuicio = Hecho & { senales: SenalesJuicio };
+
+/** Lo que Jev juzgó, ya validado. */
+export interface Juicio {
+  semaforo: Semaforo;
+  /** 0 a 1. */
+  confianza: number;
+}
+
 /** Producto del JSON del Mock API: la fecha entra como `actualizadoDiasAtras`. */
 export interface ProductoSemilla {
   id: string;

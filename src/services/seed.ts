@@ -14,7 +14,7 @@ export const TIEMPO_LIMITE_MS = 8000;
 export const TAMANO_MAXIMO_BYTES = 51200;
 
 /** Bytes del texto en UTF-8, sin depender de TextEncoder (que no siempre existe en Hermes). */
-const bytesUtf8 = (texto: string): number => {
+export const bytesUtf8 = (texto: string): number => {
   let bytes = 0;
   for (let i = 0; i < texto.length; i += 1) {
     const codigo = texto.charCodeAt(i);
