@@ -9,7 +9,7 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { createElement } from 'react';
-import { KeyboardAvoidingView, StyleSheet } from 'react-native';
+import { KeyboardAvoidingView, ScrollView, StyleSheet } from 'react-native';
 import ReactTestRenderer, { act, ReactTestInstance } from 'react-test-renderer';
 import { createAsyncStorage } from '@react-native-async-storage/async-storage';
 import { clearAllMockStorages } from '@react-native-async-storage/async-storage/jest';
@@ -233,8 +233,10 @@ describe('Chat "Preguntarle a mis datos": lo que se envía y cuándo', () => {
     expect(p.textosEn('preguntar-enviar')).toEqual(['Pensando…']);
     expect(p.estadoDe('preguntar-enviar')?.disabled).toBe(true);
     await p.tocar('preguntar-enviar');
-    await p.tocar('preguntar-sugerida-0');
-    expect(p.estadoDe('preguntar-sugerida-0')?.disabled).toBe(true);
+    // Las sugeridas ya están plegadas en su panel; abierto, también están apagadas.
+    await p.tocar('preguntar-panel-alternar');
+    await p.tocar('preguntar-panel-sugerida-0');
+    expect(p.estadoDe('preguntar-panel-sugerida-0')?.disabled).toBe(true);
     expect(red.tipos()).toEqual(['interpretar']);
 
     // Llega la respuesta: el botón vuelve a decir "Preguntar".
@@ -243,7 +245,7 @@ describe('Chat "Preguntarle a mis datos": lo que se envía y cuándo', () => {
       await pendiente;
     });
     expect(p.textosEn('preguntar-enviar')).toEqual(['Preguntar']);
-    expect(p.estadoDe('preguntar-sugerida-0')?.disabled).toBe(false);
+    expect(p.estadoDe('preguntar-panel-sugerida-0')?.disabled).toBe(false);
   });
 
   it('tocar una pregunta sugerida equivale a escribirla y preguntar: una sola petición', async () => {
@@ -429,6 +431,9 @@ describe('Chat "Preguntarle a mis datos": lo que se ve', () => {
 
     await p.abrirDesdeInicio();
     await p.preguntar('¿qué día me va peor?');
+    // Con el aviso y el panel de sugeridas abiertos, para medir también sus letras.
+    await p.tocar('preguntar-aviso-alternar');
+    await p.tocar('preguntar-panel-alternar');
 
     const letras = p.letrasDelChat();
     expect(letras.length).toBeGreaterThan(10);
@@ -472,6 +477,223 @@ describe('Chat "Preguntarle a mis datos": lo que se ve', () => {
     expect(alto('preguntar-atras')).toBeGreaterThanOrEqual(48);
     expect(alto('preguntar-sugerida-0')).toBeGreaterThanOrEqual(48);
     expect(alto('preguntar-enviar')).toBeGreaterThanOrEqual(48);
+  });
+});
+
+describe('Chat "Preguntarle a mis datos": el aviso y las sugeridas se pliegan', () => {
+  beforeEach(() => {
+    clearAllMockStorages();
+  });
+  afterEach(async () => {
+    const app = montada;
+    montada = null;
+    if (app) await act(async () => app.unmount());
+    global.fetch = fetchPorDefecto;
+  });
+
+  const ventaDeAyer = { interpretar: () => respuestaJson(interpretacion('ventaDelDia', 'ayer')) };
+
+  it('al abrir, el aviso sale completo y sin botón para plegarlo', async () => {
+    ponerRed({});
+    const p = await montarApp();
+
+    await p.abrirDesdeInicio();
+
+    expect(p.textoDe('preguntar-aviso-privacidad-texto')).toBe(TEXTO_PRIVACIDAD);
+    expect(p.existe('preguntar-aviso-compacto')).toBe(false);
+    expect(p.existe('preguntar-aviso-alternar')).toBe(false);
+  });
+
+  it('tras la primera pregunta el aviso queda en una línea con "Ver aviso", y se abre y se oculta', async () => {
+    ponerRed(ventaDeAyer);
+    const p = await montarApp();
+
+    await p.abrirDesdeInicio();
+    await p.preguntar('¿cuánto vendí ayer?');
+
+    // Una línea con candado y su texto, y un botón de 48 o más.
+    expect(p.existe('preguntar-aviso-privacidad')).toBe(false);
+    expect(p.textosEn('preguntar-aviso-compacto')).toEqual([
+      'Tu pregunta se envía a una IA',
+      'Ver aviso',
+    ]);
+    const boton = p.app.root.findAll(
+      n => n.props.testID === 'preguntar-aviso-alternar' && esHost(n, 'View'),
+    )[0];
+    expect(StyleSheet.flatten(boton.props.style).minHeight).toBeGreaterThanOrEqual(48);
+    expect(boton.props.accessibilityLabel).toBe('Ver aviso');
+
+    // "Ver aviso" lo despliega completo y el botón pasa a "Ocultar".
+    await p.tocar('preguntar-aviso-alternar');
+    expect(p.textoDe('preguntar-aviso-privacidad-texto')).toBe(TEXTO_PRIVACIDAD);
+    expect(p.textosEn('preguntar-aviso-alternar')).toEqual(['Ocultar']);
+
+    // "Ocultar" lo vuelve a plegar.
+    await p.tocar('preguntar-aviso-alternar');
+    expect(p.existe('preguntar-aviso-privacidad')).toBe(false);
+    expect(p.textosEn('preguntar-aviso-alternar')).toEqual(['Ver aviso']);
+  });
+
+  it('tras la primera pregunta las sugeridas salen del scroll y quedan tras "Preguntas sugeridas"', async () => {
+    ponerRed(ventaDeAyer);
+    const p = await montarApp();
+
+    await p.abrirDesdeInicio();
+    expect(p.existe('preguntar-panel-alternar')).toBe(false);
+    await p.preguntar('¿cuánto vendí ayer?');
+
+    // Fuera del scroll de la conversación…
+    expect(p.existe('preguntar-sugeridas')).toBe(false);
+    expect(p.existe('preguntar-sugerida-0')).toBe(false);
+    expect(p.textosEn('preguntar-chat')).not.toContain(PREGUNTAS_SUGERIDAS[0]);
+    // …y un botón con texto justo encima del campo, con el panel cerrado.
+    expect(p.textosEn('preguntar-panel-alternar')).toEqual(['Preguntas sugeridas']);
+    expect(p.existe('preguntar-panel')).toBe(false);
+    const boton = p.app.root.findAll(
+      n => n.props.testID === 'preguntar-panel-alternar' && esHost(n, 'View'),
+    )[0];
+    expect(StyleSheet.flatten(boton.props.style).minHeight).toBeGreaterThanOrEqual(48);
+    expect(boton.props.accessibilityState.expanded).toBe(false);
+  });
+
+  it('el panel de sugeridas se abre encima del campo, fijo al pie y con altura máxima', async () => {
+    ponerRed(ventaDeAyer);
+    const p = await montarApp();
+
+    await p.abrirDesdeInicio();
+    await p.preguntar('¿cuánto vendí ayer?');
+    await p.tocar('preguntar-panel-alternar');
+
+    const pantalla = p.app.root.findAll(n => n.props.testID === 'preguntar-pantalla')[0];
+    const panel = pantalla.findAll(
+      n => n.props.testID === 'preguntar-panel' && esHost(n, 'RCTScrollView'),
+    )[0];
+    expect(panel).toBeDefined();
+    PREGUNTAS_SUGERIDAS.forEach((pregunta, i) => {
+      expect(p.textosEn(`preguntar-panel-sugerida-${i}`)).toEqual([pregunta]);
+    });
+    // Dentro del pie fijo (con el campo), no dentro del scroll de la conversación.
+    const chat = pantalla.findAll(
+      n => n.props.testID === 'preguntar-chat' && esHost(n, 'RCTScrollView'),
+    )[0];
+    expect(chat.findAll(n => n.props.testID === 'preguntar-panel')).toHaveLength(0);
+    const teclado = pantalla.findAll(n => (n.type as unknown) === KeyboardAvoidingView)[0];
+    expect(teclado.findAll(n => n.props.testID === 'preguntar-panel').length).toBeGreaterThan(0);
+    // Altura máxima y desplazamiento por dentro.
+    expect(StyleSheet.flatten(panel.props.style).maxHeight).toBeLessThanOrEqual(220);
+    expect(
+      p.app.root.findAll(n => n.props.testID === 'preguntar-panel-alternar')[0].props
+        .accessibilityState.expanded,
+    ).toBe(true);
+    // El mismo botón lo cierra.
+    await p.tocar('preguntar-panel-alternar');
+    expect(p.existe('preguntar-panel')).toBe(false);
+  });
+
+  it('tocar una sugerida del panel envía esa pregunta una sola vez y cierra el panel', async () => {
+    const red = ponerRed(ventaDeAyer);
+    const p = await montarApp();
+
+    await p.abrirDesdeInicio();
+    await p.preguntar('¿cuánto vendí ayer?');
+    await p.tocar('preguntar-panel-alternar');
+    await p.tocar('preguntar-panel-sugerida-2');
+
+    const interpretadas = red.cuerpos().filter(c => c.tipo === 'interpretar');
+    expect(interpretadas).toHaveLength(2);
+    expect(interpretadas[1]).toEqual({ tipo: 'interpretar', texto: PREGUNTAS_SUGERIDAS[2] });
+    // La pregunta aparece como burbuja de Freddy y el panel se cerró.
+    expect(p.textoDe('chat-burbuja-2-texto')).toBe(PREGUNTAS_SUGERIDAS[2]);
+    expect(p.existe('preguntar-panel')).toBe(false);
+    expect(p.valorDe('preguntar-campo')).toBe('');
+  });
+
+  it('enviar desde el campo también cierra el panel abierto', async () => {
+    ponerRed(ventaDeAyer);
+    const p = await montarApp();
+
+    await p.abrirDesdeInicio();
+    await p.preguntar('¿cuánto vendí ayer?');
+    await p.tocar('preguntar-panel-alternar');
+    expect(p.existe('preguntar-panel')).toBe(true);
+    await p.preguntar('¿cuánto vendí hoy?');
+
+    expect(p.existe('preguntar-panel')).toBe(false);
+  });
+
+  it('tras un "No entendí" las sugeridas siguen saliendo bajo esa burbuja', async () => {
+    ponerRed({
+      interpretar: () => respuestaJson({ ...interpretacion('compararCiclo'), confianza: 0.3 }),
+    });
+    const p = await montarApp();
+
+    await p.abrirDesdeInicio();
+    await p.preguntar('algo raro');
+
+    PREGUNTAS_SUGERIDAS.forEach((pregunta, i) => {
+      expect(p.textosEn(`preguntar-sugerida-${i}`)).toEqual([pregunta]);
+    });
+    // Y el botón del pie sigue ahí para quien prefiera el panel.
+    expect(p.existe('preguntar-panel-alternar')).toBe(true);
+  });
+
+  it('el scroll deja la pregunta a la vista: al final mientras espera, y en la pregunta al responder', async () => {
+    let soltar!: (r: Response) => void;
+    const espera = new Promise<Response>(resolver => {
+      soltar = resolver;
+    });
+    ponerRed({ interpretar: () => espera });
+    const p = await montarApp();
+
+    await p.abrirDesdeInicio();
+    await p.escribir('preguntar-campo', '¿cuánto vendí ayer?');
+    const { pendiente } = await p.tocarSinEsperar('preguntar-enviar');
+
+    const nodoScroll = () =>
+      p.app.root.findAll(
+        n => (n.type as unknown) === ScrollView && n.props.testID === 'preguntar-chat',
+      )[0];
+    const instancia = nodoScroll().instance as { scrollTo: jest.Mock; scrollToEnd: jest.Mock };
+    const alCambiarElTamano = () =>
+      act(async () => {
+        nodoScroll().props.onContentSizeChange(320, 900);
+      });
+
+    // Esperando: la última burbuja es la pregunta, así que baja hasta el final.
+    instancia.scrollTo.mockClear();
+    instancia.scrollToEnd.mockClear();
+    await alCambiarElTamano();
+    expect(instancia.scrollToEnd).toHaveBeenCalledTimes(1);
+    expect(instancia.scrollTo).not.toHaveBeenCalled();
+
+    // La pregunta mide su posición en la conversación (la fija el diseño nativo).
+    // El envoltorio de la burbuja es el más interno de los que miden su posición.
+    const medidores = p.app.root.findAll(
+      n =>
+        typeof n.props.onLayout === 'function' &&
+        n.findAll(m => m.props.testID === 'chat-burbuja-0').length > 0 &&
+        esHost(n, 'View'),
+    );
+    const envoltorio = medidores[medidores.length - 1];
+    await act(async () => {
+      envoltorio.props.onLayout({
+        nativeEvent: { layout: { x: 0, y: 300, width: 300, height: 60 } },
+      });
+    });
+
+    // Llega la respuesta: el scroll deja arriba la pregunta (y debajo su respuesta), no el final.
+    await act(async () => {
+      soltar(respuestaJson(interpretacion('ventaDelDia', 'ayer')));
+      await pendiente;
+    });
+    instancia.scrollTo.mockClear();
+    instancia.scrollToEnd.mockClear();
+    await alCambiarElTamano();
+    expect(instancia.scrollToEnd).not.toHaveBeenCalled();
+    expect(instancia.scrollTo).toHaveBeenCalledTimes(1);
+    const { y } = instancia.scrollTo.mock.calls[0][0];
+    expect(y).toBeGreaterThan(250);
+    expect(y).toBeLessThanOrEqual(300);
   });
 });
 
