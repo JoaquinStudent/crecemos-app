@@ -57,8 +57,8 @@ export const InicioScreen = () => {
   const cicloActual = ciclos[ciclos.length - 1];
   const porCobrar = useMemo(() => totalPorCobrar(cierres), [cierres]);
   const frase = useMemo(
-    () => insight(gananciaPorProducto(cierres, restarDias(hoy, DIAS_DEL_INSIGHT))),
-    [cierres, hoy],
+    () => insight(gananciaPorProducto(cierres, restarDias(hoy, DIAS_DEL_INSIGHT), productos)),
+    [cierres, hoy, productos],
   );
   const recomendaciones = useMemo(
     () => evaluarReglas({ cierres, productos, hoy }),
@@ -128,8 +128,7 @@ export const InicioScreen = () => {
             <View style={styles.tarjeta}>
               <Text variant="h3">Aún no cierras ningún día</Text>
               <Text color="textMuted" style={styles.separado}>
-                Cuando cierres tu día, aquí vas a ver cuánto te queda: lo que vendiste menos lo que
-                gastaste.
+                Cuando cierres tu día, aquí verás el resultado registrado: ventas menos gastos.
               </Text>
               <Button
                 title="Cerrar mi día"
@@ -140,7 +139,9 @@ export const InicioScreen = () => {
                 onPress={irACerrarDia}
               />
             </View>
-            <DatosDeEjemplo estado={semilla} alCargar={cargarDatosDeEjemplo} />
+            {productos.length === 0 ? (
+              <DatosDeEjemplo estado={semilla} alCargar={cargarDatosDeEjemplo} />
+            ) : null}
           </>
         )}
       </ScrollView>
@@ -173,7 +174,7 @@ const ResumenDelDia = ({
       Tu último día · {formatoFecha(fecha)}
     </Text>
     <Text variant="bodyStrong" style={styles.separado}>
-      Te queda
+      Resultado registrado
     </Text>
     <Text
       variant="hero"
@@ -183,6 +184,9 @@ const ResumenDelDia = ({
       numberOfLines={1}
     >
       {formatoSoles(resumen.teQueda)}
+    </Text>
+    <Text variant="caption" color="textMuted">
+      Ventas menos gastos registrados. Incluye pagos pendientes de recibir.
     </Text>
     <View style={[styles.fila, styles.separado]}>
       <View style={styles.columna}>
@@ -221,7 +225,7 @@ const TarjetaCiclo = ({ ciclo }: { ciclo: Ciclo }) => {
         </Text>
       ) : null}
       <Text variant="bodyStrong" style={styles.separado}>
-        Te queda
+        Resultado registrado
       </Text>
       <Text
         variant="display"
@@ -231,6 +235,9 @@ const TarjetaCiclo = ({ ciclo }: { ciclo: Ciclo }) => {
         numberOfLines={1}
       >
         {formatoSoles(resumen.teQueda)}
+      </Text>
+      <Text variant="caption" color="textMuted">
+        Ventas menos gastos del ciclo. Incluye pagos pendientes de recibir.
       </Text>
       <View style={[styles.fila, styles.separado]}>
         <View style={styles.columna}>
@@ -431,13 +438,15 @@ const DatosDeEjemplo = ({
   estado: EstadoSemilla;
   alCargar: () => Promise<void>;
 }) => {
-  if (estado === 'ninguna' || estado === 'lista') return null;
+  if (estado === 'lista') return null;
   const mensaje =
     estado === 'cargando'
       ? 'Cargando datos de ejemplo…'
       : estado === 'invalida'
       ? 'No pudimos cargar los datos de ejemplo'
-      : 'Sin señal no pasa nada: la app funciona igual.';
+      : estado === 'sinRed'
+      ? 'No pudimos cargar los datos de ejemplo. Revisa tu conexión e inténtalo otra vez.'
+      : 'Puedes probar la app con datos de ejemplo. Se cargarán solo si tocas este botón.';
   return (
     <View style={styles.tarjeta}>
       <Text color="textMuted" testID="inicio-semilla-mensaje">

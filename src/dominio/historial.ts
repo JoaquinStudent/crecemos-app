@@ -13,7 +13,7 @@ export const mensajeBorrar = (c: Cierre): string => {
   const pregunta = `¿Borrar el cierre del ${formatoFecha(c.fecha).toLowerCase()}? `;
   if (teQueda > 0) return `${pregunta}Se van a restar ${formatoSoles(teQueda)} de tu ciclo.`;
   if (teQueda < 0) return `${pregunta}Se van a sumar ${formatoSoles(-teQueda)} a tu ciclo.`;
-  return `${pregunta}Lo que te queda del ciclo no cambia.`;
+  return `${pregunta}El resultado registrado del ciclo no cambia.`;
 };
 
 const ETIQUETA_VENTA = 'Venta del día';

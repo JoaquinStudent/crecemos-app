@@ -29,12 +29,14 @@ const DIAS_DEL_PERIODO = 30;
 const ancho = (valor: number, mayor: number): `${number}%` =>
   `${mayor > 0 ? Math.max(0, Math.round((valor / mayor) * 100)) : 0}%`;
 
-const unidadDe = (productos: Producto[], productoId: string): 'porcion' | 'vaso' =>
-  productos.find(p => p.id === productoId)?.unidad === 'vaso' ? 'vaso' : 'porcion';
+const unidadDe = (productos: Producto[], productoId: string): Producto['unidad'] =>
+  productos.find(p => p.id === productoId)?.unidad ?? 'unidad';
 
-const cantidadEnPalabras = (n: number, unidad: 'porcion' | 'vaso'): string => {
+const cantidadEnPalabras = (n: number, unidad: Producto['unidad']): string => {
   if (unidad === 'vaso') return `${n} ${n === 1 ? 'vaso' : 'vasos'}`;
-  return `${n} ${n === 1 ? 'porción' : 'porciones'}`;
+  if (unidad === 'porcion') return `${n} ${n === 1 ? 'porción' : 'porciones'}`;
+  const nombre = unidad.trim() || 'unidad';
+  return `${n} ${n === 1 ? nombre : `${nombre}s`}`;
 };
 
 const periodoEnPalabras = (ciclos: number): string =>
@@ -47,7 +49,10 @@ export const QueMeDejaScreen = () => {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList, 'QueMeDeja'>>();
 
   const desde = restarDias(fechaLocal(new Date()), DIAS_DEL_PERIODO);
-  const ganancias = useMemo(() => gananciaPorProducto(cierres, desde), [cierres, desde]);
+  const ganancias = useMemo(
+    () => gananciaPorProducto(cierres, desde, productos),
+    [cierres, desde, productos],
+  );
   const ciclos = useMemo(
     () => agruparCiclos(cierres.filter(c => c.fecha >= desde)).length,
     [cierres, desde],
@@ -72,7 +77,7 @@ export const QueMeDejaScreen = () => {
 
         <View>
           <Text variant="h1" accessibilityRole="header">
-            Qué me deja cada uno
+            Comparar productos
           </Text>
           <Text variant="caption" color="textMuted" testID="queme-periodo">
             {periodoEnPalabras(ciclos)}
@@ -83,8 +88,8 @@ export const QueMeDejaScreen = () => {
           <View style={styles.vacio} testID="queme-vacio">
             <Text variant="h3">Todavía no hay días cerrados</Text>
             <Text color="textMuted" style={styles.separado}>
-              Cierra tu día y aquí vas a ver cuál de tus productos te deja más, no solo cuál se
-              vende más.
+              Cierra tu día y aquí verás las unidades vendidas y la diferencia estimada por unidad
+              de cada producto.
             </Text>
             <Button
               title="Cerrar mi día"
@@ -166,7 +171,7 @@ const Tarjetas = ({
                       style={styles.etiquetaTexto}
                       testID={`queme-etiqueta-deja-${g.productoId}`}
                     >
-                      El que más te deja
+                      Mayor diferencia por unidad
                     </Text>
                   </View>
                 ) : null}
@@ -192,7 +197,7 @@ const Tarjetas = ({
               idCifra={`queme-cifra-vende-${g.productoId}`}
             />
             <FilaBarra
-              etiqueta="Te deja"
+              etiqueta="Diferencia estimada total"
               cifra={formatoSoles(g.ganancia)}
               ancho={ancho(g.ganancia, mayorGanancia)}
               relleno={colors.success}
@@ -202,9 +207,12 @@ const Tarjetas = ({
             />
 
             <Text variant="caption" color="textMuted" testID={`queme-detalle-${g.productoId}`}>
-              {`${cantidadEnPalabras(g.seVende, unidad)} · ${formatoSoles(g.teDeja)} por ${
-                unidad === 'vaso' ? 'vaso' : 'porción'
-              }`}
+              {`${cantidadEnPalabras(
+                g.seVende,
+                unidad,
+              )} · Diferencia estimada por unidad: ${formatoSoles(
+                g.teDeja,
+              )} (precio menos costo estimado)`}
             </Text>
           </View>
         );

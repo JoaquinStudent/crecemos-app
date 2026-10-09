@@ -2,11 +2,12 @@
 // Servidor intermedio del chat "Preguntarle a mis datos" (Cloudflare Worker). Es lo ÚNICO con lo que
 // habla la app: guarda la clave de OpenRouter como secreto (`OPENROUTER_API_KEY`) y reenvía tres
 // tipos de petición, siempre con el mínimo de datos:
-//   { tipo: 'interpretar', texto }            -> { intencion, producto, dia, confianza, modelo }
-//   { tipo: 'redactar', hecho: {...} }        -> { texto }
+//   { tipo: 'interpretar', texto }            -> { intencion, dia, confianza, modelo }
+//   { tipo: 'redactar', hecho: {...} }        -> { texto } (ruta heredada)
 //   { tipo: 'juzgar', hecho: {..., senales} } -> { semaforo, confianza, modelo }   (solo Jev, sin respaldo)
 // Primero clasifica Jev por la API tipada de OpenRouter (/api/v1/systemone, preguntas "choice"); si falla
-// o responde algo inválido, clasifica DeepSeek por chat/completions. Solo DeepSeek redacta.
+// o responde algo inválido, clasifica DeepSeek por chat/completions. La app actual usa frases fijas;
+// el endpoint de redacción sirve a clientes antiguos.
 // Sin dependencias, sin CORS (es una app nativa) y SIN ningún log: lo que escribe Freddy no se escribe
 // en ninguna parte. No hay ninguna clave en este archivo: llega por `env`.
 
@@ -38,7 +39,7 @@ const MODELO_JEV_POR_DEFECTO = 'jev-latest';
 const CONFIANZA_MINIMA_JUICIO = 0.6;
 const MAX_HECHO_JUICIO = 600;
 const MAX_SENALES = 6;
-// Producto o día con menos confianza que esto se devuelve como "ninguno".
+// Día con menos confianza que esto se devuelve como "ninguno".
 const CONFIANZA_MINIMA_DETALLE = 0.5;
 const MODELO_DEEPSEEK_POR_DEFECTO = 'deepseek/deepseek-v4-flash';
 
@@ -50,7 +51,7 @@ const MODELO_DEEPSEEK_POR_DEFECTO = 'deepseek/deepseek-v4-flash';
 export const PROVEEDORES_POR_DEFECTO = ['deepinfra', 'parasail', 'cloudflare', 'digitalocean'];
 
 // Copia de `src/analisis/intenciones.ts` (el Worker no importa de `src/`): una prueba verifica que
-// los ids, los productos, los días y las descripciones son exactamente los de la app.
+// los ids, los días y las descripciones son exactamente los de la app.
 export const INTENCIONES = [
   {
     id: 'ventaDelDia',
@@ -82,7 +83,8 @@ export const INTENCIONES = [
   },
   {
     id: 'cuantoPreparar',
-    descripcion: 'Cuánto preparar o qué comprar para mañana, de un producto o de todos: recomendación de compra.',
+    descripcion:
+      'Cuánto preparar o qué comprar para mañana, de un producto o de todos: recomendación de compra.',
   },
   {
     id: 'compararCiclo',
@@ -110,7 +112,6 @@ export const INTENCIONES_JUZGABLES = [
   'revisarPrecio',
   'peorDia',
 ];
-export const PRODUCTOS = ['anticucho', 'pancita', 'rachi', 'chicha', 'ninguno'];
 export const DIAS = [
   'hoy',
   'ayer',
@@ -130,13 +131,13 @@ const SEMAFOROS = ['bien', 'ojo', 'urgente'];
 // --- Lo que se le pide a los modelos --------------------------------------------------------
 
 const PROMPT_INTERPRETAR = [
-  'Eres el clasificador de una app para un vendedor ambulante de anticuchos en Perú.',
+  'Eres el clasificador de una app para pequeños negocios en Perú.',
   'Lee su pregunta y elige UNA intención de esta lista (devuelve su id):',
   ...INTENCIONES.map(i => `- ${i.id}: ${i.descripcion}`),
   '',
   'Reglas:',
-  '- Si la pregunta no es sobre el negocio de un vendedor de anticuchos (ventas, ganancias, productos, cobros, ciclos de compra) o es ambigua, elige noEntendi.',
-  '- producto: anticucho, pancita, rachi o chicha solo si la pregunta lo nombra; si no, ninguno.',
+  '- Si la pregunta no es sobre ventas, gastos, productos, cobros o ciclos de compra del negocio, o es ambigua, elige noEntendi.',
+  '- No identifiques productos: sus nombres se resuelven en el teléfono.',
   '- dia: hoy, ayer o el día de la semana solo si la pregunta lo nombra; si no, ninguno.',
   '- confianza: un número de 0 a 1, honesto. Baja si dudas.',
   'Responde solo el JSON pedido.',
@@ -146,24 +147,16 @@ const ESQUEMA_INTERPRETAR = {
   type: 'object',
   properties: {
     intencion: { type: 'string', enum: IDS },
-    producto: { type: 'string', enum: PRODUCTOS },
     dia: { type: 'string', enum: DIAS },
     confianza: { type: 'number', minimum: 0, maximum: 1 },
   },
-  required: ['intencion', 'producto', 'dia', 'confianza'],
+  required: ['intencion', 'dia', 'confianza'],
   additionalProperties: false,
 };
 
 // Las tres preguntas "choice" para Jev. Cada opción lleva su descripción: el modelo ve los nombres
 // y las descripciones (no el id de la pregunta). Una "choice" siempre elige una opción, por eso hay
 // `noEntendi` y `ninguno`.
-const DESCRIPCION_PRODUCTO = {
-  anticucho: 'La pregunta nombra el anticucho.',
-  pancita: 'La pregunta nombra la pancita.',
-  rachi: 'La pregunta nombra el rachi.',
-  chicha: 'La pregunta nombra la chicha.',
-  ninguno: 'La pregunta no nombra ningún producto.',
-};
 const DESCRIPCION_DIA = {
   hoy: 'La pregunta habla de hoy.',
   ayer: 'La pregunta habla de ayer.',
@@ -181,13 +174,8 @@ const PREGUNTAS_JEV = {
   intencion: {
     type: 'choice',
     instructions:
-      '¿Qué quiso preguntar el vendedor? Elige noEntendi si la pregunta no es sobre los negocios de un vendedor de anticuchos o si es ambigua.',
+      '¿Qué quiso preguntar la persona sobre su negocio? Elige noEntendi si no habla de su negocio o si es ambigua.',
     criteria: Object.fromEntries(INTENCIONES.map(i => [i.id, i.descripcion])),
-  },
-  producto: {
-    type: 'choice',
-    instructions: '¿De cuál producto habla la pregunta? Elige ninguno si no nombra ninguno.',
-    criteria: Object.fromEntries(PRODUCTOS.map(p => [p, DESCRIPCION_PRODUCTO[p]])),
   },
   dia: {
     type: 'choice',
@@ -201,7 +189,7 @@ const PREGUNTA_SEMAFORO = {
   semaforo: {
     type: 'choice',
     instructions:
-      'Según las señales con nombre, ¿cómo va esto para el negocio de un vendedor ambulante de anticuchos? Juzga con las señales; no hagas cuentas con las cifras.',
+      'Según las señales con nombre, ¿cómo va esto para el negocio? Juzga con las señales; no hagas cuentas con las cifras.',
     criteria: {
       bien: 'Va bien o mejor que antes: no hace falta hacer nada.',
       ojo: 'Conviene prestar atención o revisarlo pronto, pero todavía no es una emergencia.',
@@ -278,11 +266,11 @@ const hechoParaJuzgarValido = x => {
 /** Lo que dijo el clasificador: enum, rango y tipos. Solo salen estos cuatro campos. */
 const interpretacionValida = x => {
   if (!esObjeto(x)) return null;
-  const { intencion, producto, dia, confianza } = x;
-  if (!IDS.includes(intencion) || !PRODUCTOS.includes(producto) || !DIAS.includes(dia)) return null;
+  const { intencion, dia, confianza } = x;
+  if (!IDS.includes(intencion) || !DIAS.includes(dia)) return null;
   if (typeof confianza !== 'number' || !Number.isFinite(confianza)) return null;
   if (confianza < 0 || confianza > 1) return null;
-  return { intencion, producto, dia, confianza };
+  return { intencion, dia, confianza };
 };
 
 const redaccionValida = x => {
@@ -437,18 +425,16 @@ const llamarJev = async (env, { modelo, state, questions, tiempoMs }) => {
 
 /**
  * Clasifica la pregunta con Jev: `state` es el texto tal cual y van las tres preguntas. Devuelve
- * `{ interpretacion, modelo }` ya validada o `null`. Producto y día con poca confianza valen "ninguno".
+ * `{ interpretacion, modelo }` ya validada o `null`. El día con poca confianza vale "ninguno".
  */
 const clasificarConJev = async (env, texto, modelo, tiempoMs) => {
   const jev = await llamarJev(env, { modelo, state: texto, questions: PREGUNTAS_JEV, tiempoMs });
   if (jev === null) return null;
   const intencion = leerChoice(jev.answers.intencion, IDS);
-  const producto = leerChoice(jev.answers.producto, PRODUCTOS);
   const dia = leerChoice(jev.answers.dia, DIAS);
-  if (intencion === null || producto === null || dia === null) return null;
+  if (intencion === null || dia === null) return null;
   const interpretacion = interpretacionValida({
     intencion: intencion.opcion,
-    producto: producto.confianza < CONFIANZA_MINIMA_DETALLE ? 'ninguno' : producto.opcion,
     dia: dia.confianza < CONFIANZA_MINIMA_DETALLE ? 'ninguno' : dia.opcion,
     confianza: intencion.confianza,
   });

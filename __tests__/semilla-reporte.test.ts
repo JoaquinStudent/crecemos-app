@@ -112,7 +112,7 @@ describe('Semilla de 75 cierres para el reporte', () => {
       expect(precio).toBeDefined();
       if (dia === 7) {
         expect(precio?.mensaje).toBe(
-          'Tu anticucho te deja S/ 0.40 menos que en julio. ¿Revisas el precio?',
+          'La diferencia estimada por unidad de Anticucho bajó S/ 0.40 desde julio (precio menos costo estimado). Revisa el precio.',
         );
       }
     },

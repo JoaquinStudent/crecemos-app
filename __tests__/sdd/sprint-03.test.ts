@@ -16,7 +16,7 @@ import { formatoFecha, formatoSoles, sobranteSoles, textoSobrante } from '@domin
 import { armarHistorial, mensajeBorrar } from '@dominio/historial';
 import { PRODUCTOS_POR_DEFECTO } from '@dominio/productosPorDefecto';
 import type { Ciclo, Cierre, FechaNegocio, Gasto, LineaCierre } from '@dominio/tipos';
-import { listarCierres } from '@storage/repositorio';
+import { guardarProducto, listarCierres } from '@storage/repositorio';
 
 // Mediodía del 2026-10-07 en Lima: solo alimenta el instante de creación; la fecha de cada cierre es explícita.
 const ahora = new Date('2026-10-07T12:00:00-05:00');
@@ -316,6 +316,7 @@ describe('SPEC-03: Historial y ciclos de compra', () => {
     clearAllMockStorages();
     // El martes 6 de octubre de 2026 a las 8 p.m. en Lima; el día siguiente se mueve el reloj.
     jest.useFakeTimers({ doNotFake: [...SIN_FALSEAR], now: new Date('2026-10-06T20:00:00-05:00') });
+    await guardarProducto(PRODUCTOS_POR_DEFECTO[0]);
     let app: ReactTestRenderer.ReactTestRenderer | null = null;
     try {
       const montada = await montarApp();
@@ -344,7 +345,7 @@ describe('SPEC-03: Historial y ciclos de compra', () => {
       await tocar('tab-resumen');
       expect(textoDe('resumen-capital')).toBe('Capital S/ 150.00');
       expect(textoDe('resumen-te-queda')).toBe('S/ 200.00');
-      expect(textos()).toContain('Te queda');
+      expect(textos()).toContain('Resultado registrado');
 
       // Historial: un grupo por cada día.
       await tocar('tab-historial');

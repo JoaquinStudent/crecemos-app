@@ -34,7 +34,6 @@ export const CerrarDiaScreen = () => {
   const { productos, cierres, guardarDia } = useCrecemos();
   const navigation = useNavigation<BottomTabNavigationProp<TabsParamList, 'CerrarDia'>>();
   const route = useRoute<RouteProp<TabsParamList, 'CerrarDia'>>();
-  const activos = productos.filter(p => p.activo);
 
   const [cantidades, setCantidades] = useState<Cantidades>({});
   const [yape, setYape] = useState('');
@@ -48,6 +47,8 @@ export const CerrarDiaScreen = () => {
   // Modo edición: llega la fecha de un día ya cerrado desde Historial.
   const fecha = route.params?.fecha;
   const original = fecha === undefined ? undefined : cierres.find(c => c.fecha === fecha);
+  // Al editar un cierre antiguo se puede conservar una línea de un producto hoy inactivo.
+  const activos = productos.filter(p => p.activo || original?.lineas.some(l => l.productoId === p.id));
   const hayOriginal = original !== undefined;
   const cierresRef = useRef(cierres);
   cierresRef.current = cierres;
@@ -199,6 +200,12 @@ export const CerrarDiaScreen = () => {
 
           <View style={styles.bloque}>
             <Text variant="h3">¿Cuánto preparaste y cuánto te sobró?</Text>
+            {activos.length === 0 ? (
+              <View style={styles.tarjeta}>
+                <Text>Agrega un producto activo en Perfil para registrar lo que vendes.</Text>
+                <Button title="Ir a mis productos" variant="outline" onPress={() => navigation.getParent()?.navigate('Perfil')} testID="cerrar-agregar-producto" />
+              </View>
+            ) : null}
             {activos.map(p => (
               <View key={p.id} style={styles.tarjeta}>
                 <Text variant="bodyStrong">
@@ -288,7 +295,10 @@ export const CerrarDiaScreen = () => {
           </View>
 
           <View style={[styles.tarjeta, styles.teQueda]}>
-            <Text variant="label">Te queda</Text>
+            <View>
+              <Text variant="label">Resultado registrado</Text>
+              <Text variant="caption" color="textMuted">Ventas menos gastos registrados. No equivale al efectivo recibido.</Text>
+            </View>
             <Text
               variant="amount"
               color={teQueda < 0 ? 'danger' : 'success'}

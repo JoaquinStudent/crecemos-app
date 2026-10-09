@@ -19,7 +19,7 @@ import { materializarSemilla, validarSemilla } from '@dominio/semilla';
 import type { Cierre, FechaNegocio, Perfil } from '@dominio/tipos';
 import { senalesBanco, textoReporte } from '@analisis/senales';
 import { compartirReporte } from '@services/compartir';
-import { guardarCierre, guardarPerfil } from '@storage/repositorio';
+import { guardarCierre, guardarPerfil, importarSemilla } from '@storage/repositorio';
 
 // La hoja nativa de compartir nunca se abre en las pruebas: se mira qué recibiría.
 jest.mock('@services/compartir');
@@ -275,6 +275,7 @@ describe('SPEC-06: Reporte para el banco y cierre de entrega', () => {
         async () => ({ ok: true, status: 200, text: async () => texto } as unknown as Response),
       ) as unknown as typeof fetch;
       try {
+        await importarSemilla(materializarSemilla(validada.semilla, new Date()), new Date().toISOString());
         await montarApp();
 
         // Resumen → "Mi reporte".

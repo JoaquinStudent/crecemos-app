@@ -232,7 +232,7 @@ describe('htmlReporte · tarjetas de cifras', () => {
   it('lleva las tres tarjetas con sus etiquetas', () => {
     const html = htmlReporte(senalesDe(), perfilDe(), HOY);
     expect(html).toContain('Venta promedio mensual');
-    expect(html).toContain('Ganancia promedio mensual');
+    expect(html).toContain('Resultado registrado promedio mensual');
     expect(html).toContain('Constancia de registro');
     expect(cuenta(html, 'class="tarjeta"')).toBe(3);
   });
@@ -592,7 +592,7 @@ describe('htmlReporte · línea de promedio', () => {
 describe('htmlReporte · cómo leer este reporte', () => {
   const DEFINICIONES = [
     'Venta promedio mensual: lo que vendió el negocio en un mes, promediado sobre los últimos meses completos.',
-    'Ganancia promedio mensual: lo que le queda al negocio en el mes, después de restar lo que gastó.',
+    'Resultado registrado promedio mensual: ventas menos gastos registrados en el mes; incluye pagos pendientes de recibir.',
     'Constancia de registro: el porcentaje de los últimos 90 días en los que el negocio registró su día de ventas.',
   ];
   const casos: [string, Senales][] = [
@@ -764,7 +764,7 @@ describe('con la semilla real y hoy = 2026-10-20', () => {
 
   it('lleva las cifras del reporte y los dos meses completos (agosto y septiembre)', () => {
     expect(html).toContain('Venta promedio mensual');
-    expect(html).toContain('Ganancia promedio mensual');
+    expect(html).toContain('Resultado registrado promedio mensual');
     expect(html).toContain('<div class="mes">Ago</div>');
     expect(html).toContain('<div class="mes">Sep</div>');
     expect(html).toContain('<td>Agosto</td>');

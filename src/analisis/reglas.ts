@@ -188,8 +188,10 @@ export const retiroMensaje = (ctx: ContextoAnalisis): string => {
   const ciclos = cicloCerradoYActual(ctx);
   const teQueda = ciclos === null ? 0 : resumirCiclo(ciclos.cerrado).teQueda;
   return teQueda > 0
-    ? `Puedes sacar ${formatoSoles(teQueda)} para la casa sin tocar tu capital.`
-    : 'Este ciclo no te dejó ganancia. Mejor no saques plata del negocio todavía.';
+    ? `El resultado registrado del ciclo fue ${formatoSoles(
+        teQueda,
+      )}. Antes de retirar dinero, revisa los cobros pendientes.`
+    : 'El resultado registrado del ciclo no fue positivo. Revisa ventas, gastos y cobros pendientes antes de retirar dinero.';
 };
 
 // --- diaFlojo ------------------------------------------------------------------------------
@@ -322,9 +324,9 @@ export const REGLAS: Regla[] = [
       const m = mayorCaidaDePrecio(ctx);
       return m === null
         ? ''
-        : `Tu ${m.nombre.toLowerCase()} te deja ${formatoSoles(m.caida)} menos que en ${
+        : `La diferencia estimada por unidad de ${m.nombre} bajó ${formatoSoles(m.caida)} desde ${
             m.mes
-          }. ¿Revisas el precio?`;
+          } (precio menos costo estimado). Revisa el precio.`;
     },
   },
   {
@@ -336,9 +338,8 @@ export const REGLAS: Regla[] = [
       if (p === null) return '';
       const unidad =
         ctx.productos.find(x => x.id === p.productoId)?.unidad === 'vaso' ? 'vasos' : 'porciones';
-      return `Te sobró ${p.nombre.toLowerCase()} dos ciclos seguidos. Prepara ${
-        p.cantidad
-      } ${unidad} menos.`;
+      const nombre = ctx.productos.find(x => x.id === p.productoId)?.nombre ?? p.nombre;
+      return `Registraste sobrantes de ${nombre} en dos ciclos seguidos. Prepara ${p.cantidad} ${unidad} menos.`;
     },
   },
   { id: 'retiro', prioridad: 4, aplica: retiroAplica, mensaje: retiroMensaje },
@@ -350,7 +351,9 @@ export const REGLAS: Regla[] = [
       const d = diaMasFlojo(ctx);
       return d === null
         ? ''
-        : `Los ${DIAS_PLURAL[d.dia]} ganas ${formatoSoles(d.diferencia)} menos que tu promedio.`;
+        : `Los ${DIAS_PLURAL[d.dia]} el resultado estimado por producto fue ${formatoSoles(
+            d.diferencia,
+          )} menor que el promedio.`;
     },
   },
   { id: 'comparacion', prioridad: 6, aplica: retiroAplica, mensaje: comparacionMensaje },

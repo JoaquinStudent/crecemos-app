@@ -347,11 +347,11 @@ describe('compararCiclo: tendencia y magnitud', () => {
     });
   });
 
-  it('coincide con la frase: "menos" es baja, "más" es sube, "lo mismo" es igual', () => {
+  it('coincide con la frase: "menos" es baja, "más" es sube, "igual" es igual', () => {
     for (const [teQueda, palabra, tendencia] of [
       [150, 'más', 'sube'],
       [50, 'menos', 'baja'],
-      [100, 'lo mismo', 'igual'],
+      [100, 'igual', 'igual'],
     ] as const) {
       const ctx = cambioDeCiclo(teQueda);
       expect(responderConsulta(consultaDe('compararCiclo'), ctx).frase).toContain(palabra);
@@ -562,7 +562,7 @@ describe('revisarPrecio: caída y plazo', () => {
       const ctx = precioCambiado(8.2, costoHoy);
       const frase = responderConsulta(consultaDe('revisarPrecio', 'p-anticucho'), ctx).frase;
       const caida = senales(consultaDe('revisarPrecio', 'p-anticucho'), ctx)?.caida;
-      expect(frase.includes('menos que en')).toBe(caida !== 'ninguna');
+      expect(frase.includes('bajó')).toBe(caida !== 'ninguna');
     }
   });
 });

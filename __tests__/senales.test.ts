@@ -350,11 +350,11 @@ describe('textoReporte', () => {
       'Freddy · Anticuchos Freddy',
       'Periodo:',
       'Venta promedio mensual: S/ ',
-      'Ganancia promedio mensual: S/ ',
+      'Resultado registrado promedio mensual (ventas menos gastos): S/ ',
       'Constancia de registro: ',
       'Días registrados por mes',
       'Registra desde el 3 de julio',
-      'Son totales registrados por el propio negocio en la app Crecemos; no incluyen movimientos individuales.',
+      'Son totales registrados por el propio negocio en la app Crecemos; incluyen pagos pendientes de recibir y no incluyen movimientos individuales.',
     ].map(trozo => texto.indexOf(trozo));
     expect(orden.every(i => i >= 0)).toBe(true);
     expect([...orden].sort((a, b) => a - b)).toEqual(orden);
@@ -420,7 +420,9 @@ describe('textoReporte', () => {
   it('sin ningún mes completo, los promedios dicen que aún no hay un mes completo', () => {
     const texto = textoReporte(senalesBanco(enFechas(seguidas(5)), HOY), null);
     expect(texto).toContain('Venta promedio mensual: aún no hay un mes completo');
-    expect(texto).toContain('Ganancia promedio mensual: aún no hay un mes completo');
+    expect(texto).toContain(
+      'Resultado registrado promedio mensual (ventas menos gastos): aún no hay un mes completo',
+    );
     expect(texto).not.toContain('Días registrados por mes');
     expect(texto).not.toMatch(/S\/ \d/);
   });

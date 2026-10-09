@@ -1,7 +1,7 @@
 // src/dominio/ciclo.ts
 import { calcularCierre } from './cierre';
 import { formatoFecha, formatoSoles, redondearSoles, sobranteSoles } from './formato';
-import type { Cierre, Ciclo, MercaderiaProducto, ResumenCiclo } from './tipos';
+import type { Cierre, Ciclo, MercaderiaProducto, Producto, ResumenCiclo } from './tipos';
 
 /**
  * Agrupa los cierres en ciclos de compra, en orden cronológico. Un ciclo nuevo
@@ -61,14 +61,18 @@ export const textoCapital = (r: ResumenCiclo): string =>
  * sumado en todos los días del ciclo. Ordenado por nombre; el nombre es el de la línea
  * más reciente. No muta el ciclo.
  */
-export const mercaderiaDelCiclo = (ciclo: Ciclo): MercaderiaProducto[] => {
+export const mercaderiaDelCiclo = (
+  ciclo: Ciclo,
+  productos: Producto[] = [],
+): MercaderiaProducto[] => {
+  const nombres = new Map(productos.map(p => [p.id, p.nombre]));
   const porProducto = new Map<string, MercaderiaProducto>();
   for (const cierre of ciclo.cierres) {
     for (const linea of cierre.lineas) {
       const previo = porProducto.get(linea.productoId);
       porProducto.set(linea.productoId, {
         productoId: linea.productoId,
-        nombre: linea.nombre,
+        nombre: nombres.get(linea.productoId) ?? linea.nombre,
         preparadas: (previo?.preparadas ?? 0) + linea.preparadas,
         vendidas: (previo?.vendidas ?? 0) + linea.preparadas - linea.sobrantes,
         sobranteSoles: (previo?.sobranteSoles ?? 0) + sobranteSoles(linea),

@@ -58,7 +58,7 @@ const RUTA_SEMILLA = join(__dirname, '..', '..', 'seed', 'semilla.json');
 const RUTA_GENERADOR = join(__dirname, '..', '..', 'scripts', 'generar-semilla.js');
 
 // La app real, montada como en el teléfono. Se deja correr el arranque (leer el almacenamiento,
-// pedir la semilla, guardarla) antes de devolverla.
+// cargar datos guardados) antes de devolverla. La semilla se pide solo al tocar el botón.
 let montada: ReactTestRenderer.ReactTestRenderer | null = null;
 const montarApp = async () => {
   await act(async () => {
@@ -88,6 +88,11 @@ const textosEnPantalla = (): string[] =>
     .findAll(n => (n.type as unknown) === 'Text')
     .map(textoCompleto);
 const hayNodo = (testID: string): boolean => raiz().findAll(n => n.props.testID === testID).length > 0;
+const tocar = async (testID: string): Promise<void> => {
+  const boton = raiz().findAll(n => n.props.testID === testID && typeof n.props.onPress === 'function')[0];
+  if (!boton) throw new Error(`No hay botón con testID "${testID}"`);
+  await act(async () => { await boton.props.onPress(); });
+};
 const textoDe = (testID: string): string => {
   const nodo = raiz().findAll(n => (n.type as unknown) === 'Text' && n.props.testID === testID)[0];
   if (!nodo) throw new Error(`No hay ningún texto con testID "${testID}"`);
@@ -169,10 +174,10 @@ describe('SPEC-04: Cobros pendientes y carga inicial desde el Mock API', () => {
     })();
   });
 
-  // @spec04_e3 — Carga la semilla en el primer arranque
-  it('spec04_e3 carga la semilla en el primer arranque', () => {
+  // @spec04_e3 — Carga la semilla a pedido en el primer arranque
+  it('spec04_e3 carga la semilla a pedido en el primer arranque', () => {
     // Given: el almacenamiento vacío y un servidor que responde la semilla con 4 productos y 75 cierres
-    // When: arranca la app
+    // When: abre la app y toca "Cargar datos de ejemplo"
     // Then: quedan guardados 4 productos y 75 cierres, y la clave "@crecemos/seed" tiene la fecha de carga
     return (async () => {
       clearAllMockStorages();
@@ -183,6 +188,8 @@ describe('SPEC-04: Cobros pendientes y carga inicial desde el Mock API', () => {
       const servidor = servidorQueResponde(texto);
 
       await montarApp();
+      expect(servidor).not.toHaveBeenCalled();
+      await tocar('inicio-cargar-ejemplo');
 
       expect(servidor).toHaveBeenCalledTimes(1);
       expect(servidor.mock.calls[0] as unknown[]).toContain(SEED_URL);
@@ -207,7 +214,7 @@ describe('SPEC-04: Cobros pendientes y carga inicial desde el Mock API', () => {
   // @spec04_e4 — Sin internet la app abre igual
   it('spec04_e4 sin internet la app abre igual', () => {
     // Given: el almacenamiento vacío y la red caída
-    // When: arranca la app
+    // When: abre la app y toca "Cargar datos de ejemplo"
     // Then: la app queda lista con 0 cierres, no muestra ningún error técnico y ofrece el botón "Cargar datos de ejemplo"
     return (async () => {
       clearAllMockStorages();
@@ -215,6 +222,8 @@ describe('SPEC-04: Cobros pendientes y carga inicial desde el Mock API', () => {
       global.fetch = caida as unknown as typeof fetch;
 
       await montarApp();
+      expect(caida).not.toHaveBeenCalled();
+      await tocar('inicio-cargar-ejemplo');
 
       // Lista: intentó una vez y sin señal no guardó nada.
       expect(caida).toHaveBeenCalledTimes(1);
@@ -312,7 +321,7 @@ describe('SPEC-04: Cobros pendientes y carga inicial desde el Mock API', () => {
   // @spec04_e8 — Una semilla inválida no guarda nada
   it('spec04_e8 una semilla invalida no guarda nada', () => {
     // Given: el almacenamiento vacío y un servidor que responde un JSON sin el campo "cierres"
-    // When: arranca la app
+    // When: abre la app y toca "Cargar datos de ejemplo"
     // Then: no se guarda ningún producto ni cierre y la app muestra "No pudimos cargar los datos de ejemplo"
     return (async () => {
       clearAllMockStorages();
@@ -323,10 +332,11 @@ describe('SPEC-04: Cobros pendientes y carga inicial desde el Mock API', () => {
       const servidor = servidorQueResponde(JSON.stringify(sinCierres));
 
       await montarApp();
+      await tocar('inicio-cargar-ejemplo');
 
       expect(servidor).toHaveBeenCalledTimes(1);
       // Nada guardado: ni las claves de productos y cierres ni la marca de carga (se podrá reintentar).
-      expect(await crudo('@crecemos/productos')).toBeNull();
+      expect(JSON.parse((await crudo('@crecemos/productos')) ?? 'null')).toEqual([]);
       expect(await crudo('@crecemos/cierres')).toBeNull();
       expect(await crudo('@crecemos/seed')).toBeNull();
       expect(await listarCierres()).toHaveLength(0);
@@ -397,7 +407,7 @@ describe('SPEC-04: Cobros pendientes y carga inicial desde el Mock API', () => {
   // @spec04_e10 — e2e: primer arranque con datos de ejemplo
   it('spec04_e10 e2e primer arranque con datos de ejemplo', () => {
     // Given: la app recién instalada y un servidor que responde la semilla
-    // When: arranca la app y se abre Inicio
+    // When: abre Inicio y toca "Cargar datos de ejemplo"
     // Then: Inicio muestra un monto en "Te queda" distinto de "S/ 0.00" y la tarjeta "Yape por cobrar" con su total
     return (async () => {
       clearAllMockStorages();
@@ -407,6 +417,7 @@ describe('SPEC-04: Cobros pendientes y carga inicial desde el Mock API', () => {
       servidorQueResponde(texto);
 
       await montarApp();
+      await tocar('inicio-cargar-ejemplo');
 
       // Lo esperado sale del dominio, con la misma semilla y el mismo "hoy" que usa la app.
       const { cierres } = materializarSemilla(validada.semilla, new Date());
@@ -418,7 +429,7 @@ describe('SPEC-04: Cobros pendientes y carga inicial desde el Mock API', () => {
       const teQueda = textoDe('inicio-te-queda');
       expect(teQueda).not.toBe('S/ 0.00');
       expect(teQueda).toBe(formatoSoles(calcularCierre(ultimo).teQueda));
-      expect(textosEnPantalla()).toContain('Te queda');
+      expect(textosEnPantalla()).toContain('Resultado registrado');
       // "Yape por cobrar" con su total y sus pagos.
       expect(textosEnPantalla()).toContain('Yape por cobrar');
       expect(textoDe('inicio-por-cobrar-total')).toBe(formatoSoles(porCobrar.total));

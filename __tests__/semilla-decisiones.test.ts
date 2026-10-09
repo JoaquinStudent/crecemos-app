@@ -51,7 +51,7 @@ describe('Semilla y motor de decisiones', () => {
 
     const precio = r.find(x => x.reglaId === 'precio');
     expect(precio?.mensaje).toBe(
-      'Tu anticucho te deja S/ 0.40 menos que en julio. ¿Revisas el precio?',
+      'La diferencia estimada por unidad de Anticucho bajó S/ 0.40 desde julio (precio menos costo estimado). Revisa el precio.',
     );
     // Cobro (1) y precio (2): son las dos que muestra el motor.
     expect(r.map(x => x.reglaId)).toEqual(['cobro', 'precio']);
@@ -68,7 +68,7 @@ describe('Semilla y motor de decisiones', () => {
 
     expect(r.map(x => x.reglaId)).toContain('precio');
     expect(r.find(x => x.reglaId === 'precio')?.mensaje).toMatch(
-      /^Tu anticucho te deja S\/ \d+\.\d{2} menos que en julio\. ¿Revisas el precio\?$/,
+      /^La diferencia estimada por unidad de Anticucho bajó S\/ \d+\.\d{2} desde julio \(precio menos costo estimado\)\. Revisa el precio\.$/,
     );
   });
 

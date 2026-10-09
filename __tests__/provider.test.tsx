@@ -15,6 +15,7 @@ import { calcularCierre } from '@dominio/cierre';
 import type { Cierre, DatosCierre, Perfil, SemillaJSON } from '@dominio/tipos';
 import {
   guardarCierre,
+  guardarProducto,
   listarCierres,
   listarProductos,
   obtenerPerfil,
@@ -35,8 +36,9 @@ const montarProvider = async () => {
 };
 
 describe('CrecemosProvider: perfil y precios', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     clearAllMockStorages();
+    for (const producto of PRODUCTOS_POR_DEFECTO) await guardarProducto(producto);
   });
   afterEach(async () => {
     const app = montada;
@@ -109,8 +111,9 @@ describe('CrecemosProvider: guardar y eliminar dias', () => {
     abreCiclo: true,
   };
 
-  beforeEach(() => {
+  beforeEach(async () => {
     clearAllMockStorages();
+    for (const producto of PRODUCTOS_POR_DEFECTO) await guardarProducto(producto);
   });
   afterEach(async () => {
     const app = montada;
@@ -307,7 +310,7 @@ describe('CrecemosProvider: semilla de ejemplo', () => {
     if (app) await act(async () => app.unmount());
   });
 
-  it('con cierres guardados y sin marca no descarga nada y marca la semilla como resuelta', async () => {
+  it('con cierres guardados y sin marca no descarga nada y conserva los productos legados', async () => {
     await guardarCierre(cierreConYape('2026-10-06', 46));
     const fetchMock = ponerFetch(jest.fn());
 
@@ -318,9 +321,8 @@ describe('CrecemosProvider: semilla de ejemplo', () => {
     expect(contexto().cargando).toBe(false);
     expect(contexto().semilla).toBe('ninguna');
     expect(contexto().cierres).toHaveLength(1);
-    expect(await semillaCargada()).toBe(true);
-    // Solo la marca: los productos no se tocan.
-    expect(await crudo('@crecemos/productos')).toBeNull();
+    expect(await semillaCargada()).toBe(false);
+    expect(await listarProductos()).toEqual(PRODUCTOS_POR_DEFECTO);
   });
 
   it('la app queda lista de inmediato aunque la semilla no responda, y a los 8 s pasa a sinRed', async () => {
@@ -335,6 +337,7 @@ describe('CrecemosProvider: semilla de ejemplo', () => {
     );
 
     const contexto = await montarProvider();
+    const carga = contexto().cargarDatosDeEjemplo();
     await act(async () => {
       await jest.advanceTimersByTimeAsync(0);
     });
@@ -344,6 +347,7 @@ describe('CrecemosProvider: semilla de ejemplo', () => {
 
     await act(async () => {
       await jest.advanceTimersByTimeAsync(8000);
+      await carga;
     });
 
     expect(contexto().semilla).toBe('sinRed');
@@ -353,13 +357,14 @@ describe('CrecemosProvider: semilla de ejemplo', () => {
 
   it('sin red queda en sinRed, con 0 cierres y sin guardar nada', async () => {
     const contexto = await montarProvider();
+    await act(async () => { await contexto().cargarDatosDeEjemplo(); });
     await dejarCorrer();
 
     expect(contexto().cargando).toBe(false);
     expect(contexto().semilla).toBe('sinRed');
     expect(contexto().cierres).toEqual([]);
     expect(await semillaCargada()).toBe(false);
-    expect(await crudo('@crecemos/productos')).toBeNull();
+    expect(await listarProductos()).toEqual([]);
     expect(await crudo('@crecemos/cierres')).toBeNull();
   });
 
@@ -368,18 +373,20 @@ describe('CrecemosProvider: semilla de ejemplo', () => {
     ponerFetch(jest.fn(async () => respuestaOk({ ...SEMILLA, cierres: undefined })));
 
     const contexto = await montarProvider();
+    await act(async () => { await contexto().cargarDatosDeEjemplo(); });
     await dejarCorrer();
 
     expect(contexto().semilla).toBe('invalida');
     expect(contexto().cierres).toEqual([]);
     expect(await semillaCargada()).toBe(false);
-    expect(await crudo('@crecemos/productos')).toBeNull();
+    expect(await listarProductos()).toEqual([]);
     expect(await crudo('@crecemos/cierres')).toBeNull();
   });
 
   it('cargarDatosDeEjemplo reintenta después de un fallo y deja los datos en lista', async () => {
     const contexto = await montarProvider();
     await dejarCorrer();
+    await act(async () => { await contexto().cargarDatosDeEjemplo(); });
     expect(contexto().semilla).toBe('sinRed');
     const fetchMock = ponerFetch(jest.fn(async () => respuestaOk(SEMILLA)));
 
@@ -398,6 +405,7 @@ describe('CrecemosProvider: semilla de ejemplo', () => {
   });
 
   it('cargarDatosDeEjemplo no hace nada si ya hay cierres', async () => {
+    await guardarProducto(PRODUCTOS_POR_DEFECTO[0]);
     const contexto = await montarProvider();
     await dejarCorrer();
     await act(async () => {
@@ -420,27 +428,23 @@ describe('CrecemosProvider: semilla de ejemplo', () => {
     expect(await listarCierres()).toEqual(antes);
   });
 
-  it('si el usuario guarda un día mientras la semilla se descarga, no se pisa', async () => {
+  it('si el usuario crea un producto mientras la semilla se descarga, no se pisa', async () => {
     const { fetchMock, responder } = fetchControlado();
     const contexto = await montarProvider();
+    contexto().cargarDatosDeEjemplo();
     await dejarCorrer();
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(contexto().semilla).toBe('cargando');
     await act(async () => {
-      await contexto().guardarDia({
-        fecha: '2026-10-06',
-        lineas: [{ productoId: 'p-anticucho', preparadas: 20, sobrantes: 2 }],
-        montoYape: 0,
-        gastos: [],
-      });
+      await contexto().crearProducto({ nombre: 'Tamal', unidad: 'unidad', precioVenta: 5, costoUnitario: 2 });
     });
 
     responder(respuestaOk(SEMILLA));
     await dejarCorrer();
 
     expect(contexto().semilla).toBe('ninguna');
-    expect(contexto().cierres.map(c => c.fecha)).toEqual(['2026-10-06']);
-    expect(await listarCierres()).toHaveLength(1);
+    expect(contexto().productos.map(p => p.nombre)).toEqual(['Tamal']);
+    expect(await listarCierres()).toHaveLength(0);
     expect(await semillaCargada()).toBe(true);
   });
 
@@ -466,7 +470,8 @@ describe('CrecemosProvider: semilla de ejemplo', () => {
   it('si el Provider se desmonta antes de que responda, no falla ni avisa', async () => {
     const { responder } = fetchControlado();
     const errores = jest.spyOn(console, 'error').mockImplementation(() => undefined);
-    await montarProvider();
+    const contexto = await montarProvider();
+    contexto().cargarDatosDeEjemplo();
     await dejarCorrer();
     const app = montada;
     montada = null;

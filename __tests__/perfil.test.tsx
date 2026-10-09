@@ -63,8 +63,9 @@ const montarApp = async () => {
 const haceDias = (dias: number) => fechaLocal(new Date(Date.now() - dias * 24 * 60 * 60 * 1000));
 
 describe('Perfil y hoja "Cambiar precio"', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     clearAllMockStorages();
+    for (const producto of PRODUCTOS_POR_DEFECTO) await guardarProducto(producto);
   });
   afterEach(async () => {
     const app = montada;
@@ -135,7 +136,7 @@ describe('Perfil y hoja "Cambiar precio"', () => {
     await tocar('abrir-perfil');
 
     // Anticucho: S/ 10.00 − S/ 8.20 = S/ 1.80, el 18% del precio.
-    expect(textos()).toContain('Te cuesta S/ 8.20 · Te deja S/ 1.80 · 18%');
+    expect(textos()).toContain('Costo estimado S/ 8.20 · Diferencia estimada por unidad S/ 1.80 · 18%');
     expect(textos()).toContain('Precio actualizado el 15 de julio');
   });
 
@@ -185,7 +186,7 @@ describe('Perfil y hoja "Cambiar precio"', () => {
 
     expect(existe('guardar-precio')).toBe(false);
     expect(textos()).toContain('S/ 11.00');
-    expect(textos()).toContain('Te cuesta S/ 8.20 · Te deja S/ 2.80 · 25%');
+    expect(textos()).toContain('Costo estimado S/ 8.20 · Diferencia estimada por unidad S/ 2.80 · 25%');
     const anticucho = (await listarProductos()).find(p => p.id === 'p-anticucho');
     expect(anticucho?.precioVenta).toBe(11);
     expect(anticucho?.actualizadoEn).toBe(fechaLocal(new Date()));
