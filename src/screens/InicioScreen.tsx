@@ -1,13 +1,15 @@
 // src/screens/InicioScreen.tsx
 // Responde "¿cómo me fue?" y "¿qué decido hoy?". De arriba hacia abajo: saludo, ciclo de compra,
 // el insight, las recomendaciones, el Yape por cobrar, el último día y el botón "Cerrar mi día".
+// Encima de todo, en la esquina inferior derecha, el botón flotante "Preguntar" abre el chat; el
+// scroll deja un espacio al final para que nunca tape "Cerrar mi día".
 import React, { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { CompositeNavigationProp, useNavigation } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { ArrowRight, Lightbulb } from 'lucide-react-native';
+import { ArrowRight, Lightbulb, MessageCircle } from 'lucide-react-native';
 import { colors, radius, spacing } from '@theme';
 import { Text } from '@components/atoms/Text';
 import { Button } from '@components/atoms/Button';
@@ -37,6 +39,8 @@ type InicioNavigation = CompositeNavigationProp<
 
 /** El mismo periodo que mira "Qué me deja cada uno": los últimos 30 días, contando el día 30. */
 const DIAS_DEL_INSIGHT = 30;
+/** Alto del botón flotante "Preguntar" (≥ 48 dp) y espacio que el scroll le deja para no quedar debajo. */
+const ALTO_FLOTANTE = 56;
 
 export const InicioScreen = () => {
   const { cierres, productos, perfil, cargando, semilla, cargarDatosDeEjemplo, marcarCobrado } =
@@ -65,7 +69,7 @@ export const InicioScreen = () => {
 
   return (
     <SafeAreaView style={styles.pantalla} edges={['top']}>
-      <ScrollView contentContainerStyle={styles.contenido}>
+      <ScrollView contentContainerStyle={[styles.contenido, styles.conFlotante]}>
         <View style={styles.encabezado}>
           <View style={styles.saludo}>
             <Text variant="h2" testID="inicio-saludo">
@@ -140,6 +144,16 @@ export const InicioScreen = () => {
           </>
         )}
       </ScrollView>
+
+      {/* Ícono Y texto (UX, regla 1). No dispara ninguna petición: solo abre el chat. */}
+      <Button
+        title="Preguntar"
+        leftIcon={MessageCircle}
+        size="lg"
+        style={styles.flotante}
+        testID="inicio-preguntar"
+        onPress={() => navigation.navigate('Preguntar')}
+      />
     </SafeAreaView>
   );
 };
@@ -445,6 +459,18 @@ const DatosDeEjemplo = ({
 const styles = StyleSheet.create({
   pantalla: { flex: 1, backgroundColor: colors.background },
   contenido: { padding: spacing.lg, gap: spacing.xl },
+  conFlotante: { paddingBottom: ALTO_FLOTANTE + spacing.lg * 2 },
+  flotante: {
+    position: 'absolute',
+    right: spacing.lg,
+    bottom: spacing.lg,
+    height: ALTO_FLOTANTE,
+    shadowColor: colors.text,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 4,
+  },
   encabezado: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   saludo: { flex: 1, paddingRight: spacing.md },
   perfil: { minWidth: 48, minHeight: 48, alignItems: 'center', gap: spacing.xxs },

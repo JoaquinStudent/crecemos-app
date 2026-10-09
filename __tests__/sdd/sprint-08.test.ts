@@ -9,6 +9,13 @@
 /// <reference types="node" />
 import { readFileSync } from 'fs';
 import { join } from 'path';
+import { createElement } from 'react';
+import { StyleSheet } from 'react-native';
+import ReactTestRenderer, { act, ReactTestInstance } from 'react-test-renderer';
+import { clearAllMockStorages } from '@react-native-async-storage/async-storage/jest';
+import App from '../../App';
+import { colors } from '@theme';
+import { JEV_URL, SEED_URL } from '../../src/config';
 import { fechaLocal } from '@dominio/fecha';
 import { materializarSemilla, validarSemilla } from '@dominio/semilla';
 import type {
@@ -22,15 +29,21 @@ import type {
   Perfil,
   Producto,
 } from '@dominio/tipos';
-import { interpretarRespuesta, responderConsulta } from '@analisis/intenciones';
+import {
+  interpretarRespuesta,
+  PREGUNTAS_SUGERIDAS,
+  responderConsulta,
+} from '@analisis/intenciones';
 import {
   armarHechoParaJuicio,
   ETIQUETA_SEMAFORO,
   interpretarJuicio,
   senalesDeJuicio,
+  SIMBOLO_SEMAFORO,
 } from '@analisis/semaforo';
 import { extraerCifras, validarRedaccion } from '@analisis/validarRedaccion';
 import { consultar, redactarRespuesta } from '@services/jev';
+import { guardarCierre } from '@storage/repositorio';
 
 // Mediodía del 2026-10-07 en Lima: solo alimenta el instante de creación; "hoy" y la fecha de cada cierre son explícitas.
 const ahora = new Date('2026-10-07T12:00:00-05:00');
@@ -223,6 +236,164 @@ const servidorSimulado = (
 };
 const responde = (cuerpo: unknown) => () => Promise.resolve(respuestaJson(cuerpo));
 
+// --- Apoyo de e5, e6, e12, e13, e14 y e18: la app real, montada como en el teléfono ---------------
+
+let montada: ReactTestRenderer.ReactTestRenderer | null = null;
+const montarApp = async () => {
+  await act(async () => {
+    montada = ReactTestRenderer.create(createElement(App));
+  });
+  // El arranque (leer el almacenamiento, pedir la semilla) termina en segundo plano.
+  for (let i = 0; i < 5; i += 1) {
+    await act(async () => {
+      await new Promise(resolver => setTimeout(resolver, 0));
+    });
+  }
+};
+const desmontarApp = async () => {
+  const app = montada;
+  montada = null;
+  if (app) await act(async () => app.unmount());
+};
+const raiz = (): ReactTestInstance => {
+  if (!montada) throw new Error('La app no está montada');
+  return (montada as ReactTestRenderer.ReactTestRenderer).root;
+};
+const esHost = (n: ReactTestInstance, nombre: string) => (n.type as unknown) === nombre;
+const tocar = (testID: string) =>
+  act(async () => {
+    const nodo = raiz().findAll(
+      n => n.props.testID === testID && typeof n.props.onPress === 'function',
+    )[0];
+    if (!nodo) throw new Error(`No hay nada con testID "${testID}" que responda a onPress`);
+    await nodo.props.onPress();
+  });
+const escribir = (testID: string, texto: string) =>
+  act(async () => {
+    const nodo = raiz().findAll(
+      n => n.props.testID === testID && typeof n.props.onChangeText === 'function',
+    )[0];
+    if (!nodo) throw new Error(`No hay ningún campo con testID "${testID}"`);
+    nodo.props.onChangeText(texto);
+  });
+const textoCompleto = (n: ReactTestInstance | string): string =>
+  typeof n === 'string' ? n : n.children.map(textoCompleto).join('');
+const hayNodo = (testID: string): boolean => raiz().findAll(n => n.props.testID === testID).length > 0;
+/** Los textos de lo que hay dentro del nodo con ese testID, de arriba hacia abajo. */
+const textosEn = (testID: string): string[] => {
+  const dentro = raiz().findAll(n => n.props.testID === testID)[0];
+  if (!dentro) throw new Error(`No hay nada con testID "${testID}"`);
+  return dentro.findAll(n => esHost(n, 'Text')).map(textoCompleto);
+};
+const textoNodo = (testID: string): ReactTestInstance => {
+  const nodo = raiz().findAll(n => esHost(n, 'Text') && n.props.testID === testID)[0];
+  if (!nodo) throw new Error(`No hay ningún texto con testID "${testID}"`);
+  return nodo;
+};
+const textoDe = (testID: string): string => textoCompleto(textoNodo(testID));
+const estiloDeTexto = (testID: string) => StyleSheet.flatten(textoNodo(testID).props.style);
+const estiloDeVista = (testID: string) => {
+  const vista = raiz().findAll(n => esHost(n, 'View') && n.props.testID === testID)[0];
+  if (!vista) throw new Error(`No hay ninguna vista con testID "${testID}"`);
+  return StyleSheet.flatten(vista.props.style);
+};
+/** Los testID que empiezan así (vistas), en el orden en que están en pantalla. */
+const vistasCon = (patron: RegExp): string[] =>
+  raiz()
+    .findAll(n => esHost(n, 'View') && patron.test(String(n.props.testID ?? '')))
+    .map(n => String(n.props.testID));
+/** Posición de un testID entre todos los nodos, de arriba hacia abajo (para comparar el orden). */
+const posicionDe = (testID: string): number =>
+  raiz()
+    .findAll(() => true)
+    .findIndex(n => n.props.testID === testID);
+
+// Todos los temporizadores quedan reales (la app y el almacenamiento esperan promesas de verdad);
+// solo el reloj se fija, como en spec06_e6.
+const SIN_FALSEAR = [
+  'hrtime',
+  'nextTick',
+  'performance',
+  'queueMicrotask',
+  'requestAnimationFrame',
+  'cancelAnimationFrame',
+  'requestIdleCallback',
+  'cancelIdleCallback',
+  'setImmediate',
+  'clearImmediate',
+  'setInterval',
+  'clearInterval',
+  'setTimeout',
+  'clearTimeout',
+] as const;
+
+type TipoChat = 'interpretar' | 'redactar' | 'juzgar';
+interface CuerpoChat {
+  tipo: TipoChat;
+  texto?: string;
+  hecho?: { frase: string; cifras: string[] };
+}
+interface RedDeLaApp {
+  fetch: jest.Mock;
+  /** Los tipos de petición que llegaron al servidor del chat, en orden. */
+  tiposDelChat: () => string[];
+}
+
+/** La red de la app: la semilla en SEED_URL y el servidor del chat en JEV_URL. Lo demás, sin red. */
+const redDeLaApp = (
+  semilla: string | null,
+  chat: Partial<Record<TipoChat, (cuerpo: CuerpoChat) => Response>> = {},
+): RedDeLaApp => {
+  const sinRed = () => new TypeError('Network request failed');
+  const f = jest.fn(async (url: string, init?: { body?: string }) => {
+    if (url === SEED_URL) {
+      if (semilla === null) throw sinRed();
+      return { ok: true, status: 200, text: async () => semilla } as unknown as Response;
+    }
+    if (url === JEV_URL) {
+      const cuerpo = JSON.parse(init?.body ?? '{}') as CuerpoChat;
+      const responder = chat[cuerpo.tipo];
+      if (!responder) throw sinRed();
+      return responder(cuerpo);
+    }
+    throw sinRed();
+  });
+  return {
+    fetch: f,
+    tiposDelChat: () =>
+      (f.mock.calls as unknown as Array<[string, { body?: string }]>)
+        .filter(([url]) => url === JEV_URL)
+        .map(([, init]) => (JSON.parse(init.body ?? '{}') as CuerpoChat).tipo),
+  };
+};
+
+/** Monta la app con esa red, corre la prueba y la deja como estaba. */
+const conApp = async (
+  red: RedDeLaApp,
+  prueba: () => Promise<void>,
+  antes: () => Promise<void> = async () => undefined,
+) => {
+  clearAllMockStorages();
+  const fetchPorDefecto = global.fetch;
+  global.fetch = red.fetch as unknown as typeof fetch;
+  try {
+    await antes();
+    await montarApp();
+    await prueba();
+  } finally {
+    global.fetch = fetchPorDefecto;
+    await desmontarApp();
+  }
+};
+
+const textoSemilla = () => readFileSync(RUTA_SEMILLA, 'utf8');
+/** Abre el chat desde el botón flotante de Inicio y escribe + toca "Preguntar". */
+const abrirElChat = () => tocar('inicio-preguntar');
+const preguntar = async (texto: string) => {
+  await escribir('preguntar-campo', texto);
+  await tocar('preguntar-enviar');
+};
+
 describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
   // @spec08_e1 — Una pregunta sobre un día se responde con la cifra del dominio
   it('spec08_e1 una pregunta sobre un dia se responde con la cifra del dominio', () => {
@@ -351,7 +522,32 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
     // Given: que Jev responde la intención con una confianza de 0.4 (el mínimo es 0.6)
     // When: se interpreta la pregunta
     // Then: la pantalla dice "No entendí tu pregunta. Prueba con una de estas:", muestra las preguntas sugeridas y no muestra ninguna cifra
-    throw new Error('Rojo: no implementado');
+    return (async () => {
+      const dudosa = redDeLaApp(textoSemilla(), {
+        interpretar: () => respuestaJson({ ...interpretacion('compararCiclo'), confianza: 0.4 }),
+        // Si la app los pidiera igual, estos darían una cifra: no debe llegar a pedirlos.
+        redactar: () => respuestaJson({ texto: REDACCION_CICLO }),
+        juzgar: () => respuestaJson(juicioDe('ojo', 0.8)),
+      });
+      await conApp(dudosa, async () => {
+        await abrirElChat();
+        await preguntar('algo raro que no entiendo');
+
+        // La pantalla dice que no entendió y ofrece las preguntas sugeridas, después de la respuesta.
+        const pantalla = textosEn('preguntar-pantalla');
+        expect(pantalla).toContain('No entendí tu pregunta. Prueba con una de estas:');
+        for (const sugerida of PREGUNTAS_SUGERIDAS) expect(pantalla).toContain(sugerida);
+        expect(posicionDe('preguntar-sugerida-0')).toBeGreaterThan(posicionDe('chat-burbuja-1'));
+
+        // Ninguna cifra: ni en la respuesta ni en ningún otro lugar del chat.
+        expect(textoDe('chat-burbuja-1-texto')).toBe(
+          'No entendí tu pregunta. Prueba con una de estas:',
+        );
+        expect(pantalla.some(t => /\d|S\//.test(t))).toBe(false);
+        // Con duda, solo se pidió interpretar: ni redacción ni juicio.
+        expect(dudosa.tiposDelChat()).toEqual(['interpretar']);
+      });
+    })();
   });
 
   // @spec08_e6 — Sin internet, el apartado lo dice sin error técnico
@@ -359,7 +555,23 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
     // Given: la red caída
     // When: se abre "Preguntarle a mis datos" y se toca "Preguntar"
     // Then: la pantalla dice "Necesitas internet para esto" y no muestra ningún código ni mensaje técnico
-    throw new Error('Rojo: no implementado');
+    return (async () => {
+      // La red caída: ni la semilla ni el servidor del chat responden.
+      const caida = redDeLaApp(null);
+      await conApp(caida, async () => {
+        await abrirElChat();
+        await preguntar('¿cuánto vendí ayer?');
+
+        const pantalla = textosEn('preguntar-pantalla');
+        expect(pantalla).toContain(
+          'Necesitas internet para esto. Revisa tu conexión e inténtalo otra vez.',
+        );
+        // Ningún código ni mensaje técnico, en ninguna parte de la pantalla.
+        expect(pantalla.join(' | ')).not.toMatch(CODIGOS_TECNICOS);
+        // Y la pantalla sigue ahí, lista para otro intento.
+        expect(hayNodo('preguntar-enviar')).toBe(true);
+      });
+    })();
   });
 
   // @spec08_e7 — A Jev solo viaja el texto de la pregunta
@@ -575,7 +787,42 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
     // Given: la app con la semilla cargada y servidores simulados de Jev y del redactor
     // When: se abre "Preguntarle a mis datos" y se pregunta "¿qué día me va peor?"
     // Then: la pantalla muestra una respuesta que nombra "miércoles" y una cifra en soles que coincide con la calculada por el código
-    throw new Error('Rojo: no implementado');
+    return (async () => {
+      const texto = textoSemilla();
+      const validada = validarSemilla(JSON.parse(texto));
+      if (!validada.ok) throw new Error('La semilla del repositorio no valida');
+      // Lo esperado sale del dominio, con la misma semilla y el mismo "hoy" que usa la app.
+      const { cierres, productos } = materializarSemilla(validada.semilla, new Date());
+      const esperado = responderConsulta(
+        jevInterpreta({ intencion: 'peorDia', producto: 'ninguno', dia: 'ninguno', confianza: 0.9 }),
+        { cierres, productos, hoy: fechaLocal(new Date()) },
+      );
+      expect(esperado.frase).toContain('miércoles');
+      const montoEsperado = (esperado.frase.match(/S\/ [\d,]+\.\d{2}/) ?? [])[0];
+      expect(montoEsperado).toBeDefined();
+
+      // Servidores simulados: Jev entiende "peor día"; el redactor dice el hecho que recibe con otras palabras.
+      const red = redDeLaApp(texto, {
+        interpretar: () => respuestaJson(interpretacion('peorDia')),
+        redactar: cuerpo =>
+          respuestaJson({
+            texto: `Tu día más flojo es el miércoles: ganas ${
+              (cuerpo.hecho?.frase.match(/S\/ [\d,]+\.\d{2}/) ?? [])[0]
+            } menos que tu promedio.`,
+          }),
+        juzgar: () => respuestaJson(juicioDe('ojo', 0.8)),
+      });
+      await conApp(red, async () => {
+        await abrirElChat();
+        await preguntar('¿qué día me va peor?');
+
+        // La respuesta nombra el miércoles y trae la cifra en soles que calculó el código.
+        const respuesta = textoDe('chat-burbuja-1-texto');
+        expect(respuesta).toContain('miércoles');
+        expect((respuesta.match(/S\/ [\d,]+\.\d{2}/) ?? [])[0]).toBe(montoEsperado);
+        expect(red.tiposDelChat()[0]).toBe('interpretar');
+      });
+    })();
   });
 
   // @spec08_e13 — El chat muestra la pregunta y la respuesta, en orden
@@ -583,7 +830,43 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
     // Given: el chat abierto y la respuesta calculada "Ayer, martes 6 de octubre, vendiste S/ 205.00."
     // When: se escribe "¿cuánto vendí ayer?" y se toca "Preguntar"
     // Then: aparecen dos burbujas en orden, primero la pregunta y debajo la respuesta, y el campo de texto queda vacío y listo para otra pregunta
-    throw new Error('Rojo: no implementado');
+    return (async () => {
+      // La red del chat: Jev entiende "ayer" y el redactor no responde, así que sale la frase fija.
+      const red = redDeLaApp(null, {
+        interpretar: () => respuestaJson(interpretacion('ventaDelDia', 'ayer')),
+      });
+      jest.useFakeTimers({ doNotFake: [...SIN_FALSEAR], now: ahora });
+      try {
+        await conApp(
+          red,
+          async () => {
+            await abrirElChat();
+            await preguntar('¿cuánto vendí ayer?');
+
+            // Dos burbujas, en orden: primero la pregunta y debajo la respuesta.
+            expect(vistasCon(/^chat-burbuja-\d+$/)).toEqual(['chat-burbuja-0', 'chat-burbuja-1']);
+            expect(textoDe('chat-burbuja-0-texto')).toBe('¿cuánto vendí ayer?');
+            expect(textoDe('chat-burbuja-1-texto')).toBe(FRASE_AYER);
+            expect(posicionDe('chat-burbuja-1')).toBeGreaterThan(posicionDe('chat-burbuja-0'));
+            // La pregunta a la derecha y la respuesta a la izquierda.
+            expect(estiloDeVista('chat-burbuja-0').alignSelf).toBe('flex-end');
+            expect(estiloDeVista('chat-burbuja-1').alignSelf).toBe('flex-start');
+
+            // El campo queda vacío y listo para otra pregunta.
+            const campo = raiz().findAll(
+              n => n.props.testID === 'preguntar-campo' && typeof n.props.onChangeText === 'function',
+            )[0];
+            expect(campo.props.value).toBe('');
+          },
+          // Un solo día cerrado: ayer, 7 anticuchos y 15 pancitas = S/ 205.00.
+          async () => {
+            await guardarCierre(ventaDeAyer().cierres[0]);
+          },
+        );
+      } finally {
+        jest.useRealTimers();
+      }
+    })();
   });
 
   // @spec08_e14 — El botón flotante de Inicio abre el chat
@@ -591,7 +874,30 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
     // Given: la app con la semilla cargada, en Inicio
     // When: se toca el botón flotante "Preguntar"
     // Then: se abre el chat con las preguntas sugeridas visibles, y "Atrás" vuelve a Inicio sin haber enviado ninguna petición
-    throw new Error('Rojo: no implementado');
+    return (async () => {
+      const red = redDeLaApp(textoSemilla(), {
+        interpretar: () => respuestaJson(interpretacion('ventaDelDia', 'ayer')),
+      });
+      await conApp(red, async () => {
+        // En Inicio, con la semilla cargada: el botón flotante dice "Preguntar" y no abre nada solo.
+        expect(hayNodo('inicio-saludo')).toBe(true);
+        expect(hayNodo('preguntar-pantalla')).toBe(false);
+
+        await tocar('inicio-preguntar');
+
+        // Se abre el chat con las preguntas sugeridas visibles.
+        expect(hayNodo('preguntar-pantalla')).toBe(true);
+        const pantalla = textosEn('preguntar-pantalla');
+        for (const sugerida of PREGUNTAS_SUGERIDAS) expect(pantalla).toContain(sugerida);
+        expect(red.tiposDelChat()).toEqual([]);
+
+        // "Atrás" vuelve a Inicio, y todavía no se envió ninguna petición.
+        await tocar('preguntar-atras');
+        expect(hayNodo('preguntar-pantalla')).toBe(false);
+        expect(hayNodo('inicio-saludo')).toBe(true);
+        expect(red.tiposDelChat()).toEqual([]);
+      });
+    })();
   });
 
   // @spec08_e15 — Jev juzga el resultado ya calculado
@@ -776,6 +1082,56 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
     // Given: respuestas con el semáforo "bien", "ojo" y "urgente"
     // When: se muestran en el chat
     // Then: cada una dice su palabra ("Bien", "Ojo", "Urgente"), lleva un símbolo distinto y un color distinto, con la letra siempre oscura sobre el fondo suave (el naranja nunca es el color del texto)
-    throw new Error('Rojo: no implementado');
+    return (async () => {
+      // Tres preguntas seguidas a un Jev que juzga "bien", "ojo" y "urgente", una por respuesta.
+      const juicios: Array<'bien' | 'ojo' | 'urgente'> = ['bien', 'ojo', 'urgente'];
+      let siguiente = 0;
+      const red = redDeLaApp(textoSemilla(), {
+        interpretar: () => respuestaJson(interpretacion('compararCiclo')),
+        // El redactor no responde: cada burbuja muestra la frase fija que calculó el código.
+        juzgar: () => respuestaJson(juicioDe(juicios[siguiente++ % 3], 0.9)),
+      });
+      await conApp(red, async () => {
+        await abrirElChat();
+        for (let i = 0; i < 3; i += 1) await preguntar('¿cómo voy contra el ciclo pasado?');
+
+        const fondos: string[] = [];
+        const simbolos: string[] = [];
+        juicios.forEach((semaforo, i) => {
+          const burbuja = i * 2 + 1; // 0 pregunta, 1 respuesta, 2 pregunta, 3 respuesta…
+          const id = `chat-burbuja-${burbuja}`;
+
+          // La palabra, escrita.
+          expect(textoDe(`${id}-semaforo-palabra`)).toBe(ETIQUETA_SEMAFORO[semaforo]);
+          expect(SIMBOLO_SEMAFORO[semaforo]).toBeTruthy();
+
+          // El símbolo: un ícono propio de ese semáforo (tras la vista que lo envuelve, el primer
+          // componente con nombre es el ícono; los siguientes son las piezas de su dibujo).
+          const iconos = raiz()
+            .findAll(n => n.props.testID === `${id}-semaforo-simbolo`)[0]
+            .findAll(n => typeof (n.type as { displayName?: string }).displayName === 'string')
+            .map(n => (n.type as { displayName: string }).displayName)
+            .filter(nombre => nombre !== 'View');
+          expect(iconos.length).toBeGreaterThan(0);
+          simbolos.push(iconos[0]);
+
+          // El color de fondo, suave, y la letra siempre oscura (el naranja nunca es texto).
+          fondos.push(String(estiloDeVista(id).backgroundColor));
+          for (const parte of [`${id}-texto`, `${id}-semaforo-palabra`]) {
+            const letra = estiloDeTexto(parte);
+            expect(letra.color).toBe(colors.text);
+            expect(letra.color).not.toBe(colors.accent);
+            expect(letra.fontSize).toBeGreaterThanOrEqual(14);
+          }
+        });
+
+        // Tres símbolos distintos y tres colores distintos, todos fondos suaves.
+        expect(new Set(simbolos).size).toBe(3);
+        expect(new Set(fondos).size).toBe(3);
+        for (const fondo of fondos) {
+          expect([colors.successSoft, colors.warningSoft, colors.dangerSoft]).toContain(fondo);
+        }
+      });
+    })();
   });
 });
