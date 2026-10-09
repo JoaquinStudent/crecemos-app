@@ -54,9 +54,21 @@ export const marcarCobrado = async (ids: string[], fecha: FechaNegocio): Promise
   await base().setItem(CLAVE_CIERRES, JSON.stringify(cobrados));
 };
 
-/** Sin productos guardados devuelve los por defecto, sin escribirlos. */
-export const listarProductos = async (): Promise<Producto[]> =>
-  (await leer<Producto[]>(CLAVE_PRODUCTOS)) ?? PRODUCTOS_POR_DEFECTO;
+/** Migra catálogos antiguos; una instalación realmente nueva queda vacía. */
+export const listarProductos = async (): Promise<Producto[]> => {
+  const guardados = await leer<Producto[]>(CLAVE_PRODUCTOS);
+  if (guardados !== null) return guardados;
+  const [cierres, semilla, perfil] = await Promise.all([
+    leer<Cierre[]>(CLAVE_CIERRES),
+    leer<{ cargadoEn: Instante }>(CLAVE_SEED),
+    leer<Perfil>(CLAVE_PERFIL),
+  ]);
+  const productos = (cierres?.length || semilla || perfil)
+    ? PRODUCTOS_POR_DEFECTO.map(p => ({ ...p }))
+    : [];
+  await base().setItem(CLAVE_PRODUCTOS, JSON.stringify(productos));
+  return productos;
+};
 
 /** `null` si el perfil nunca se guardó. */
 export const obtenerPerfil = async (): Promise<Perfil | null> =>
@@ -86,6 +98,7 @@ export const guardarProducto = async (p: Producto): Promise<void> => {
  * una) y, al final, la marca de carga: si algo falla a medias, la marca no queda puesta.
  */
 export const importarSemilla = async (s: SemillaMaterializada, ahora: Instante): Promise<void> => {
+  if ((await listarProductos()).length > 0 || (await listarCierres()).length > 0) return;
   await base().setItem(CLAVE_PRODUCTOS, JSON.stringify(s.productos));
   await base().setItem(CLAVE_CIERRES, JSON.stringify(s.cierres));
   await marcarSemillaResuelta(ahora);

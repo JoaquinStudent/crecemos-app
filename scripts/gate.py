@@ -9,7 +9,7 @@ como evidencia en sdd/spec/Sprint-NN/GATE.md
 Adaptado para Crecemos (React Native + Jest):
   - Los SPEC viven en sdd/spec/ en vez de .sprints/ (estructura declarada).
   - El acta se escribe en la carpeta existente del sprint, aunque tenga sufijo
-    (por ejemplo sdd/spec/Sprint-09-auditoria/).
+    (por ejemplo sdd/spec/Sprint-09-lenguaje-catalogo/).
   - Los tests se buscan en __tests__/ y src/, no en todo el arbol: recorrer
     node_modules y ios/Pods cuatro veces no aporta nada y tarda.
 
@@ -277,7 +277,7 @@ def check_e2e(root: Path, cmd: str, sprint: str):
 # --------------------------------------------------------------------------
 
 def sprint_dir(root: Path, specs_dir: str, sprint: str) -> Path:
-    """La carpeta existente del sprint, aunque tenga sufijo (Sprint-09-auditoria)."""
+    """La carpeta existente del sprint, aunque tenga sufijo (Sprint-09-lenguaje-catalogo)."""
     base = root / specs_dir
     existentes = sorted(base.glob(f"Sprint-{sprint}*"))
     return existentes[0] if existentes else base / f"Sprint-{sprint}"
@@ -313,7 +313,7 @@ def write_act(root: Path, specs_dir: str, sprint: str, verdict: str, rows, evide
         "",
         "## Verificacion manual",
         "",
-        "*(Fecha, quien verifico y resultado. En el Sprint-09, las verificaciones M1 a M11 del SPEC.)*",
+        "*(Fecha, quien verifico y resultado de las verificaciones manuales del SPEC activo.)*",
         "",
     ]
     if verdict == "RECHAZADO":

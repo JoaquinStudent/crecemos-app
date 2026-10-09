@@ -19,7 +19,6 @@ import worker, {
   DIAS,
   INTENCIONES,
   INTENCIONES_JUZGABLES,
-  PRODUCTOS,
   PROVEEDORES_POR_DEFECTO,
 } from '../servidor/worker.js';
 
@@ -71,7 +70,7 @@ const redactar = (...hecho: unknown[]) => ({
 });
 
 /** Lo que clasifica el modelo para "cuánto vendí ayer". */
-const AYER = { intencion: 'ventaDelDia', producto: 'ninguno', dia: 'ayer', confianza: 0.95 };
+const AYER = { intencion: 'ventaDelDia', dia: 'ayer', confianza: 0.95 };
 
 /** Una respuesta de OpenRouter (/chat/completions) cuyo mensaje es `contenido`. */
 const chat = (contenido: unknown, status = 200) =>
@@ -349,7 +348,7 @@ describe('servidor: interpretar', () => {
     await llamar(interpretar());
 
     const { questions } = cuerpoDe(0);
-    expect(Object.keys(questions).sort()).toEqual(['dia', 'intencion', 'producto']);
+    expect(Object.keys(questions).sort()).toEqual(['dia', 'intencion']);
     for (const pregunta of Object.values(questions) as Array<{
       type: string;
       instructions: string;
@@ -358,19 +357,12 @@ describe('servidor: interpretar', () => {
       expect(typeof pregunta.instructions).toBe('string');
       expect(pregunta.instructions.length).toBeGreaterThan(10);
     }
-    expect(questions.intencion.instructions).toContain('¿Qué quiso preguntar el vendedor?');
+    expect(questions.intencion.instructions).toContain('¿Qué quiso preguntar la persona');
     expect(Object.keys(questions.intencion.criteria)).toEqual(INTENCIONES_APP.map(i => i.id));
     expect(Object.keys(questions.intencion.criteria)).toHaveLength(12);
     expect(questions.intencion.criteria).toEqual(
       Object.fromEntries(INTENCIONES_APP.map(i => [i.id, i.descripcion])),
     );
-    expect(Object.keys(questions.producto.criteria)).toEqual([
-      'anticucho',
-      'pancita',
-      'rachi',
-      'chicha',
-      'ninguno',
-    ]);
     expect(Object.keys(questions.dia.criteria)).toEqual([...DIAS_CONSULTA]);
     // Toda opción trae una descripción para que el modelo pueda separarlas.
     for (const { criteria } of Object.values(questions) as Array<{
@@ -396,7 +388,6 @@ describe('servidor: interpretar', () => {
 
     expect(await jsonDe(r)).toEqual({
       intencion: 'cuantoPreparar',
-      producto: 'rachi',
       dia: 'ninguno',
       confianza: 0.81,
       modelo: MODELO_REAL_DE_JEV,
@@ -420,8 +411,8 @@ describe('servidor: interpretar', () => {
     const baja = await jsonDe(await llamar(interpretar()));
     const justa = await jsonDe(await llamar(interpretar()));
 
-    expect(baja).toMatchObject({ intencion: 'ventaDelDia', producto: 'ninguno', dia: 'ninguno' });
-    expect(justa).toMatchObject({ producto: 'pancita', dia: 'lunes' });
+    expect(baja).toMatchObject({ intencion: 'ventaDelDia', dia: 'ninguno' });
+    expect(justa).toMatchObject({ dia: 'lunes' });
   });
 
   it('sin "confidence" se usa la probabilidad de la opción elegida; sin ninguna de las dos, es una falla', async () => {
@@ -488,13 +479,7 @@ describe('servidor: interpretar', () => {
     const r = await llamar(interpretar());
 
     const salida = await jsonDe(r);
-    expect(Object.keys(salida).sort()).toEqual([
-      'confianza',
-      'dia',
-      'intencion',
-      'modelo',
-      'producto',
-    ]);
+    expect(Object.keys(salida).sort()).toEqual(['confianza', 'dia', 'intencion', 'modelo']);
     expect(JSON.stringify(salida)).not.toContain('gen-dec-1');
     expect(JSON.stringify(salida)).not.toContain('secreto');
     expect(JSON.stringify(salida)).not.toContain('usage');
@@ -519,11 +504,9 @@ describe('servidor: interpretar', () => {
       () => new Response(JSON.stringify({ model: 'x', usage: {} }), { status: 200 }),
       () => respuestaSysone({}),
       () => respuestaSysone({ ...buena, intencion: undefined }),
-      () => respuestaSysone({ ...buena, producto: undefined }),
       () => respuestaSysone({ ...buena, dia: undefined }),
       () => respuestaSysone({ ...buena, intencion: opcion('hackear', 0.99) }),
       () => respuestaSysone({ ...buena, intencion: opcion(7, 0.99) }),
-      () => respuestaSysone({ ...buena, producto: opcion('lomo', 0.99) }),
       () => respuestaSysone({ ...buena, dia: opcion('antier', 0.99) }),
       () => respuestaSysone({ ...buena, intencion: opcion('ventaDelDia', 7) }),
       () => respuestaSysone({ ...buena, intencion: opcion('ventaDelDia', -0.1) }),
@@ -569,16 +552,10 @@ describe('servidor: interpretar', () => {
     const esquema = formato.json_schema.schema;
     expect(esquema.type).toBe('object');
     expect(esquema.additionalProperties).toBe(false);
-    expect(esquema.required.sort()).toEqual(['confianza', 'dia', 'intencion', 'producto']);
+    expect(esquema.required.sort()).toEqual(['confianza', 'dia', 'intencion']);
     expect(esquema.properties.intencion.enum).toHaveLength(12);
     expect(esquema.properties.intencion.enum).toEqual(INTENCIONES_APP.map(i => i.id));
-    expect(esquema.properties.producto.enum).toEqual([
-      'anticucho',
-      'pancita',
-      'rachi',
-      'chicha',
-      'ninguno',
-    ]);
+    expect(esquema.properties).not.toHaveProperty('producto');
     expect(esquema.properties.dia.enum).toEqual([...DIAS_CONSULTA]);
     expect(esquema.properties.confianza.type).toBe('number');
   });
@@ -676,7 +653,7 @@ describe('servidor: interpretar', () => {
       chat('esto no es json'),
       chat(''),
       chat({ ...AYER, dia: 'antier' }),
-      chat({ ...AYER, producto: 'lomo' }),
+      chat({ ...AYER, producto: 'lomo', dia: undefined }),
       chat({ ...AYER, confianza: 7 }),
       chat({ ...AYER, confianza: '0.9' }),
       chat({ intencion: 'ventaDelDia' }),
@@ -1202,21 +1179,10 @@ describe('servidor: consistencia con la app', () => {
     expect(DIAS).toEqual([...DIAS_CONSULTA]);
   });
 
-  it('los productos del Worker son exactamente los que la app sabe leer', () => {
-    expect(PRODUCTOS).toEqual(['anticucho', 'pancita', 'rachi', 'chicha', 'ninguno']);
-    for (const producto of PRODUCTOS) {
-      expect(
-        interpretarRespuesta({ intencion: 'ventaDelDia', producto, dia: 'ninguno', confianza: 1 }),
-      ).not.toBeNull();
-    }
+  it('la interpretación no necesita catálogo ni identificadores de productos', () => {
     expect(
-      interpretarRespuesta({
-        intencion: 'ventaDelDia',
-        producto: 'lomo',
-        dia: 'ninguno',
-        confianza: 1,
-      }),
-    ).toBeNull();
+      interpretarRespuesta({ intencion: 'ventaDelDia', dia: 'ninguno', confianza: 1 }),
+    ).not.toBeNull();
   });
 
   it('las intenciones que se juzgan son exactamente las de la app', () => {

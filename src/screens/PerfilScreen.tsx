@@ -19,6 +19,7 @@ import { formatoFechaCorta, formatoSoles } from '@dominio/formato';
 import { avatarDe } from '@dominio/foto';
 import { validarNumeroYape } from '@dominio/validacion';
 import { requiereRevision, teDeja } from '@dominio/producto';
+import type { DatosProducto } from '@dominio/validacion';
 import type { Perfil, Producto } from '@dominio/tipos';
 import { useCrecemos } from '@context/CrecemosProvider';
 import { elegirFoto, mensajeFoto } from '@services/foto';
@@ -61,13 +62,18 @@ const YAPE_PARENTESCO: DatoEditable = {
 };
 
 export const PerfilScreen = () => {
-  const { perfil, productos, guardarPerfil, guardarFoto, quitarFoto } = useCrecemos();
+  const { perfil, productos, guardarPerfil, guardarFoto, quitarFoto, crearProducto, editarProducto, establecerProductoActivo, cargarDatosDeEjemplo, semilla } = useCrecemos();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList, 'Perfil'>>();
   const [editando, setEditando] = useState<CampoDato | null>(null);
   const [borrador, setBorrador] = useState('');
   const [errorBorrador, setErrorBorrador] = useState<string | undefined>();
   const [enHoja, setEnHoja] = useState<Producto | null>(null);
   const [hojaVisible, setHojaVisible] = useState(false);
+  const [productoEditado, setProductoEditado] = useState<Producto | null>(null);
+  const [formularioProducto, setFormularioProducto] = useState<DatosProducto | null>(null);
+  const [precioTexto, setPrecioTexto] = useState('');
+  const [costoTexto, setCostoTexto] = useState('');
+  const [erroresProducto, setErroresProducto] = useState<Record<string, string>>({});
 
   const hoy = fechaLocal(new Date());
 
@@ -158,6 +164,34 @@ export const PerfilScreen = () => {
   const abrirHoja = (producto: Producto) => {
     setEnHoja(producto);
     setHojaVisible(true);
+  };
+
+  const abrirFormularioProducto = (producto?: Producto) => {
+    setProductoEditado(producto ?? null);
+    setFormularioProducto(producto
+      ? { nombre: producto.nombre, unidad: producto.unidad, precioVenta: producto.precioVenta, costoUnitario: producto.costoUnitario }
+      : { nombre: '', unidad: 'unidad', precioVenta: 0, costoUnitario: 0 });
+    setErroresProducto({});
+    setPrecioTexto(producto ? String(producto.precioVenta) : '');
+    setCostoTexto(producto ? String(producto.costoUnitario) : '');
+  };
+
+  const guardarFormularioProducto = async () => {
+    if (!formularioProducto) return;
+    const datos = {
+      ...formularioProducto,
+      precioVenta: precioTexto.trim() ? Number(precioTexto.replace(',', '.')) : NaN,
+      costoUnitario: costoTexto.trim() ? Number(costoTexto.replace(',', '.')) : NaN,
+    };
+    const resultado = productoEditado
+      ? await editarProducto(productoEditado.id, datos)
+      : await crearProducto(datos);
+    if (!resultado.ok) {
+      setErroresProducto(resultado.errores);
+      return;
+    }
+    setFormularioProducto(null);
+    setProductoEditado(null);
   };
 
   const filaDato = ({ campo, etiqueta, ayuda }: DatoEditable, separada: boolean) => (
@@ -416,17 +450,35 @@ export const PerfilScreen = () => {
             <View>
               <Text variant="h3">Mis productos</Text>
               <Text variant="caption" color="textMuted">
-                Con esto calculamos cuánto te deja cada uno.
+                El precio de venta y el costo estimado permiten comparar tus productos.
               </Text>
             </View>
-            {productos
-              .filter(p => p.activo)
-              .map(p => (
+            <Button title="Agregar producto" variant="outline" onPress={() => abrirFormularioProducto()} testID="agregar-producto" />
+            {productos.length === 0 ? (
+              <View style={styles.tarjetaProducto}>
+                <Text>Agrega lo que vendes para registrar tu día.</Text>
+                <Button title="Cargar datos de ejemplo" variant="ghost" onPress={cargarDatosDeEjemplo} disabled={semilla === 'cargando'} testID="cargar-ejemplo-perfil" />
+              </View>
+            ) : null}
+            {formularioProducto ? (
+              <View style={styles.tarjetaProducto} testID="formulario-producto">
+                <Text variant="h3">{productoEditado ? 'Editar producto' : 'Nuevo producto'}</Text>
+                <Input label="Nombre" value={formularioProducto.nombre} onChangeText={nombre => setFormularioProducto({ ...formularioProducto, nombre })} error={erroresProducto.nombre} testID="producto-nombre" />
+                <Input label="Unidad de venta" value={formularioProducto.unidad} onChangeText={unidad => setFormularioProducto({ ...formularioProducto, unidad })} error={erroresProducto.unidad} testID="producto-unidad" />
+                <Input label="Precio de venta" value={precioTexto} onChangeText={setPrecioTexto} error={erroresProducto.precioVenta} keyboardType="decimal-pad" testID="producto-precio" />
+                <Input label="Costo estimado" value={costoTexto} onChangeText={setCostoTexto} error={erroresProducto.costoUnitario} keyboardType="decimal-pad" testID="producto-costo" />
+                <Button title="Guardar producto" onPress={guardarFormularioProducto} testID="guardar-producto" />
+                <Button title="Cancelar" variant="ghost" onPress={() => setFormularioProducto(null)} testID="cancelar-producto" />
+              </View>
+            ) : null}
+            {productos.map(p => (
                 <TarjetaProducto
                   key={p.id}
                   producto={p}
                   hoy={hoy}
                   onCambiarPrecio={() => abrirHoja(p)}
+                  onEditar={() => abrirFormularioProducto(p)}
+                  onActivo={() => establecerProductoActivo(p.id, !p.activo)}
                 />
               ))}
           </View>
@@ -446,10 +498,14 @@ const TarjetaProducto = ({
   producto,
   hoy,
   onCambiarPrecio,
+  onEditar,
+  onActivo,
 }: {
   producto: Producto;
   hoy: string;
   onCambiarPrecio: () => void;
+  onEditar: () => void;
+  onActivo: () => void;
 }) => {
   const deja = teDeja(producto);
   const revision = requiereRevision(producto, hoy);
@@ -459,13 +515,15 @@ const TarjetaProducto = ({
         <Text variant="bodyStrong">{producto.nombre}</Text>
         <Text variant="h3">{formatoSoles(producto.precioVenta)}</Text>
       </View>
+      {!producto.activo ? <Text color="textMuted">Inactivo</Text> : null}
       <Text variant="bodySmall" color="textMuted">
-        Te cuesta {formatoSoles(producto.costoUnitario)} ·{' '}
+        Costo estimado {formatoSoles(producto.costoUnitario)} ·{' '}
         <Text variant="bodySmall" color={deja.monto < 0 ? 'danger' : 'success'}>
-          Te deja {formatoSoles(deja.monto)}
+          Diferencia estimada por unidad {formatoSoles(deja.monto)}
         </Text>{' '}
         · {deja.porcentaje}%
       </Text>
+      <Text variant="caption" color="textMuted">Precio de venta menos costo estimado por unidad.</Text>
       <View style={styles.filaProducto}>
         <View style={styles.actualizado}>
           <Icon icon={Clock} size="sm" color="textMuted" />
@@ -480,6 +538,10 @@ const TarjetaProducto = ({
           accessibilityLabel={`Cambiar precio de ${producto.nombre}`}
           testID={`cambiar-precio-${producto.id}`}
         />
+      </View>
+      <View style={styles.acciones}>
+        <Button title="Editar" variant="ghost" onPress={onEditar} testID={`editar-producto-${producto.id}`} />
+        <Button title={producto.activo ? 'Desactivar' : 'Reactivar'} variant="ghost" onPress={onActivo} testID={`activo-producto-${producto.id}`} />
       </View>
       {revision.revisar ? (
         <View style={styles.aviso} testID={`aviso-precio-${producto.id}`}>

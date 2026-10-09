@@ -31,8 +31,9 @@ const perfil: Perfil = {
 };
 
 describe('Repositorio: perfil y productos', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     clearAllMockStorages();
+    for (const producto of PRODUCTOS_POR_DEFECTO) await guardarProducto(producto);
   });
 
   it('guardar un producto con el almacenamiento vacio conserva los otros tres', async () => {
@@ -216,12 +217,12 @@ describe('Repositorio: semilla de ejemplo', () => {
     expect(await semillaCargada()).toBe(true);
   });
 
-  it('importar reemplaza la lista completa de cierres, no la mezcla', async () => {
+  it('importar no reemplaza cierres existentes', async () => {
     await guardarCierre(cierreDe('2026-09-01'));
 
     await importarSemilla(semilla(), AHORA);
 
-    expect((await listarCierres()).map(c => c.fecha).sort()).toEqual(['2026-10-05', '2026-10-06']);
+    expect((await listarCierres()).map(c => c.fecha)).toEqual(['2026-09-01']);
   });
 
   it('marcar la semilla como resuelta escribe solo esa clave', async () => {

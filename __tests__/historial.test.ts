@@ -24,7 +24,13 @@ const linea = (nombre: string, vendidas: number, precioUnitario: number): LineaC
 
 const cierreDe = (
   fecha: string,
-  extra: { lineas?: LineaCierre[]; gastos?: Gasto[]; montoYape?: number; yapePendiente?: boolean; cobradoEn?: string } = {},
+  extra: {
+    lineas?: LineaCierre[];
+    gastos?: Gasto[];
+    montoYape?: number;
+    yapePendiente?: boolean;
+    cobradoEn?: string;
+  } = {},
 ): Cierre => ({
   id: `c-${fecha}`,
   fecha,
@@ -88,7 +94,13 @@ describe('armarHistorial', () => {
     const grupo = armarHistorial([diaConYape], 'todo')[0];
 
     expect(grupo.movimientos).toEqual([
-      { tipo: 'venta', etiqueta: 'Venta del día', metodo: 'Efectivo', monto: 154, porCobrar: false },
+      {
+        tipo: 'venta',
+        etiqueta: 'Venta del día',
+        metodo: 'Efectivo',
+        monto: 154,
+        porCobrar: false,
+      },
       { tipo: 'venta', etiqueta: 'Venta del día', metodo: 'Yape', monto: 46, porCobrar: true },
       { tipo: 'gasto', etiqueta: 'Mercadería', metodo: null, monto: -60, porCobrar: false },
       { tipo: 'gasto', etiqueta: 'Movilidad', metodo: null, monto: -14, porCobrar: false },
@@ -113,10 +125,7 @@ describe('armarHistorial', () => {
 
   it('usa la etiqueta de cada categoria de gasto', () => {
     const grupo = armarHistorial([diaSoloGastos], 'todo')[0];
-    expect(grupo.movimientos.map(m => m.etiqueta)).toEqual([
-      ETIQUETA_GASTO.carbon,
-      'Otros gastos',
-    ]);
+    expect(grupo.movimientos.map(m => m.etiqueta)).toEqual([ETIQUETA_GASTO.carbon, 'Otros gastos']);
     expect(Object.values(ETIQUETA_GASTO)).toEqual([
       'Mercadería',
       'Carbón',
@@ -424,7 +433,7 @@ describe('mensajeBorrar', () => {
     });
     expect(calcularCierre(dia).teQueda).toBe(0);
     expect(mensajeBorrar(dia)).toBe(
-      '¿Borrar el cierre del lunes 5 de octubre? Lo que te queda del ciclo no cambia.',
+      '¿Borrar el cierre del lunes 5 de octubre? El resultado registrado del ciclo no cambia.',
     );
   });
 
@@ -437,7 +446,7 @@ describe('mensajeBorrar', () => {
       ],
       lineas: [{ ...linea('Chicha', 1, 0.3), costoUnitario: 0 }],
     });
-    expect(mensajeBorrar(dia)).toContain('Lo que te queda del ciclo no cambia.');
+    expect(mensajeBorrar(dia)).toContain('El resultado registrado del ciclo no cambia.');
   });
 });
 
@@ -470,14 +479,24 @@ describe('mercaderiaDelCiclo', () => {
     });
 
     expect(mercaderiaDelCiclo(cicloDe([dia1, dia2]))).toEqual([
-      { productoId: 'p-anticucho', nombre: 'Anticucho', preparadas: 40, vendidas: 38, sobranteSoles: 16.4 },
+      {
+        productoId: 'p-anticucho',
+        nombre: 'Anticucho',
+        preparadas: 40,
+        vendidas: 38,
+        sobranteSoles: 16.4,
+      },
       { productoId: 'p-rachi', nombre: 'Rachi', preparadas: 26, vendidas: 20, sobranteSoles: 45.6 },
     ]);
   });
 
   it('el orden es por nombre de producto, no por el orden en que aparecen', () => {
     const dia = cierreDe('2026-10-05', {
-      lineas: [lineaCon('Rachi', 5, 0, 7.6), lineaCon('Chicha', 5, 0, 1.6), lineaCon('Anticucho', 5, 0, 8.2)],
+      lineas: [
+        lineaCon('Rachi', 5, 0, 7.6),
+        lineaCon('Chicha', 5, 0, 1.6),
+        lineaCon('Anticucho', 5, 0, 8.2),
+      ],
     });
 
     expect(mercaderiaDelCiclo(cicloDe([dia])).map(m => m.nombre)).toEqual([
@@ -488,7 +507,11 @@ describe('mercaderiaDelCiclo', () => {
   });
 
   it('un ciclo sin lineas no tiene mercaderia', () => {
-    expect(mercaderiaDelCiclo(cicloDe([cierreDe('2026-10-05', { gastos: [{ categoria: 'gas', monto: 5 }] })]))).toEqual([]);
+    expect(
+      mercaderiaDelCiclo(
+        cicloDe([cierreDe('2026-10-05', { gastos: [{ categoria: 'gas', monto: 5 }] })]),
+      ),
+    ).toEqual([]);
   });
 
   it('no deja un producto vendido sin sobrantes con sobrante en soles', () => {

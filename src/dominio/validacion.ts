@@ -99,6 +99,36 @@ export const validarProducto = (datos: {
   return { ok: false, errores };
 };
 
+export interface DatosProducto {
+  nombre: string;
+  unidad: Producto['unidad'];
+  precioVenta: number;
+  costoUnitario: number;
+}
+
+/** Valida el catálogo completo antes de escribir; compara nombres sin tildes ni mayúsculas. */
+export const validarDatosProducto = (
+  datos: DatosProducto,
+  productos: Producto[],
+  idActual?: string,
+): ResultadoValidacion => {
+  const errores: Record<string, string> = {};
+  const nombre = datos.nombre.trim();
+  const clave = (texto: string) => texto.trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('es-PE');
+  if (!nombre) errores.nombre = 'Escribe el nombre del producto';
+  else if (productos.some(p => p.id !== idActual && clave(p.nombre) === clave(nombre))) {
+    errores.nombre = 'Ya tienes un producto con ese nombre';
+  }
+  if (!datos.unidad.trim()) errores.unidad = 'Escribe la unidad de venta';
+  if (!Number.isFinite(datos.precioVenta)) errores.precioVenta = 'Escribe un precio válido';
+  if (!Number.isFinite(datos.costoUnitario)) errores.costoUnitario = 'Escribe un costo válido';
+  const montos = validarProducto(datos);
+  if (!montos.ok) {
+    for (const [campo, mensaje] of Object.entries(montos.errores)) errores[campo] ??= mensaje;
+  }
+  return Object.keys(errores).length ? { ok: false, errores } : { ok: true };
+};
+
 /** Vacío vale (borrar el número); si hay algo, tienen que ser 9 dígitos. Devuelve el mensaje o null. */
 export const validarNumeroYape = (numero: string): string | null =>
   numero === '' || /^\d{9}$/.test(numero) ? null : MENSAJES.numeroYape;

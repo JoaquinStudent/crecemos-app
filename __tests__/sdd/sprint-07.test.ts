@@ -23,7 +23,7 @@ import { materializarSemilla, validarSemilla } from '@dominio/semilla';
 import type { Cierre, FechaNegocio, Perfil, Senales } from '@dominio/tipos';
 import { htmlReporte, NOMBRE_ARCHIVO_PDF } from '@analisis/htmlReporte';
 import { senalesBanco } from '@analisis/senales';
-import { guardarCierre, guardarPerfil, obtenerPerfil } from '@storage/repositorio';
+import { guardarCierre, guardarPerfil, importarSemilla, obtenerPerfil } from '@storage/repositorio';
 
 // "Hoy" es explícito: el reloj no decide ningún resultado.
 const HOY: FechaNegocio = '2026-10-07';
@@ -437,6 +437,7 @@ describe('SPEC-07: Foto de perfil y reporte en PDF', () => {
       ) as unknown as typeof fetch;
       try {
         // Una foto de perfil ya guardada, como la deja "Mi perfil".
+        await importarSemilla(materializarSemilla(validada.semilla, new Date()), new Date().toISOString());
         const foto = armarFotoUri(base64DeBytes(2 * 1024), 'image/jpg');
         expect(validarFoto(foto)).toEqual({ ok: true });
         await guardarPerfil(perfilDe({ fotoUri: foto }));

@@ -22,7 +22,7 @@ export interface Perfil {
 export interface Producto {
   id: string;
   nombre: string;
-  unidad: 'porcion' | 'vaso';
+  unidad: string;
   precioVenta: number;
   costoUnitario: number;
   actualizadoEn: FechaNegocio;

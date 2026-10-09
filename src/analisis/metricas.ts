@@ -1,7 +1,13 @@
 // src/analisis/metricas.ts
 // Cálculos puros sobre los cierres. Sin React, sin reloj (AGENTS.md, regla 3).
 import { formatoSoles, redondearSoles } from '@dominio/formato';
-import type { Cierre, FechaNegocio, GananciaProducto, ResumenCiclo } from '@dominio/tipos';
+import type {
+  Cierre,
+  FechaNegocio,
+  GananciaProducto,
+  Producto,
+  ResumenCiclo,
+} from '@dominio/tipos';
 
 const vendidas = (preparadas: number, sobrantes: number): number => preparadas - sobrantes;
 
@@ -20,7 +26,12 @@ export const gananciaDelDia = (c: Cierre): number =>
  * total. Usa el precio y costo copiados en cada línea, nunca el de hoy (D2). Ordenado por ganancia
  * descendente; el empate, por nombre. El nombre es el de la línea más reciente. No muta la entrada.
  */
-export const gananciaPorProducto = (cierres: Cierre[], desde: FechaNegocio): GananciaProducto[] => {
+export const gananciaPorProducto = (
+  cierres: Cierre[],
+  desde: FechaNegocio,
+  productos: Producto[] = [],
+): GananciaProducto[] => {
+  const nombres = new Map(productos.map(p => [p.id, p.nombre]));
   const ordenados = cierres
     .filter(c => c.fecha >= desde)
     .sort((a, b) => a.fecha.localeCompare(b.fecha));
@@ -31,7 +42,7 @@ export const gananciaPorProducto = (cierres: Cierre[], desde: FechaNegocio): Gan
       const previo = porProducto.get(l.productoId);
       porProducto.set(l.productoId, {
         productoId: l.productoId,
-        nombre: l.nombre,
+        nombre: nombres.get(l.productoId) ?? l.nombre,
         seVende: (previo?.seVende ?? 0) + n,
         teDeja: 0,
         ganancia: (previo?.ganancia ?? 0) + n * (l.precioUnitario - l.costoUnitario),
@@ -84,9 +95,11 @@ export const insight = (g: GananciaProducto[]): string | null => {
   const vendido = masVendido.nombre.toLowerCase();
   const deja = masDeja.nombre.toLowerCase();
   const inicio = `${articulo(vendido)} ${vendido}`;
-  return `${inicio.charAt(0).toUpperCase()}${inicio.slice(1)} se vende más, pero ${articulo(
-    deja,
-  )} ${deja} te deja ${formatoSoles(diferencia)} más por porción.`;
+  return `${inicio.charAt(0).toUpperCase()}${inicio.slice(
+    1,
+  )} se vende más. La diferencia estimada por unidad ${
+    articulo(deja) === 'el' ? 'del' : 'de la'
+  } ${deja} es ${formatoSoles(diferencia)} mayor (precio menos costo estimado).`;
 };
 
 /**
@@ -95,8 +108,8 @@ export const insight = (g: GananciaProducto[]): string | null => {
  */
 export const compararCiclos = (actual: ResumenCiclo, anterior: ResumenCiclo): string => {
   const diferencia = redondearSoles(actual.teQueda - anterior.teQueda);
-  if (diferencia === 0) return 'Ganaste lo mismo que el ciclo pasado';
-  return `Ganaste ${formatoSoles(Math.abs(diferencia))} ${
+  if (diferencia === 0) return 'Resultado registrado igual al ciclo pasado';
+  return `Resultado registrado ${formatoSoles(Math.abs(diferencia))} ${
     diferencia > 0 ? 'más' : 'menos'
   } que el ciclo pasado`;
 };

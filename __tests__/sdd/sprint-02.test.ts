@@ -18,7 +18,7 @@ import { cambiarPrecio, requiereRevision } from '@dominio/producto';
 import { PRODUCTOS_POR_DEFECTO } from '@dominio/productosPorDefecto';
 import type { Producto } from '@dominio/tipos';
 import { validarProducto } from '@dominio/validacion';
-import { guardarCierre, listarCierres, listarProductos } from '@storage/repositorio';
+import { guardarCierre, guardarProducto, listarCierres, listarProductos } from '@storage/repositorio';
 
 const producto = (id: string): Producto => {
   const p = PRODUCTOS_POR_DEFECTO.find(x => x.id === id);
@@ -177,6 +177,7 @@ describe('SPEC-02: Perfil y productos con precio vigente', () => {
     // Given: un perfil con la opción "El Yape no está a mi nombre" activada
     // When: se registra un cierre con S/ 50.00 por Yape
     // Then: el cierre queda guardado con el Yape marcado como por cobrar
+    await guardarProducto(producto('p-anticucho'));
     const contexto = await montarProvider();
     const cierreDelDia = (fecha: string) => ({
       fecha,

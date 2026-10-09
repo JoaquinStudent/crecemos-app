@@ -243,6 +243,7 @@ describe('Cerrar mi día: interruptor y categorías', () => {
   });
 
   it('encendido, el cierre guardado abre ciclo; apagado, no', async () => {
+    await guardarProducto(PRODUCTOS_POR_DEFECTO[0]);
     const { tocar, escribir, cambiarInterruptor, interruptor } = await montarApp();
     await tocar('tab-cerrar-dia');
     await cambiarInterruptor('hoy-compre-mercaderia', true);
@@ -260,6 +261,7 @@ describe('Cerrar mi día: interruptor y categorías', () => {
   });
 
   it('un cierre sin tocar el interruptor no abre ciclo', async () => {
+    await guardarProducto(PRODUCTOS_POR_DEFECTO[0]);
     const { tocar, escribir } = await montarApp();
     await tocar('tab-cerrar-dia');
     await escribir('preparadas-p-anticucho', '10');
@@ -405,7 +407,7 @@ describe('Historial', () => {
 
     expect(textoDe('hoja-dia-fecha')).toBe('Martes 6 de octubre');
     expect(textoDe('hoja-dia-te-queda')).toBe('S/ 168.00');
-    expect(textos()).toContain('Te queda');
+    expect(textos()).toContain('Resultado registrado');
     expect(textos()).toContain('Editar este día');
     expect(textos()).toContain('Borrar este día');
     expect(textos()).toContain('Cancelar');
@@ -729,7 +731,7 @@ describe('Resumen', () => {
 
     expect(textos()).toContain('Ciclo actual');
     expect(textoDe('resumen-rango')).toBe('5 de octubre — 6 de octubre');
-    expect(textos()).toContain('Te queda');
+    expect(textos()).toContain('Resultado registrado');
     expect(textoDe('resumen-te-queda')).toBe('S/ 235.00');
     expect(colorDe('resumen-te-queda')).toBe(colors.success);
     // La venta del 5 (S/ 279.00) ya cubre el capital de S/ 244.00.
@@ -742,7 +744,7 @@ describe('Resumen', () => {
     await tocar('tab-resumen');
 
     expect(textoDe('resumen-capital')).toBe('Capital S/ 244.00');
-    expect(textoDe('resumen-ganancia')).toBe('Ganancia S/ 235.00');
+    expect(textoDe('resumen-ganancia')).toBe('Resultado positivo S/ 235.00');
     // 244 de 479 = 51 %; el resto, ganancia.
     expect(estiloDe('resumen-barra-capital').width).toBe('51%');
     expect(estiloDe('resumen-barra-ganancia').width).toBe('49%');
@@ -816,7 +818,7 @@ describe('Resumen', () => {
     expect(colorDe('resumen-te-queda')).toBe(colors.danger);
     expect(textoDe('resumen-capital-texto')).toBe('Te falta S/ 50.00 para recuperar tu capital');
     // Sin ganancia: toda la barra es capital.
-    expect(textoDe('resumen-ganancia')).toBe('Ganancia S/ 0.00');
+    expect(textoDe('resumen-ganancia')).toBe('Resultado positivo S/ 0.00');
     expect(estiloDe('resumen-barra-capital').width).toBe('100%');
     expect(estiloDe('resumen-barra-ganancia').width).toBe('0%');
   });
@@ -912,8 +914,12 @@ describe('Resumen: comparación con el ciclo anterior', () => {
     await tocar('tab-resumen');
 
     expect(textoDe('resumen-te-queda')).toBe('S/ 262.00');
-    expect(textoDe('resumen-comparacion')).toBe('Ganaste S/ 48.00 más que el ciclo pasado');
-    expect(textoDe('resumen-comparacion-anterior')).toBe('Ciclo anterior: S/ 214.00');
+    expect(textoDe('resumen-comparacion')).toBe(
+      'Resultado registrado S/ 48.00 más que el ciclo pasado',
+    );
+    expect(textoDe('resumen-comparacion-anterior')).toBe(
+      'Resultado registrado anterior: S/ 214.00',
+    );
   });
 
   it('ganó menos: lo dice con palabras, el monto sigue ahí y el texto va en letra oscura', async () => {
@@ -922,8 +928,12 @@ describe('Resumen: comparación con el ciclo anterior', () => {
     const { tocar, textoDe, colorDe, colorDelIcono } = await montarApp();
     await tocar('tab-resumen');
 
-    expect(textoDe('resumen-comparacion')).toBe('Ganaste S/ 114.00 menos que el ciclo pasado');
-    expect(textoDe('resumen-comparacion-anterior')).toBe('Ciclo anterior: S/ 214.00');
+    expect(textoDe('resumen-comparacion')).toBe(
+      'Resultado registrado S/ 114.00 menos que el ciclo pasado',
+    );
+    expect(textoDe('resumen-comparacion-anterior')).toBe(
+      'Resultado registrado anterior: S/ 214.00',
+    );
     expect(colorDe('resumen-comparacion')).toBe(colors.text);
     // El color acompaña, no es la única señal: el ícono baja a rojo.
     expect(colorDelIcono('resumen-comparacion-icono')).toBe(colors.danger);
@@ -946,8 +956,10 @@ describe('Resumen: comparación con el ciclo anterior', () => {
     const { tocar, textoDe, colorDelIcono } = await montarApp();
     await tocar('tab-resumen');
 
-    expect(textoDe('resumen-comparacion')).toBe('Ganaste lo mismo que el ciclo pasado');
-    expect(textoDe('resumen-comparacion-anterior')).toBe('Ciclo anterior: S/ 214.00');
+    expect(textoDe('resumen-comparacion')).toBe('Resultado registrado igual al ciclo pasado');
+    expect(textoDe('resumen-comparacion-anterior')).toBe(
+      'Resultado registrado anterior: S/ 214.00',
+    );
     expect(colorDelIcono('resumen-comparacion-icono')).toBe(colors.success);
   });
 
@@ -961,8 +973,12 @@ describe('Resumen: comparación con el ciclo anterior', () => {
     const { tocar, textoDe } = await montarApp();
     await tocar('tab-resumen');
 
-    expect(textoDe('resumen-comparacion-anterior')).toBe('Ciclo anterior: -S/ 20.00');
-    expect(textoDe('resumen-comparacion')).toBe('Ganaste S/ 282.00 más que el ciclo pasado');
+    expect(textoDe('resumen-comparacion-anterior')).toBe(
+      'Resultado registrado anterior: -S/ 20.00',
+    );
+    expect(textoDe('resumen-comparacion')).toBe(
+      'Resultado registrado S/ 282.00 más que el ciclo pasado',
+    );
   });
 
   it('con tres ciclos compara el último con el penúltimo, no con el primero', async () => {
@@ -975,8 +991,12 @@ describe('Resumen: comparación con el ciclo anterior', () => {
     const { tocar, textoDe } = await montarApp();
     await tocar('tab-resumen');
 
-    expect(textoDe('resumen-comparacion')).toBe('Ganaste S/ 48.00 más que el ciclo pasado');
-    expect(textoDe('resumen-comparacion-anterior')).toBe('Ciclo anterior: S/ 214.00');
+    expect(textoDe('resumen-comparacion')).toBe(
+      'Resultado registrado S/ 48.00 más que el ciclo pasado',
+    );
+    expect(textoDe('resumen-comparacion-anterior')).toBe(
+      'Resultado registrado anterior: S/ 214.00',
+    );
   });
 
   it('con un solo ciclo no hay comparación', async () => {
@@ -1026,7 +1046,7 @@ describe('Resumen: comparación con el ciclo anterior', () => {
     await tocar('tab-resumen');
 
     expect(textoDe('resumen-capital')).toBe('Capital S/ 138.00');
-    expect(textoDe('resumen-ganancia')).toBe('Ganancia S/ 262.00');
+    expect(textoDe('resumen-ganancia')).toBe('Resultado positivo S/ 262.00');
     expect(existe('resumen-que-me-deja')).toBe(true);
   });
 });

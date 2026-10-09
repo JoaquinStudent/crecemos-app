@@ -10,15 +10,16 @@ import React, {
   useReducer,
   useRef,
 } from 'react';
-import { editarCierre, nuevoCierre } from '@dominio/cierre';
+import { crearId, editarCierre, nuevoCierre } from '@dominio/cierre';
 import { marcarCobrados } from '@dominio/cobro';
 import { fechaLocal } from '@dominio/fecha';
+import { redondearSoles } from '@dominio/formato';
 import { quitarFoto as quitarFotoDelPerfil, validarFoto } from '@dominio/foto';
 import { normalizarPerfil, PERFIL_POR_DEFECTO } from '@dominio/perfil';
 import { cambiarPrecio } from '@dominio/producto';
 import { materializarSemilla } from '@dominio/semilla';
 import type { Cierre, DatosCierre, Perfil, Producto } from '@dominio/tipos';
-import { ResultadoValidacion, validarCierre, validarProducto } from '@dominio/validacion';
+import { DatosProducto, ResultadoValidacion, validarCierre, validarDatosProducto, validarProducto } from '@dominio/validacion';
 import { SEED_URL } from '../config';
 import { cargarSemilla } from '@services/seed';
 import {
@@ -91,7 +92,9 @@ const reducer = (estado: Estado, accion: Accion): Estado => {
       // Reemplaza por id sin mover el producto de lugar.
       return {
         ...estado,
-        productos: estado.productos.map(p => (p.id === accion.producto.id ? accion.producto : p)),
+        productos: estado.productos.some(p => p.id === accion.producto.id)
+          ? estado.productos.map(p => (p.id === accion.producto.id ? accion.producto : p))
+          : [...estado.productos, accion.producto],
       };
     case 'cierreGuardado':
       // Un cierre por fecha (D9): el nuevo reemplaza al de su misma fecha.
@@ -118,6 +121,9 @@ interface ContextoCrecemos extends Estado {
     precio: number,
     costo: number,
   ) => Promise<ResultadoValidacion>;
+  crearProducto: (datos: DatosProducto) => Promise<ResultadoValidacion>;
+  editarProducto: (id: string, datos: DatosProducto) => Promise<ResultadoValidacion>;
+  establecerProductoActivo: (id: string, activo: boolean) => Promise<void>;
   /** Pide la semilla de ejemplo. Si ya hay días guardados no hace nada (nunca los pisa). */
   cargarDatosDeEjemplo: () => Promise<void>;
   /** Marca como cobrado, con la fecha de hoy, todo el Yape que estaba por cobrar. */
@@ -146,6 +152,7 @@ export const CrecemosProvider = ({ children }: { children: React.ReactNode }) =>
       if (montado.current) dispatch(accion);
     };
     try {
+      if ((await listarCierres()).length > 0 || (await listarProductos()).length > 0) return;
       avisar({ tipo: 'semilla', estado: 'cargando' });
       const resultado = await cargarSemilla(globalThis.fetch, SEED_URL);
       if (!resultado.ok) {
@@ -156,7 +163,7 @@ export const CrecemosProvider = ({ children }: { children: React.ReactNode }) =>
         return;
       }
       const ahora = new Date();
-      if ((await listarCierres()).length > 0) {
+      if ((await listarCierres()).length > 0 || (await listarProductos()).length > 0) {
         await marcarSemillaResuelta(ahora.toISOString());
         avisar({ tipo: 'semilla', estado: 'ninguna' });
         return;
@@ -175,22 +182,15 @@ export const CrecemosProvider = ({ children }: { children: React.ReactNode }) =>
   useEffect(() => {
     montado.current = true;
     (async () => {
-      const [cierres, productos, perfil, cargada] = await Promise.all([
+      const [cierres, productos, perfil] = await Promise.all([
         listarCierres(),
         listarProductos(),
         obtenerPerfil(),
-        semillaCargada(),
       ]);
       if (!montado.current) return;
       // La app queda lista ya: la semilla, si hace falta, llega después y en segundo plano.
       dispatch({ tipo: 'cargado', cierres, productos, perfil: perfil ?? PERFIL_POR_DEFECTO });
-      if (cargada) return;
-      if (cierres.length > 0) {
-        // Usuario real: si algún día borra todo, no deben reaparecer datos de ejemplo.
-        await marcarSemillaResuelta(new Date().toISOString());
-        return;
-      }
-      await descargarSemilla();
+      // La demostración es voluntaria: solo se descarga cuando se toca el botón.
     })();
     return () => {
       montado.current = false;
@@ -266,9 +266,54 @@ export const CrecemosProvider = ({ children }: { children: React.ReactNode }) =>
     [estado.productos],
   );
 
+  const crearProducto = useCallback(async (datos: DatosProducto): Promise<ResultadoValidacion> => {
+    const resultado = validarDatosProducto(datos, estado.productos);
+    if (!resultado.ok) return resultado;
+    const producto: Producto = {
+      ...datos,
+      nombre: datos.nombre.trim(),
+      unidad: datos.unidad.trim(),
+      precioVenta: redondearSoles(datos.precioVenta),
+      costoUnitario: redondearSoles(datos.costoUnitario),
+      id: `p-${crearId()}`,
+      activo: true,
+      actualizadoEn: fechaLocal(new Date()),
+    };
+    await guardarProducto(producto);
+    dispatch({ tipo: 'productoGuardado', producto });
+    return resultado;
+  }, [estado.productos]);
+
+  const editarProducto = useCallback(async (id: string, datos: DatosProducto): Promise<ResultadoValidacion> => {
+    const actual = estado.productos.find(p => p.id === id);
+    if (!actual) throw new Error(`Producto desconocido: ${id}`);
+    const resultado = validarDatosProducto(datos, estado.productos, id);
+    if (!resultado.ok) return resultado;
+    const producto: Producto = {
+      ...actual,
+      ...datos,
+      nombre: datos.nombre.trim(),
+      unidad: datos.unidad.trim(),
+      precioVenta: redondearSoles(datos.precioVenta),
+      costoUnitario: redondearSoles(datos.costoUnitario),
+      actualizadoEn: fechaLocal(new Date()),
+    };
+    await guardarProducto(producto);
+    dispatch({ tipo: 'productoGuardado', producto });
+    return resultado;
+  }, [estado.productos]);
+
+  const establecerProductoActivo = useCallback(async (id: string, activo: boolean): Promise<void> => {
+    const actual = estado.productos.find(p => p.id === id);
+    if (!actual) throw new Error(`Producto desconocido: ${id}`);
+    const producto = { ...actual, activo };
+    await guardarProducto(producto);
+    dispatch({ tipo: 'productoGuardado', producto });
+  }, [estado.productos]);
+
   const cargarDatosDeEjemplo = useCallback(async (): Promise<void> => {
     // Se mira lo guardado, no el estado: es lo que de verdad se perdería.
-    if ((await listarCierres()).length > 0) return;
+    if ((await listarCierres()).length > 0 || (await listarProductos()).length > 0 || await semillaCargada()) return;
     await descargarSemilla();
   }, [descargarSemilla]);
 
@@ -289,6 +334,9 @@ export const CrecemosProvider = ({ children }: { children: React.ReactNode }) =>
       guardarFoto,
       quitarFoto,
       cambiarPrecioProducto,
+      crearProducto,
+      editarProducto,
+      establecerProductoActivo,
       cargarDatosDeEjemplo,
       marcarCobrado,
     }),
@@ -300,6 +348,9 @@ export const CrecemosProvider = ({ children }: { children: React.ReactNode }) =>
       guardarFoto,
       quitarFoto,
       cambiarPrecioProducto,
+      crearProducto,
+      editarProducto,
+      establecerProductoActivo,
       cargarDatosDeEjemplo,
       marcarCobrado,
     ],

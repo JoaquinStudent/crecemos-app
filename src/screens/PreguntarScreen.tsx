@@ -39,13 +39,13 @@ import type { RootStackParamList } from '@navigation/RootStack';
 import { JEV_URL } from '../config';
 
 const TEXTO_PRIVACIDAD =
-  'Tu pregunta y unos totales se envían a un servicio de inteligencia artificial para entenderla y escribirte la respuesta. Nunca va tu nombre, tu Yape ni tus movimientos.';
+  'Tu pregunta se envía a un servicio de inteligencia artificial para entenderla. Algunas respuestas se envían ya calculadas para valorar cómo va el negocio. Nunca va tu nombre, tu Yape ni tus movimientos.';
 const TEXTO_AVISO_CORTO = 'Tu pregunta se envía a una IA';
 const TEXTO_INVITACION =
   'Pregúntame lo que quieras de tus ventas. Toca una pregunta o escribe la tuya:';
 /** Cuando no se entendió la pregunta: dice con qué sí puede ayudar y ofrece las sugeridas. */
 const TEXTO_NO_ENTENDI =
-  'No te entendí bien. Puedo ayudarte con tus ventas, lo que te deben y qué producto te deja más. Prueba con una de estas:';
+  'No entendí la pregunta. Puedo ayudarte con tus ventas, cobros pendientes y productos. Prueba con una de estas:';
 /** Alto máximo del panel de sugeridas: si no cabe, se desplaza por dentro y siempre se puede cerrar. */
 const ALTO_MAXIMO_PANEL = 200;
 

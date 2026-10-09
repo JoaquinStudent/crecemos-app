@@ -283,7 +283,7 @@ const Hoja = ({ senales, perfil }: { senales: Senales; perfil: Perfil }) => {
         testID="reporte-venta-promedio"
       />
       <FilaDato
-        etiqueta="Ganancia promedio mensual"
+        etiqueta="Resultado registrado promedio mensual"
         valor={hayMeses ? formatoSoles(senales.gananciaPromedioMensual) : TEXTO_SIN_MES}
         testID="reporte-ganancia-promedio"
       />

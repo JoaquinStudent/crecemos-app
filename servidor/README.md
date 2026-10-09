@@ -3,28 +3,29 @@
 Un Cloudflare Worker. **La app nunca habla con OpenRouter**: habla con este Worker, que guarda la
 clave como secreto y reenvía solo lo necesario.
 
-| La app manda                                                           | El Worker hace                                                                                                                              | Responde                                          |
-| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
-| `{ "tipo": "interpretar", "texto": "¿cuánto vendí ayer?" }`            | Pide a **Jev** (API tipada) que elija una de las 12 preguntas conocidas. Si Jev falla o responde algo inválido, lo hace **DeepSeek**        | `{ intencion, producto, dia, confianza, modelo }` |
-| `{ "tipo": "redactar", "hecho": { intencion, frase, cifras } }`        | Pide a **DeepSeek** que diga la frase con otras palabras                                                                                    | `{ texto }`                                       |
-| `{ "tipo": "juzgar", "hecho": { intencion, frase, cifras, senales } }` | Pide **solo a Jev** que juzgue la respuesta ya calculada: `bien`, `ojo` o `urgente`. Sin respaldo: si Jev falla o duda, responde sin juicio | `{ semaforo, confianza, modelo }`                 |
+| La app manda                                                           | El Worker hace                                                                                                                              | Responde                                |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| `{ "tipo": "interpretar", "texto": "¿cuánto vendí ayer?" }`            | Pide a **Jev** (API tipada) que elija una de las 12 preguntas conocidas. Si Jev falla o responde algo inválido, lo hace **DeepSeek**        | `{ intencion, dia, confianza, modelo }` |
+| `{ "tipo": "redactar", "hecho": { intencion, frase, cifras } }`        | Ruta heredada para clientes antiguos; la app actual muestra frases fijas revisadas y no la llama                                            | `{ texto }`                             |
+| `{ "tipo": "juzgar", "hecho": { intencion, frase, cifras, senales } }` | Pide **solo a Jev** que juzgue la respuesta ya calculada: `bien`, `ojo` o `urgente`. Sin respaldo: si Jev falla o duda, responde sin juicio | `{ semaforo, confianza, modelo }`       |
 
 Todo pasa por OpenRouter, con **la misma clave** (`OPENROUTER_API_KEY`) para las dos APIs:
 
 - **Jev** clasifica por la API tipada, `https://openrouter.ai/api/v1/systemone`: se le manda el texto
-  de la pregunta y tres preguntas de opción (la intención, el producto y el día) y devuelve la opción
+  de la pregunta y dos preguntas de opción (la intención y el día) y devuelve la opción
   elegida con su confianza. Jev no genera texto, solo decide.
 - Jev también **juzga** (el semáforo): la pregunta es una opción entre `bien`, `ojo` y `urgente`. No
   califica números: lee la frase ya calculada y unas **señales con nombre** que arma el código de la
   app (por ejemplo `tendencia: baja`, `magnitud: grande`). Solo se juzgan las respuestas que
   aceptan juicio (comparar ciclos, cobros, retiro para la casa, cuánto preparar, revisar un precio y el
   peor día).
-- **DeepSeek** (respaldo para clasificar y único que redacta) va por el chat,
+- **DeepSeek** (respaldo para clasificar y redacción heredada) va por el chat,
   `https://openrouter.ai/api/v1/chat/completions`, con salidas estructuradas (JSON con valores
   permitidos).
 
-Las cifras las calcula siempre el código de la app; la app descarta cualquier redacción que cambie
-una sola cifra.
+Las cifras y frases visibles las calcula el teléfono. Los productos configurados se identifican por su
+nombre en el teléfono y el catálogo no se envía al Worker. Hasta actualizar el Worker desplegado,
+la app también puede leer respuestas de clasificación antiguas con el campo `producto`.
 
 Archivos: `worker.js` (el código), `wrangler.toml` (la configuración, **sin la clave**) y este
 `README.md`.
@@ -87,7 +88,6 @@ Debe responder algo como (los números y la versión de `modelo` cambian):
 ```json
 {
   "intencion": "ventaDelDia",
-  "producto": "ninguno",
   "dia": "ayer",
   "confianza": 0.95,
   "modelo": "typesafe/jev-1.13-20260917"

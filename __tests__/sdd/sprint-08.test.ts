@@ -45,7 +45,7 @@ import { extraerCifras, validarRedaccion } from '@analisis/validarRedaccion';
 import { consultar, redactarRespuesta } from '@services/jev';
 import { PERFIL_POR_DEFECTO } from '@dominio/perfil';
 import { PRODUCTOS_POR_DEFECTO } from '@dominio/productosPorDefecto';
-import { guardarCierre, guardarPerfil } from '@storage/repositorio';
+import { guardarCierre, guardarPerfil, importarSemilla } from '@storage/repositorio';
 
 // Mediodía del 2026-10-07 en Lima: solo alimenta el instante de creación; "hoy" y la fecha de cada cierre son explícitas.
 const ahora = new Date('2026-10-07T12:00:00-05:00');
@@ -202,7 +202,7 @@ const ctxCompararCiclo = (): ContextoAnalisis =>
       gastos: [{ categoria: 'mercaderia', monto: 109 }],
     }),
   ]);
-const FRASE_CICLO = 'Ganaste S/ 78.00 menos que el ciclo pasado.';
+const FRASE_CICLO = 'Resultado registrado S/ 78.00 menos que el ciclo pasado.';
 const REDACCION_CICLO = 'Este ciclo te quedaron S/ 78.00 menos que en el pasado.';
 
 interface ServidorSimulado {
@@ -337,6 +337,7 @@ interface CuerpoChat {
 }
 interface RedDeLaApp {
   fetch: jest.Mock;
+  semilla: string | null;
   /** Los tipos de petición que llegaron al servidor del chat, en orden. */
   tiposDelChat: () => string[];
 }
@@ -362,6 +363,7 @@ const redDeLaApp = (
   });
   return {
     fetch: f,
+    semilla,
     tiposDelChat: () =>
       (f.mock.calls as unknown as Array<[string, { body?: string }]>)
         .filter(([url]) => url === JEV_URL)
@@ -380,6 +382,11 @@ const conApp = async (
   global.fetch = red.fetch as unknown as typeof fetch;
   try {
     await antes();
+    if (red.semilla !== null) {
+      const validada = validarSemilla(JSON.parse(red.semilla));
+      if (!validada.ok) throw new Error('La semilla del repositorio no valida');
+      await importarSemilla(materializarSemilla(validada.semilla, new Date()), new Date().toISOString());
+    }
     await montarApp();
     await prueba();
   } finally {
@@ -481,7 +488,7 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
     const hecho = responderConsulta(consulta, ctxDe(cierres));
 
     expect(hecho.frase).toBe(
-      'El anticucho es el que más te deja: S/ 1.80 por porción, S/ 486.00 en total.',
+      'El anticucho tiene la mayor diferencia estimada entre precio y costo: S/ 1.80 por porción, S/ 486.00 en total.',
     );
     expect(hecho.intencion).toBe('productoQueMasDeja');
   });
@@ -538,14 +545,14 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
         // La pantalla dice que no entendió y ofrece las preguntas sugeridas, después de la respuesta.
         const pantalla = textosEn('preguntar-pantalla');
         expect(pantalla).toContain(
-          'No te entendí bien. Puedo ayudarte con tus ventas, lo que te deben y qué producto te deja más. Prueba con una de estas:',
+          'No entendí la pregunta. Puedo ayudarte con tus ventas, cobros pendientes y productos. Prueba con una de estas:',
         );
         for (const sugerida of PREGUNTAS_SUGERIDAS) expect(pantalla).toContain(sugerida);
         expect(posicionDe('preguntar-sugerida-0')).toBeGreaterThan(posicionDe('chat-burbuja-1'));
 
         // Ninguna cifra: ni en la respuesta ni en ningún otro lugar del chat.
         expect(textoDe('chat-burbuja-1-texto')).toBe(
-          'No te entendí bien. Puedo ayudarte con tus ventas, lo que te deben y qué producto te deja más. Prueba con una de estas:',
+          'No entendí la pregunta. Puedo ayudarte con tus ventas, cobros pendientes y productos. Prueba con una de estas:',
         );
         expect(pantalla.some(t => /\d|S\//.test(t))).toBe(false);
         // Con duda, solo se pidió interpretar: ni redacción ni juicio.
@@ -685,7 +692,7 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
         .mockResolvedValueOnce(respuestaJson(interpretacion('ventaDelDia', 'ayer')))
         .mockResolvedValueOnce(respuestaJson({ error: 'NO_DISPONIBLE' }, false, 502));
       comoLaVeFreddy(await consultar(conError as unknown as typeof fetch, URL_JEV, pregunta, ctx));
-      expect(conError).toHaveBeenCalledTimes(2);
+      expect(conError).toHaveBeenCalledTimes(1);
 
       // (b) El redactor no responde en 8 segundos: se corta y se muestra la frase fija.
       jest.useFakeTimers();
@@ -710,13 +717,11 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
           },
         );
 
-        await jest.advanceTimersByTimeAsync(7999);
-        expect(resultado).toBeUndefined();
-        await jest.advanceTimersByTimeAsync(1);
+        await jest.advanceTimersByTimeAsync(0);
         await pendiente;
 
         comoLaVeFreddy(resultado);
-        expect(colgado).toHaveBeenCalledTimes(2);
+        expect(colgado).toHaveBeenCalledTimes(1);
         expect(jest.getTimerCount()).toBe(0);
       } finally {
         jest.useRealTimers();
@@ -749,12 +754,12 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
       );
 
       // Intención juzgable: 1 para interpretar y, después, 1 para redactar y 1 para juzgar a la vez.
-      expect(r).toMatchObject({ tipo: 'respuesta', redactada: true, semaforo: 'ojo' });
-      expect(juzgable.fetch).toHaveBeenCalledTimes(3);
+      expect(r).toMatchObject({ tipo: 'respuesta', redactada: false, semaforo: 'ojo' });
+      expect(juzgable.fetch).toHaveBeenCalledTimes(2);
       const tipos = juzgable.tipos();
       expect(tipos[0]).toBe('interpretar');
-      expect([...tipos.slice(1)].sort()).toEqual(['juzgar', 'redactar']);
-      expect(juzgable.simultaneas()).toBe(2);
+      expect(tipos.slice(1)).toEqual(['juzgar']);
+      expect(juzgable.simultaneas()).toBe(1);
 
       // Intención que no se juzga: 1 para interpretar y 1 para redactar, ninguna para juzgar.
       const simple = servidorSimulado({
@@ -768,7 +773,7 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
         '¿cuánto vendí ayer?',
         ventaDeAyer(),
       );
-      expect(simple.tipos()).toEqual(['interpretar', 'redactar']);
+      expect(simple.tipos()).toEqual(['interpretar']);
 
       // Sin respuesta que mostrar (no la entendió): solo la de interpretar.
       const dudosa = servidorSimulado({
@@ -930,7 +935,7 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
       confianza: 0.9,
     });
     const hecho = responderConsulta(consulta, ctx);
-    expect(hecho.frase).toBe('Ganaste S/ 78.00 menos que el ciclo pasado.');
+    expect(hecho.frase).toBe(FRASE_CICLO);
     const senales = senalesDeJuicio(consulta, ctx);
     expect(senales).toEqual({ tendencia: 'baja', magnitud: 'grande' });
 
@@ -941,7 +946,7 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
     // La respuesta lleva la palabra "Ojo" junto a la frase calculada (que no cambia)
     expect(ETIQUETA_SEMAFORO[juicio?.semaforo ?? 'bien']).toBe('Ojo');
     expect(ETIQUETA_SEMAFORO.ojo).toBe('Ojo');
-    expect(hecho.frase).toBe('Ganaste S/ 78.00 menos que el ciclo pasado.');
+    expect(hecho.frase).toBe(FRASE_CICLO);
   });
 
   // @spec08_e16 — A Jev solo viaja el hecho calculado y señales con nombre
@@ -959,7 +964,7 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
       confianza: 0.9,
     });
     const hecho = responderConsulta(consulta, ctx);
-    expect(hecho.frase).toBe('Ganaste S/ 78.00 menos que el ciclo pasado.');
+    expect(hecho.frase).toBe(FRASE_CICLO);
     const senales = senalesDeJuicio(consulta, ctx);
     expect(senales).not.toBeNull();
 
@@ -967,7 +972,7 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
 
     expect(cuerpo).toEqual({
       intencion: 'compararCiclo',
-      frase: 'Ganaste S/ 78.00 menos que el ciclo pasado.',
+      frase: FRASE_CICLO,
       cifras: ['78.00'],
       senales: { tendencia: 'baja', magnitud: 'grande' },
     });
@@ -986,7 +991,7 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
       const interpreta = responde(interpretacion('compararCiclo'));
       const redacta = responde({ texto: REDACCION_CICLO });
       const sinSemaforo = (r: unknown) => {
-        expect(r).toMatchObject({ tipo: 'respuesta', texto: REDACCION_CICLO, frase: FRASE_CICLO });
+        expect(r).toMatchObject({ tipo: 'respuesta', texto: FRASE_CICLO, frase: FRASE_CICLO });
         expect(r).not.toHaveProperty('semaforo');
         expect(JSON.stringify(r)).not.toMatch(CODIGOS_TECNICOS);
       };
@@ -1019,7 +1024,7 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
         '¿cómo voy contra el ciclo pasado?',
         ctxCompararCiclo(),
       );
-      expect(conJuicio).toMatchObject({ tipo: 'respuesta', texto: REDACCION_CICLO, semaforo: 'ojo' });
+      expect(conJuicio).toMatchObject({ tipo: 'respuesta', texto: FRASE_CICLO, semaforo: 'ojo' });
 
       // Segundo caso (a): Jev falla (error del servidor) y (b) responde con confianza de 0.3.
       const fallas: Array<() => Promise<Response>> = [
@@ -1055,7 +1060,6 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
         const f = jest
           .fn()
           .mockResolvedValueOnce(respuestaJson(interpretacion('compararCiclo')))
-          .mockResolvedValueOnce(respuestaJson({ texto: REDACCION_CICLO }))
           .mockImplementationOnce(lento);
         let resultado: unknown;
         const pendiente = consultar(
@@ -1073,7 +1077,7 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
         await pendiente;
 
         sinSemaforo(resultado);
-        expect(f).toHaveBeenCalledTimes(3);
+        expect(f).toHaveBeenCalledTimes(2);
         expect(jest.getTimerCount()).toBe(0);
       } finally {
         jest.useRealTimers();
@@ -1295,8 +1299,8 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
         'recomiéndame qué comprar más mañana',
         ctx,
       );
-      expect(r).toMatchObject({ tipo: 'respuesta', redactada: true });
-      expect(servidor.tipos()).toContain('redactar');
+      expect(r).toMatchObject({ tipo: 'respuesta', redactada: false });
+      expect(servidor.tipos()).not.toContain('redactar');
       // Con menos de dos ciclos, la frase fija de siempre.
       expect(responderConsulta(consulta, ctxDe([cierres[0]], dosProductos)).frase).toBe(
         'Todavía no cierras un ciclo completo. Cuando compres mercadería otra vez, te lo calculo.',

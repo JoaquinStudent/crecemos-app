@@ -71,8 +71,8 @@ const FRASES: Record<CategoriaCharla, readonly string[]> = {
     '¡Nos vemos{n}! Cuando quieras, vuelves a preguntarme.',
   ],
   ayuda: [
-    `Soy tu ayudante para revisar tus números. Te puedo decir cuánto vendiste un día, cuál es tu mejor y tu peor día, qué producto te deja más, cuánto te deben, cuánto puedes sacar para la casa y cómo vas contra el ciclo pasado. ${AYUDA_FIN}`,
-    `Aquí te ayudo a entender tu negocio. Pregúntame por tus ventas de un día, tu mejor o peor día, el producto que más te deja, lo que te deben, lo que puedes sacar para la casa o cómo vas contra el ciclo pasado. ${AYUDA_FIN}`,
+    `Soy tu ayudante para revisar tus números. Te puedo decir cuánto vendiste un día, cuál es tu mejor y tu peor día, qué producto tiene mayor diferencia estimada por unidad, cuánto te deben, cuánto puedes sacar para la casa y cómo vas contra el ciclo pasado. ${AYUDA_FIN}`,
+    `Aquí te ayudo a entender tu negocio. Pregúntame por tus ventas de un día, tu mejor o peor día, la diferencia estimada por unidad de cada producto, lo que te deben, lo que puedes sacar para la casa o cómo vas contra el ciclo pasado. ${AYUDA_FIN}`,
   ],
 };
 

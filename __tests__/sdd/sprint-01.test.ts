@@ -15,7 +15,7 @@ import { calcularCierre, nuevoCierre } from '@dominio/cierre';
 import { PRODUCTOS_POR_DEFECTO } from '@dominio/productosPorDefecto';
 import type { Cierre, DatosCierre, Gasto, LineaCierre } from '@dominio/tipos';
 import { validarCierre } from '@dominio/validacion';
-import { guardarCierre, listarCierres } from '@storage/repositorio';
+import { guardarCierre, guardarProducto, listarCierres } from '@storage/repositorio';
 
 const anticucho = (preparadas: number, sobrantes: number): LineaCierre => ({
   productoId: 'p-anticucho',
@@ -245,6 +245,7 @@ describe('SPEC-01: Flujo mínimo de punta a punta — cerrar el día y ver cuán
     // Given: la app recién instalada, con los 4 productos por defecto y el anticucho a S/ 10.00
     // When: se registra un cierre con 20 anticuchos preparados, 2 sobrantes y S/ 110.00 de mercadería, y se abre Inicio
     // Then: Inicio muestra "Te queda" con el monto "S/ 70.00"
+    for (const producto of PRODUCTOS_POR_DEFECTO) await guardarProducto(producto);
     const { app, esHost, tocar, escribir, textos } = await montarApp();
 
     await tocar('tab-cerrar-dia');
@@ -269,7 +270,7 @@ describe('SPEC-01: Flujo mínimo de punta a punta — cerrar el día y ver cuán
     const teQueda = app.root.findAll(
       n => esHost(n, 'Text') && n.props.testID === 'inicio-te-queda',
     )[0];
-    expect(textos()).toContain('Te queda');
+    expect(textos()).toContain('Resultado registrado');
     expect(teQueda.props.children).toBe('S/ 70.00');
     expect(await listarCierres()).toHaveLength(1);
   });
@@ -279,6 +280,7 @@ describe('SPEC-01: Flujo mínimo de punta a punta — cerrar el día y ver cuán
     // Given: la app recién instalada; en Cerrar mi día, 20 anticuchos preparados y 2 sobrantes, y S/ 110.00 escritos en el monto del gasto con "Mercadería" marcada, sin tocar "Agregar gasto"
     // When: se toca "Guardar mi día"
     // Then: Inicio muestra "Te queda" con el monto "S/ 70.00" y el cierre guardado tiene un solo gasto, de mercadería, por S/ 110.00
+    for (const producto of PRODUCTOS_POR_DEFECTO) await guardarProducto(producto);
     const { tocar, escribir, textos, teQuedaEnInicio } = await montarApp();
     await tocar('tab-cerrar-dia');
     await escribir('preparadas-p-anticucho', '20');
@@ -287,7 +289,7 @@ describe('SPEC-01: Flujo mínimo de punta a punta — cerrar el día y ver cuán
 
     await tocar('guardar-dia');
 
-    expect(textos()).toContain('Te queda');
+    expect(textos()).toContain('Resultado registrado');
     expect(teQuedaEnInicio()).toBe('S/ 70.00');
     const cierres = await listarCierres();
     expect(cierres).toHaveLength(1);

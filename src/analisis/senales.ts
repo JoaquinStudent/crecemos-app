@@ -154,7 +154,9 @@ export const textoReporte = (s: Senales, perfil: Perfil | null): string => {
     ...(quien === '' ? [] : [quien]),
     periodo,
     `Venta promedio mensual: ${hayMeses ? formatoSoles(s.ventaPromedioMensual) : sinMes}`,
-    `Ganancia promedio mensual: ${hayMeses ? formatoSoles(s.gananciaPromedioMensual) : sinMes}`,
+    `Resultado registrado promedio mensual (ventas menos gastos): ${
+      hayMeses ? formatoSoles(s.gananciaPromedioMensual) : sinMes
+    }`,
     constancia,
     ...(hayMeses
       ? [
@@ -166,7 +168,7 @@ export const textoReporte = (s: Senales, perfil: Perfil | null): string => {
       ? []
       : [`Registra desde el ${formatoFechaCorta(s.registraDesde)} (${dias(s.antiguedadDias)})`]),
     ...(s.enConstruccion ? [textoFaltan(s.diasFaltantes)] : []),
-    'Son totales registrados por el propio negocio en la app Crecemos; no incluyen movimientos individuales.',
+    'Son totales registrados por el propio negocio en la app Crecemos; incluyen pagos pendientes de recibir y no incluyen movimientos individuales.',
   ];
   return lineas.join('\n');
 };

@@ -14,12 +14,7 @@ import type {
   Producto,
   ResumenCiclo,
 } from '@dominio/tipos';
-import {
-  compararCiclos,
-  gananciaDelDia,
-  gananciaPorProducto,
-  insight,
-} from '@analisis/metricas';
+import { compararCiclos, gananciaDelDia, gananciaPorProducto, insight } from '@analisis/metricas';
 import { evaluarReglas, REGLAS } from '@analisis/reglas';
 
 const ahora = new Date('2026-10-07T12:00:00-05:00');
@@ -88,7 +83,11 @@ const regla = (id: string) => {
   return r;
 };
 
-const ctxDe = (cierres: Cierre[], productos: Producto[] = [], hoy: FechaNegocio = HOY): ContextoAnalisis => ({
+const ctxDe = (
+  cierres: Cierre[],
+  productos: Producto[] = [],
+  hoy: FechaNegocio = HOY,
+): ContextoAnalisis => ({
   cierres,
   productos,
   hoy,
@@ -167,7 +166,9 @@ describe('gananciaDelDia', () => {
   });
 
   it('redondea a 2 decimales (regla 13)', () => {
-    const c = cierreDe('2026-10-01', { lineas: [linea('A', 3, 0, 0.3, 0.1), linea('B', 1, 0, 0.2, 0)] });
+    const c = cierreDe('2026-10-01', {
+      lineas: [linea('A', 3, 0, 0.3, 0.1), linea('B', 1, 0, 0.2, 0)],
+    });
     expect(gananciaDelDia(c)).toBe(0.8);
   });
 
@@ -202,7 +203,10 @@ describe('gananciaPorProducto', () => {
   });
 
   it('redondea el te deja por porción a 2 decimales', () => {
-    const [g] = gananciaPorProducto([cierreDe('2026-10-01', { lineas: [linea('Rachi', 3, 0, 10, 6.6667)] })], '2026-10-01');
+    const [g] = gananciaPorProducto(
+      [cierreDe('2026-10-01', { lineas: [linea('Rachi', 3, 0, 10, 6.6667)] })],
+      '2026-10-01',
+    );
     expect(g.teDeja).toBe(3.33);
     expect(g.ganancia).toBe(10);
   });
@@ -264,13 +268,13 @@ describe('insight', () => {
 
   it('el artículo sale del nombre: termina en "a" es "la", si no "el"', () => {
     expect(insight([g('Anticucho', 400, 1), g('Chicha', 100, 3.5)])).toBe(
-      'El anticucho se vende más, pero la chicha te deja S/ 2.50 más por porción.',
+      'El anticucho se vende más. La diferencia estimada por unidad de la chicha es S/ 2.50 mayor (precio menos costo estimado).',
     );
   });
 
   it('ignora a los productos sin ventas', () => {
     expect(insight([g('Pancita', 400, 1), g('Rachi', 0, 0), g('Anticucho', 100, 1.8)])).toBe(
-      'La pancita se vende más, pero el anticucho te deja S/ 0.80 más por porción.',
+      'La pancita se vende más. La diferencia estimada por unidad del anticucho es S/ 0.80 mayor (precio menos costo estimado).',
     );
     expect(insight([g('Pancita', 400, 1), g('Rachi', 0, 5)])).toBeNull();
   });
@@ -285,25 +289,37 @@ describe('compararCiclos', () => {
   });
 
   it('dice cuánto más ganó', () => {
-    expect(compararCiclos(resumen(262), resumen(214))).toBe('Ganaste S/ 48.00 más que el ciclo pasado');
+    expect(compararCiclos(resumen(262), resumen(214))).toBe(
+      'Resultado registrado S/ 48.00 más que el ciclo pasado',
+    );
   });
 
   it('dice cuánto menos ganó', () => {
-    expect(compararCiclos(resumen(214), resumen(262))).toBe('Ganaste S/ 48.00 menos que el ciclo pasado');
+    expect(compararCiclos(resumen(214), resumen(262))).toBe(
+      'Resultado registrado S/ 48.00 menos que el ciclo pasado',
+    );
   });
 
   it('dice "lo mismo" si es igual', () => {
-    expect(compararCiclos(resumen(214), resumen(214))).toBe('Ganaste lo mismo que el ciclo pasado');
+    expect(compararCiclos(resumen(214), resumen(214))).toBe(
+      'Resultado registrado igual al ciclo pasado',
+    );
   });
 
   it('redondea la diferencia (regla 13)', () => {
-    expect(compararCiclos(resumen(0.3), resumen(0.1))).toBe('Ganaste S/ 0.20 más que el ciclo pasado');
+    expect(compararCiclos(resumen(0.3), resumen(0.1))).toBe(
+      'Resultado registrado S/ 0.20 más que el ciclo pasado',
+    );
   });
 });
 
 describe('regla cobro', () => {
   const pendiente = (fecha: FechaNegocio, monto: number) =>
-    cierreDe(fecha, { lineas: [linea('Anticucho', 1, 0, 1, 0)], montoYape: monto, yapePendiente: true });
+    cierreDe(fecha, {
+      lineas: [linea('Anticucho', 1, 0, 1, 0)],
+      montoYape: monto,
+      yapePendiente: true,
+    });
 
   it('S/ 100.00 justos no bastan; S/ 100.01 sí', () => {
     expect(regla('cobro').aplica(ctxDe([pendiente('2026-10-06', 100)]))).toBe(false);
@@ -343,7 +359,9 @@ describe('regla precio', () => {
 
   it('cae S/ 0.30 justos aplica; S/ 0.29 no', () => {
     expect(regla('precio').aplica(ctxDe([antiguo()], [producto('Anticucho', 10, 8.5)]))).toBe(true);
-    expect(regla('precio').aplica(ctxDe([antiguo()], [producto('Anticucho', 10, 8.49)]))).toBe(false);
+    expect(regla('precio').aplica(ctxDe([antiguo()], [producto('Anticucho', 10, 8.49)]))).toBe(
+      false,
+    );
   });
 
   it('compara contra una línea de 90 días o más; de 89 no', () => {
@@ -363,13 +381,13 @@ describe('regla precio', () => {
     ];
     const ctx = ctxDe(cierres, [producto('Anticucho', 10, 8.8)]);
     expect(regla('precio').mensaje(ctx)).toBe(
-      'Tu anticucho te deja S/ 0.60 menos que en julio. ¿Revisas el precio?',
+      'La diferencia estimada por unidad de Anticucho bajó S/ 0.60 desde julio (precio menos costo estimado). Revisa el precio.',
     );
   });
 
   it('el mes sale de la fecha de esa línea', () => {
     const ctx = ctxDe([antiguo('2026-06-30')], [producto('Anticucho', 10, 8.8)]);
-    expect(regla('precio').mensaje(ctx)).toContain('que en junio');
+    expect(regla('precio').mensaje(ctx)).toContain('desde junio');
   });
 
   it('ignora el producto inactivo', () => {
@@ -384,7 +402,9 @@ describe('regla precio', () => {
       }),
     ];
     const productos = [producto('Pancita', 9, 8.7), producto('Anticucho', 10, 8.8)]; // cae 0.70 y 0.60
-    expect(regla('precio').mensaje(ctxDe(cierres, productos))).toContain('Tu pancita te deja S/ 0.70');
+    expect(regla('precio').mensaje(ctxDe(cierres, productos))).toContain(
+      'La diferencia estimada por unidad de Pancita bajó S/ 0.70',
+    );
   });
 
   it('un producto que mejoró no aplica', () => {
@@ -407,7 +427,7 @@ describe('regla preparar', () => {
 
   it('recomienda restar la menor de las dos cifras', () => {
     expect(regla('preparar').mensaje(ctxDe(dosCiclos(8, 4)))).toBe(
-      'Te sobró rachi dos ciclos seguidos. Prepara 4 porciones menos.',
+      'Registraste sobrantes de Rachi en dos ciclos seguidos. Prepara 4 porciones menos.',
     );
   });
 
@@ -448,14 +468,14 @@ describe('regla preparar', () => {
       }),
     ];
     expect(regla('preparar').mensaje(ctxDe(cierres))).toBe(
-      'Te sobró pancita dos ciclos seguidos. Prepara 7 porciones menos.',
+      'Registraste sobrantes de Pancita en dos ciclos seguidos. Prepara 7 porciones menos.',
     );
   });
 
   it('la chicha se cuenta en vasos', () => {
     const chicha = producto('Chicha', 2, 1.6, { unidad: 'vaso' });
     expect(regla('preparar').mensaje(ctxDe(dosCiclos(6, 4, 'Chicha'), [chicha]))).toBe(
-      'Te sobró chicha dos ciclos seguidos. Prepara 4 vasos menos.',
+      'Registraste sobrantes de Chicha en dos ciclos seguidos. Prepara 4 vasos menos.',
     );
   });
 
@@ -479,7 +499,7 @@ describe('regla retiro', () => {
   it('si el te queda es exactamente 0 no hubo ganancia', () => {
     const ctx = ctxDe([ciclo('2026-09-14', 244, 244), ciclo('2026-09-28', 10, 5)]);
     expect(regla('retiro').mensaje(ctx)).toBe(
-      'Este ciclo no te dejó ganancia. Mejor no saques plata del negocio todavía.',
+      'El resultado registrado del ciclo no fue positivo. Revisa ventas, gastos y cobros pendientes antes de retirar dinero.',
     );
   });
 
@@ -490,7 +510,7 @@ describe('regla retiro', () => {
       ciclo('2026-09-28', 10, 500), // actual, pérdida
     ];
     expect(regla('retiro').mensaje(ctxDe(cierres))).toBe(
-      'Puedes sacar S/ 168.00 para la casa sin tocar tu capital.',
+      'El resultado registrado del ciclo fue S/ 168.00. Antes de retirar dinero, revisa los cobros pendientes.',
     );
   });
 });
@@ -504,8 +524,14 @@ describe('regla comparacion', () => {
     });
 
   it('compara el ciclo actual con el penúltimo', () => {
-    const cierres = [ciclo('2026-09-01', 900, 10), ciclo('2026-09-14', 314, 100), ciclo('2026-09-28', 362, 100)];
-    expect(regla('comparacion').mensaje(ctxDe(cierres))).toBe('Ganaste S/ 48.00 más que el ciclo pasado');
+    const cierres = [
+      ciclo('2026-09-01', 900, 10),
+      ciclo('2026-09-14', 314, 100),
+      ciclo('2026-09-28', 362, 100),
+    ];
+    expect(regla('comparacion').mensaje(ctxDe(cierres))).toBe(
+      'Resultado registrado S/ 48.00 más que el ciclo pasado',
+    );
   });
 
   it('con un solo ciclo no aplica', () => {
@@ -536,7 +562,9 @@ describe('regla diaFlojo', () => {
     ];
     const ctx = ctxDe(cierres);
     expect(regla('diaFlojo').aplica(ctx)).toBe(true);
-    expect(regla('diaFlojo').mensaje(ctx)).toBe(`Los ${nombre} ganas S/ 45.00 menos que tu promedio.`);
+    expect(regla('diaFlojo').mensaje(ctx)).toBe(
+      `Los ${nombre} el resultado estimado por producto fue S/ 45.00 menor que el promedio.`,
+    );
   });
 
   // Lunes 14 y 21 de septiembre; el resto, miércoles. El último cierre decide la ventana.
@@ -598,12 +626,12 @@ describe('regla diaFlojo', () => {
       diaGana('2026-09-21', 60),
       diaGana('2026-09-16', 20),
       diaGana('2026-09-23', 20),
-      ...['2026-09-03', '2026-09-10', '2026-09-17', '2026-09-24', '2026-10-01', '2026-10-08'].map(f =>
-        diaGana(f, 100),
+      ...['2026-09-03', '2026-09-10', '2026-09-17', '2026-09-24', '2026-10-01', '2026-10-08'].map(
+        f => diaGana(f, 100),
       ),
     ];
     expect(regla('diaFlojo').mensaje(ctxDe(cierres))).toBe(
-      'Los miércoles ganas S/ 56.00 menos que tu promedio.',
+      'Los miércoles el resultado estimado por producto fue S/ 56.00 menor que el promedio.',
     );
   });
 
@@ -658,7 +686,9 @@ describe('evaluarReglas', () => {
       cierreDe('2026-09-28', { abreCiclo: true, lineas: [linea('Anticucho', 10, 0, 10, 8.8)] }),
     ];
     const activo = evaluarReglas(ctxDe(cierres, [producto('Anticucho', 10, 8.8)]));
-    const inactivo = evaluarReglas(ctxDe(cierres, [producto('Anticucho', 10, 8.8, { activo: false })]));
+    const inactivo = evaluarReglas(
+      ctxDe(cierres, [producto('Anticucho', 10, 8.8, { activo: false })]),
+    );
     expect(activo.map(r => r.reglaId)).toContain('precio');
     expect(inactivo.map(r => r.reglaId)).not.toContain('precio');
   });

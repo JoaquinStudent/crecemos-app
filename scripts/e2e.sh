@@ -23,14 +23,20 @@ elif [ -n "$2" ]; then
 fi
 
 case "$SPRINT" in
-  01 | 02 | 03 | 04 | 05 | 06 | 07 | 08 | 09) ;;
+  01 | 02 | 03 | 04 | 05 | 06 | 07 | 08 | 09 | 10 | 11 | 12) ;;
   *)
-    echo "Uso: sh scripts/e2e.sh <01..09> [--android]" >&2
+    echo "Uso: sh scripts/e2e.sh <01..12> [--android]" >&2
     exit 2
     ;;
 esac
 
 N="${SPRINT#0}"
+if [ "$N" -le 9 ]; then
+  PATRON="spec0[1-$N]_e[0-9]+ e2e"
+else
+  ULTIMO="$(expr "$N" - 10)"
+  PATRON="spec(0[1-9]|1[0-$ULTIMO])_e[0-9]+ e2e"
+fi
 TMP="${TMPDIR:-/tmp}"
 TMP="${TMP%/}"
 RESULTADO="$TMP/crecemos-e2e-jest.json"
@@ -42,7 +48,7 @@ npx tsc --noEmit
 
 echo "== 2/4 · Escenarios e2e de los sprints 01 a $SPRINT"
 rm -f "$RESULTADO"
-npx jest --ci -t "spec0[1-$N]_e[0-9]+ e2e" --json --outputFile="$RESULTADO"
+npx jest --ci -t "$PATRON" --json --outputFile="$RESULTADO"
 # Exige al menos un test pasado y ninguno fallido.
 node -e '
   const r = require(process.argv[1]);

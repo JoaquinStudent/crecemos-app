@@ -25,7 +25,7 @@ import type {
 } from '@dominio/tipos';
 import { gananciaPorProducto, insight, compararCiclos } from '@analisis/metricas';
 import { evaluarReglas, REGLAS } from '@analisis/reglas';
-import { guardarCierre } from '@storage/repositorio';
+import { guardarCierre, importarSemilla } from '@storage/repositorio';
 
 // Mediodía del 2026-10-07 en Lima: solo alimenta el instante de creación; "hoy" y la fecha de cada cierre son explícitas.
 const ahora = new Date('2026-10-07T12:00:00-05:00');
@@ -187,7 +187,7 @@ describe('SPEC-05: Motor de decisiones', () => {
     const g = gananciaPorProducto(cierresDeOctubre(), '2026-10-01');
 
     expect(insight(g)).toBe(
-      'La pancita se vende más, pero el anticucho te deja S/ 0.80 más por porción.',
+      'La pancita se vende más. La diferencia estimada por unidad del anticucho es S/ 0.80 mayor (precio menos costo estimado).',
     );
   });
 
@@ -209,7 +209,7 @@ describe('SPEC-05: Motor de decisiones', () => {
     expect(r).toContainEqual({
       reglaId: 'preparar',
       prioridad: 3,
-      mensaje: 'Te sobró rachi dos ciclos seguidos. Prepara 5 porciones menos.',
+      mensaje: 'Registraste sobrantes de Rachi en dos ciclos seguidos. Prepara 5 porciones menos.',
     });
   
   });
@@ -230,7 +230,7 @@ describe('SPEC-05: Motor de decisiones', () => {
     expect(r).toContainEqual({
       reglaId: 'precio',
       prioridad: 2,
-      mensaje: 'Tu anticucho te deja S/ 0.60 menos que en julio. ¿Revisas el precio?',
+      mensaje: 'La diferencia estimada por unidad de Anticucho bajó S/ 0.60 desde julio (precio menos costo estimado). Revisa el precio.',
     });
   
   });
@@ -258,7 +258,7 @@ describe('SPEC-05: Motor de decisiones', () => {
     expect(r).toContainEqual({
       reglaId: 'retiro',
       prioridad: 4,
-      mensaje: 'Puedes sacar S/ 168.00 para la casa sin tocar tu capital.',
+      mensaje: 'El resultado registrado del ciclo fue S/ 168.00. Antes de retirar dinero, revisa los cobros pendientes.',
     });
   
   });
@@ -286,7 +286,7 @@ describe('SPEC-05: Motor de decisiones', () => {
     expect(r).toContainEqual({
       reglaId: 'retiro',
       prioridad: 4,
-      mensaje: 'Este ciclo no te dejó ganancia. Mejor no saques plata del negocio todavía.',
+      mensaje: 'El resultado registrado del ciclo no fue positivo. Revisa ventas, gastos y cobros pendientes antes de retirar dinero.',
     });
   
   });
@@ -351,7 +351,7 @@ describe('SPEC-05: Motor de decisiones', () => {
     expect(r).toContainEqual({
       reglaId: 'diaFlojo',
       prioridad: 5,
-      mensaje: 'Los miércoles ganas S/ 45.00 menos que tu promedio.',
+      mensaje: 'Los miércoles el resultado estimado por producto fue S/ 45.00 menor que el promedio.',
     });
   
   });
@@ -367,7 +367,7 @@ describe('SPEC-05: Motor de decisiones', () => {
     expect(anterior.teQueda).toBe(214);
     expect(actual.teQueda).toBe(262);
 
-    expect(compararCiclos(actual, anterior)).toBe('Ganaste S/ 48.00 más que el ciclo pasado');
+    expect(compararCiclos(actual, anterior)).toBe('Resultado registrado S/ 48.00 más que el ciclo pasado');
   
   });
 
@@ -473,6 +473,7 @@ describe('SPEC-05: Motor de decisiones', () => {
         async () => ({ ok: true, status: 200, text: async () => texto } as unknown as Response),
       ) as unknown as typeof fetch;
       try {
+        await importarSemilla(materializarSemilla(validada.semilla, new Date()), new Date().toISOString());
         await montarApp();
 
         // Resumen → "Qué me deja cada uno".

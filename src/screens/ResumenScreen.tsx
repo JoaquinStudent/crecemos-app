@@ -19,7 +19,7 @@ import { Icon } from '@components/atoms/Icon';
 import { compararCiclos } from '@analisis/metricas';
 import { agruparCiclos, mercaderiaDelCiclo, resumirCiclo, textoCapital } from '@dominio/ciclo';
 import { formatoFechaCorta, formatoSoles } from '@dominio/formato';
-import type { Ciclo, ResumenCiclo } from '@dominio/tipos';
+import type { Ciclo, Producto, ResumenCiclo } from '@dominio/tipos';
 import { useCrecemos } from '@context/CrecemosProvider';
 import type { RootStackParamList } from '@navigation/RootStack';
 import type { TabsParamList } from '@navigation/Tabs';
@@ -41,7 +41,7 @@ const rango = (ciclo: Ciclo): string =>
     : `${formatoFechaCorta(ciclo.inicio)} — ${formatoFechaCorta(ciclo.fin)}`;
 
 export const ResumenScreen = () => {
-  const { cierres, cargando } = useCrecemos();
+  const { cierres, productos, cargando } = useCrecemos();
   const navigation = useNavigation<ResumenNavigation>();
 
   // El ciclo actual es el último.
@@ -57,13 +57,13 @@ export const ResumenScreen = () => {
         </Text>
 
         {cargando ? null : actual ? (
-          <CicloActual ciclo={actual} anterior={anterior} />
+          <CicloActual ciclo={actual} anterior={anterior} productos={productos} />
         ) : (
           <View style={styles.tarjeta} testID="resumen-vacio">
             <Text variant="h3">Aún no cierras ningún día</Text>
             <Text color="textMuted" style={styles.separado}>
-              Cuando cierres tu día, aquí vas a ver cuánto te queda de tu ciclo de compra y cuánto
-              vendiste de tu mercadería.
+              Cuando cierres tu día, aquí verás el resultado registrado de tu ciclo de compra y
+              cuánto vendiste de tu mercadería.
             </Text>
             <Button
               title="Cerrar mi día"
@@ -79,7 +79,7 @@ export const ResumenScreen = () => {
         {cargando ? null : (
           <>
             <Button
-              title="Qué me deja cada uno"
+              title="Comparar productos"
               variant="outline"
               size="lg"
               fullWidth
@@ -109,9 +109,17 @@ export const ResumenScreen = () => {
   );
 };
 
-const CicloActual = ({ ciclo, anterior }: { ciclo: Ciclo; anterior: Ciclo | null }) => {
+const CicloActual = ({
+  ciclo,
+  anterior,
+  productos,
+}: {
+  ciclo: Ciclo;
+  anterior: Ciclo | null;
+  productos: Producto[];
+}) => {
   const resumen = resumirCiclo(ciclo);
-  const mercaderia = mercaderiaDelCiclo(ciclo);
+  const mercaderia = mercaderiaDelCiclo(ciclo, productos);
 
   // La ganancia es lo que te queda mientras sea positivo; si vendió menos que su capital, no hay.
   const ganancia = Math.max(resumen.teQueda, 0);
@@ -137,7 +145,7 @@ const CicloActual = ({ ciclo, anterior }: { ciclo: Ciclo; anterior: Ciclo | null
         </View>
 
         <Text variant="bodyStrong" style={styles.separado}>
-          Te queda
+          Resultado registrado
         </Text>
         <Text
           variant="hero"
@@ -147,6 +155,9 @@ const CicloActual = ({ ciclo, anterior }: { ciclo: Ciclo; anterior: Ciclo | null
           numberOfLines={1}
         >
           {formatoSoles(resumen.teQueda)}
+        </Text>
+        <Text variant="caption" color="textMuted">
+          Ventas menos gastos registrados. Incluye pagos pendientes de recibir.
         </Text>
 
         {total > 0 ? (
@@ -166,7 +177,7 @@ const CicloActual = ({ ciclo, anterior }: { ciclo: Ciclo; anterior: Ciclo | null
             {`Capital ${formatoSoles(resumen.capital)}`}
           </Text>
           <Text variant="bodyStrong" color="success" testID="resumen-ganancia">
-            {`Ganancia ${formatoSoles(ganancia)}`}
+            {`Resultado positivo ${formatoSoles(ganancia)}`}
           </Text>
         </View>
 
@@ -192,12 +203,18 @@ const CicloActual = ({ ciclo, anterior }: { ciclo: Ciclo; anterior: Ciclo | null
               const vendido = porcentaje(m.vendidas, m.preparadas);
               const bien = vendido >= VENDIDO_MINIMO;
               const base = `mercaderia-${m.productoId}`;
+              const unidad = productos.find(p => p.id === m.productoId)?.unidad;
+              const singular = unidad === 'porcion' ? 'porción' : unidad?.trim() || 'unidad';
+              const etiquetaUnidad =
+                m.preparadas === 1
+                  ? singular
+                  : singular === 'porción'
+                  ? 'porciones'
+                  : `${singular}s`;
               return (
                 <View key={m.productoId} style={i > 0 ? styles.separado : undefined} testID={base}>
                   <Text testID={`${base}-texto`}>
-                    {`${m.nombre} — vendiste ${m.vendidas} de ${m.preparadas} ${
-                      m.preparadas === 1 ? 'porción' : 'porciones'
-                    }`}
+                    {`${m.nombre} — vendiste ${m.vendidas} de ${m.preparadas} ${etiquetaUnidad}`}
                   </Text>
                   <View style={[styles.filaBarra, styles.separadoChico]}>
                     <View style={styles.pista}>
@@ -264,7 +281,7 @@ const Comparacion = ({ actual, anterior }: { actual: ResumenCiclo; anterior: Res
           {compararCiclos(actual, anterior)}
         </Text>
         <Text variant="caption" color="textMuted" testID="resumen-comparacion-anterior">
-          {`Ciclo anterior: ${formatoSoles(anterior.teQueda)}`}
+          {`Resultado registrado anterior: ${formatoSoles(anterior.teQueda)}`}
         </Text>
       </View>
     </View>

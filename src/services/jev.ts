@@ -3,9 +3,13 @@
 // "Preguntarle a mis datos" (sdd/AGENTS.md, regla 8; la primera es la semilla, en seed.ts). La app
 // nunca habla con el proveedor de IA ni lleva ninguna clave: el Worker de `servidor/` la guarda y
 // reenvía. Cada petición es un POST con UN solo encabezado (Content-Type), un cuerpo de tipo fijo y
-// NADA del usuario más que lo que él mismo escribió o la cifra ya calculada. Un intento, 8 s de
+// NADA del usuario más que lo que él mismo escribió o el hecho ya calculado para el juicio. Un intento, 8 s de
 // límite, nunca lanza y ningún código técnico llega a un texto que lea Freddy.
-import { interpretarRespuesta, responderConsulta } from '@analisis/intenciones';
+import {
+  interpretarRespuesta,
+  resolverProductoLocal,
+  responderConsulta,
+} from '@analisis/intenciones';
 import {
   armarHechoParaJuicio,
   esJuzgable,
@@ -123,6 +127,7 @@ export const preguntarAJev = async (
 };
 
 /**
+ * Compatibilidad con el contrato anterior; `consultar` ya no llama a esta ruta.
  * Le pide al servidor que diga con otras palabras una respuesta YA calculada. Viaja SOLO
  * `{ tipo: 'redactar', hecho: { intencion, frase, cifras } }`. La redacción se acepta únicamente si
  * `validarRedaccion` confirma que trae las mismas cifras; si no, `REDACCION_DESCARTADA`.
@@ -167,10 +172,9 @@ export const juzgarRespuesta = async (
 const noEntendi = (): RespuestaChat => ({ tipo: 'noEntendi', texto: TEXTO_NO_ENTENDI });
 
 /**
- * El camino completo de una pregunta: 1 petición para interpretar y, solo si hay una respuesta con
- * cifras, 1 para redactar. La cifra sale SIEMPRE del código (`responderConsulta`); la redacción solo
- * se muestra si conserva todas las cifras. Si redactar falla por lo que sea (sin red, 8 s, cifra
- * cambiada) se muestra la frase fija, sin ningún mensaje técnico. Nunca lanza ni guarda estado.
+ * El camino completo de una pregunta: una petición para interpretar y otra opcional para juzgar.
+ * Las cifras y la frase visible salen siempre del código (`responderConsulta`). El catálogo y el
+ * hilo quedan en el teléfono. Nunca lanza ni guarda estado.
  */
 export const consultar = async (
   fetchFn: typeof fetch,
@@ -187,7 +191,14 @@ export const consultar = async (
         : { tipo: 'sinInternet', texto: TEXTO_SIN_INTERNET };
     }
     // El hilo se completa aquí, en el teléfono: a Jev solo viajó el texto de esta pregunta.
-    const consulta = completarConsulta(interpretada.consulta, previa, texto);
+    const productoLocal = resolverProductoLocal(texto, ctx.productos);
+    const clasificada = {
+      intencion: interpretada.consulta.intencion,
+      dia: interpretada.consulta.dia,
+      confianza: interpretada.consulta.confianza,
+      ...(productoLocal ? { producto: productoLocal } : {}),
+    };
+    const consulta = completarConsulta(clasificada, previa, texto);
     if (consulta.intencion === 'noEntendi') return noEntendi();
 
     const hecho = responderConsulta(consulta, ctx);
@@ -200,15 +211,14 @@ export const consultar = async (
       hecho,
       consulta,
     };
-    // La redacción y el juicio se piden a la vez; ninguno de los dos hace falta para mostrar la frase.
+    // La frase fija revisada es la respuesta final. Solo el juicio opcional hace otra petición.
     const senales = esJuzgable(hecho.intencion) ? senalesDeJuicio(consulta, ctx) : null;
-    const [redaccion, juicio] = await Promise.all([
-      hecho.cifras.length > 0 ? redactarRespuesta(fetchFn, url, hecho) : null,
-      senales === null ? null : juzgarRespuesta(fetchFn, url, armarHechoParaJuicio(hecho, senales)),
-    ]);
+    const juicio =
+      senales === null
+        ? null
+        : await juzgarRespuesta(fetchFn, url, armarHechoParaJuicio(hecho, senales));
     return {
       ...fija,
-      ...(redaccion?.ok ? { texto: redaccion.texto, redactada: true } : {}),
       ...(juicio ? { semaforo: juicio.semaforo } : {}),
     };
   } catch {

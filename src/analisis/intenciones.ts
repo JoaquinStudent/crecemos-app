@@ -99,7 +99,7 @@ export const INTENCIONES: readonly Intencion[] = [
     id: 'cuantoPreparar',
     descripcion:
       'Cuánto preparar o qué comprar para mañana, de un producto o de todos: recomendación de compra.',
-    sugerida: '¿Cuánto preparo de rachi?',
+    sugerida: '¿Qué debería preparar mañana?',
   },
   {
     id: 'compararCiclo',
@@ -109,7 +109,7 @@ export const INTENCIONES: readonly Intencion[] = [
   {
     id: 'revisarPrecio',
     descripcion: 'Si debe revisar el precio de un producto porque ahora le deja menos.',
-    sugerida: '¿Debo revisar el precio del anticucho?',
+    sugerida: '¿Debo revisar un precio?',
   },
   {
     id: 'cuandoRecupereCapital',
@@ -147,7 +147,7 @@ const dias = DIAS_CONSULTA as readonly [DiaConsulta, ...DiaConsulta[]];
 
 const esquemaRespuesta = z.object({
   intencion: z.enum(ids),
-  producto: z.enum(PRODUCTOS_CLASIFICADOR),
+  producto: z.enum(PRODUCTOS_CLASIFICADOR).optional(),
   dia: z.enum(dias),
   confianza: z.number().min(0).max(1),
 });
@@ -165,10 +165,26 @@ export const interpretarRespuesta = (json: unknown): Consulta | null => {
   if (confianza < UMBRAL_CONFIANZA) return { intencion: 'noEntendi', confianza };
   return {
     intencion,
-    ...(producto === 'ninguno' ? {} : { producto: `p-${producto}` }),
+    ...(!producto || producto === 'ninguno' ? {} : { producto: `p-${producto}` }),
     dia,
     confianza,
   };
+};
+
+/** Resuelve nombres vigentes en el teléfono; nunca se envía el catálogo al clasificador. */
+export const resolverProductoLocal = (texto: string, productos: Producto[]): string | undefined => {
+  const normalizar = (valor: string): string =>
+    valor
+      .toLocaleLowerCase('es-PE')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9ñ]+/g, ' ')
+      .trim();
+  const pregunta = ` ${normalizar(texto)} `;
+  const candidatos = productos.filter(p => p.activo && normalizar(p.nombre) !== '');
+  // El nombre más largo evita que «chicha morada» se confunda con «chicha».
+  candidatos.sort((a, b) => normalizar(b.nombre).length - normalizar(a.nombre).length);
+  return candidatos.find(p => pregunta.includes(` ${normalizar(p.nombre)} `))?.id;
 };
 
 // --- Las frases ------------------------------------------------------------------------------
@@ -201,12 +217,14 @@ const hecho = (intencion: IntencionId, frase: string): Hecho => ({
 /** 410 → '410', 1410 → '1,410': las cantidades grandes se leen mejor con su coma. */
 const conMiles = (n: number): string => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 
-const unidadDe = (ctx: ContextoAnalisis, productoId: string): 'porcion' | 'vaso' =>
+const unidadDe = (ctx: ContextoAnalisis, productoId: string): string =>
   ctx.productos.find(p => p.id === productoId)?.unidad ?? 'porcion';
 
 /** '1 porción', '410 porciones', '1 vaso', '12 vasos'. */
-const cantidad = (n: number, unidad: 'porcion' | 'vaso'): string => {
-  const [uno, varios] = unidad === 'vaso' ? ['vaso', 'vasos'] : ['porción', 'porciones'];
+const cantidad = (n: number, unidad: string): string => {
+  const uno = unidad === 'porcion' ? 'porción' : unidad;
+  const varios =
+    unidad === 'porcion' ? 'porciones' : /[aeiouáéíóú]$/i.test(uno) ? `${uno}s` : `${uno}es`;
   return `${conMiles(n)} ${n === 1 ? uno : varios}`;
 };
 
@@ -218,8 +236,8 @@ const conArticulo = (nombre: string): string =>
 export const productoDe = (consulta: Consulta, ctx: ContextoAnalisis): Producto | undefined =>
   ctx.productos.find(p => p.id === consulta.producto && p.activo);
 
-const pedirProducto = (intencion: IntencionId, ejemplo: string): Hecho =>
-  hecho(intencion, `¿De cuál producto? Por ejemplo: ${ejemplo}.`);
+const pedirProducto = (intencion: IntencionId): Hecho =>
+  hecho(intencion, '¿De cuál producto? Escribe su nombre como aparece en tu catálogo.');
 
 /** 'rachi' de 'p-rachi' cuando el producto no aparece en la lista de la app. */
 const nombreDeId = (id: string): string => id.replace(/^p-/, '');
@@ -275,17 +293,17 @@ const diaDeLaSemana = (intencion: 'peorDia' | 'mejorDia', ctx: ContextoAnalisis)
 };
 
 const gananciaDeProductos = (ctx: ContextoAnalisis): GananciaProducto[] =>
-  gananciaPorProducto(ctx.cierres, restarDias(ctx.hoy, DIAS_PRODUCTOS));
+  gananciaPorProducto(ctx.cierres, restarDias(ctx.hoy, DIAS_PRODUCTOS), ctx.productos);
 
 const productoQueMasDeja = (ctx: ContextoAnalisis): Hecho => {
   const extremos = extremosDeVentas(gananciaDeProductos(ctx));
   if (extremos === null) return hecho('productoQueMasDeja', POCAS_VENTAS);
   const { masDeja: p } = extremos;
   const nombre = p.nombre.toLowerCase();
-  const porUnidad = unidadDe(ctx, p.productoId) === 'vaso' ? 'vaso' : 'porción';
+  const porUnidad = cantidad(1, unidadDe(ctx, p.productoId)).replace(/^1 /, '');
   return hecho(
     'productoQueMasDeja',
-    `${conArticulo(nombre)} es ${articulo(nombre)} que más te deja: ${formatoSoles(
+    `${conArticulo(nombre)} tiene la mayor diferencia estimada entre precio y costo: ${formatoSoles(
       p.teDeja,
     )} por ${porUnidad}, ${formatoSoles(p.ganancia)} en total.`,
   );
@@ -342,7 +360,7 @@ const cuantoPrepararTodos = (ctx: ContextoAnalisis): Hecho => {
     const sobrante = sobranteDeDosCiclos(ctx, id);
     if (sobrante === null) continue;
     const producto = ctx.productos.find(p => p.id === id);
-    const nombre = (sobrante.nombre ?? producto?.nombre ?? nombreDeId(id)).toLowerCase();
+    const nombre = (producto?.nombre ?? sobrante.nombre ?? nombreDeId(id)).toLowerCase();
     partes.push(
       sobrante.cantidad === 0
         ? `${nombre}, te alcanza lo que preparas`
@@ -358,19 +376,18 @@ const cuantoPreparar = (consulta: Consulta, ctx: ContextoAnalisis): Hecho => {
   const sobrante = sobranteDeDosCiclos(ctx, consulta.producto);
   if (sobrante === null) return hecho('cuantoPreparar', SIN_CICLO_CERRADO);
   const producto = ctx.productos.find(p => p.id === consulta.producto);
-  const nombre = (
-    sobrante.nombre ??
-    producto?.nombre ??
-    nombreDeId(consulta.producto)
-  ).toLowerCase();
+  const nombre = producto?.nombre ?? sobrante.nombre ?? nombreDeId(consulta.producto);
   if (sobrante.cantidad === 0) {
     return hecho(
       'cuantoPreparar',
-      `Con lo que preparas de ${nombre} te alcanza: en los últimos dos ciclos no te sobró nada.`,
+      `Con lo que preparas de ${nombre.toLowerCase()} te alcanza: en los últimos dos ciclos no registraste sobrantes.`,
     );
   }
   const menos = cantidad(sobrante.cantidad, producto?.unidad ?? 'porcion');
-  return hecho('cuantoPreparar', `Te sobró ${nombre} dos ciclos seguidos. Prepara ${menos} menos.`);
+  return hecho(
+    'cuantoPreparar',
+    `Registraste sobrantes de ${nombre} en dos ciclos seguidos. Prepara ${menos} menos.`,
+  );
 };
 
 const compararCiclo = (ctx: ContextoAnalisis): Hecho => {
@@ -384,23 +401,23 @@ const compararCiclo = (ctx: ContextoAnalisis): Hecho => {
 
 const revisarPrecio = (consulta: Consulta, ctx: ContextoAnalisis): Hecho => {
   const producto = productoDe(consulta, ctx);
-  if (producto === undefined) return pedirProducto('revisarPrecio', 'anticucho');
+  if (producto === undefined) return pedirProducto('revisarPrecio');
   const caida = caidaDePrecio(ctx, producto);
   if (caida !== null) {
     return hecho(
       'revisarPrecio',
-      `Tu ${caida.nombre.toLowerCase()} te deja ${formatoSoles(caida.caida)} menos que en ${
-        caida.mes
-      }. ¿Revisas el precio?`,
+      `La diferencia estimada por unidad de ${producto.nombre} bajó ${formatoSoles(
+        caida.caida,
+      )} desde ${caida.mes} (precio menos costo estimado). Revisa el precio.`,
     );
   }
   const nombre = producto.nombre.toLowerCase();
   const del = articulo(nombre) === 'la' ? 'de la' : 'del';
   return hecho(
     'revisarPrecio',
-    `El precio ${del} ${nombre} está bien: te deja ${formatoSoles(
+    `El precio ${del} ${nombre} no muestra una caída: diferencia estimada ${formatoSoles(
       teDeja(producto).monto,
-    )} por porción.`,
+    )} por ${cantidad(1, producto.unidad).replace(/^1 /, '')}.`,
   );
 };
 

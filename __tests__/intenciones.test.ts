@@ -250,7 +250,7 @@ describe('interpretarRespuesta', () => {
     });
   });
 
-  it.each(['intencion', 'producto', 'dia', 'confianza'])('falta el campo %s: null', campo => {
+  it.each(['intencion', 'dia', 'confianza'])('falta el campo %s: null', campo => {
     const sin: Record<string, unknown> = { ...valida };
     delete sin[campo];
     expect(interpretarRespuesta(sin)).toBeNull();
@@ -518,7 +518,7 @@ describe('productoQueMasDeja y productoQueMasSeVende', () => {
   it('el que más deja, con la ganancia por porción y en total', () => {
     const h = responderConsulta(consultaDe('productoQueMasDeja'), ctxDe(octubre));
     expect(h.frase).toBe(
-      'El anticucho es el que más te deja: S/ 1.80 por porción, S/ 486.00 en total.',
+      'El anticucho tiene la mayor diferencia estimada entre precio y costo: S/ 1.80 por porción, S/ 486.00 en total.',
     );
     expect(h.cifras).toEqual(['1.80', '486.00']);
   });
@@ -545,7 +545,7 @@ describe('productoQueMasDeja y productoQueMasSeVende', () => {
       'La chicha es la que más se vende: 300 vasos en los últimos 30 días.',
     );
     expect(frase(consultaDe('productoQueMasDeja'), ctxDe(cierres, productos))).toBe(
-      'El anticucho es el que más te deja: S/ 1.80 por porción, S/ 36.00 en total.',
+      'El anticucho tiene la mayor diferencia estimada entre precio y costo: S/ 1.80 por porción, S/ 36.00 en total.',
     );
   });
 
@@ -592,7 +592,7 @@ describe('productoQueMasDeja y productoQueMasSeVende', () => {
       }),
     ];
     expect(frase(consultaDe('productoQueMasDeja'), ctxDe(cierres))).toBe(
-      'El anticucho es el que más te deja: S/ 2.00 por porción, S/ 200.00 en total.',
+      'El anticucho tiene la mayor diferencia estimada entre precio y costo: S/ 2.00 por porción, S/ 200.00 en total.',
     );
     expect(frase(consultaDe('productoQueMasSeVende'), ctxDe(cierres))).toBe(
       'El anticucho es el que más se vende: 100 porciones en los últimos 30 días.',
@@ -649,14 +649,16 @@ describe('cuantoSacarParaLaCasa', () => {
 
   it('con ganancia en el último ciclo cerrado', () => {
     const h = responderConsulta(consultaDe('cuantoSacarParaLaCasa'), ctxDe(ciclos(400, 232)));
-    expect(h.frase).toBe('Puedes sacar S/ 168.00 para la casa sin tocar tu capital.');
+    expect(h.frase).toBe(
+      'El resultado registrado del ciclo fue S/ 168.00. Antes de retirar dinero, revisa los cobros pendientes.',
+    );
     expect(h.cifras).toEqual(['168.00']);
   });
 
   it('sin ganancia', () => {
     const h = responderConsulta(consultaDe('cuantoSacarParaLaCasa'), ctxDe(ciclos(200, 244)));
     expect(h.frase).toBe(
-      'Este ciclo no te dejó ganancia. Mejor no saques plata del negocio todavía.',
+      'El resultado registrado del ciclo no fue positivo. Revisa ventas, gastos y cobros pendientes antes de retirar dinero.',
     );
     expect(h.cifras).toEqual([]);
   });
@@ -685,7 +687,9 @@ describe('cuantoPreparar', () => {
       consultaDe('cuantoPreparar', { producto: 'p-rachi' }),
       ctxDe(cierres),
     );
-    expect(h.frase).toBe('Te sobró rachi dos ciclos seguidos. Prepara 5 porciones menos.');
+    expect(h.frase).toBe(
+      'Registraste sobrantes de Rachi en dos ciclos seguidos. Prepara 5 porciones menos.',
+    );
     expect(h.cifras).toEqual(['5']);
   });
 
@@ -704,7 +708,7 @@ describe('cuantoPreparar', () => {
   it('un sobrante chico igual se dice, y en singular', () => {
     const cierres = [rachi('2026-09-14', 1, true), rachi('2026-09-28', 2, true)];
     expect(frase(consultaDe('cuantoPreparar', { producto: 'p-rachi' }), ctxDe(cierres))).toBe(
-      'Te sobró rachi dos ciclos seguidos. Prepara 1 porción menos.',
+      'Registraste sobrantes de Rachi en dos ciclos seguidos. Prepara 1 porción menos.',
     );
   });
 
@@ -716,7 +720,7 @@ describe('cuantoPreparar', () => {
       [producto('Chicha', 2, 1.6, { unidad: 'vaso' })],
     );
     expect(frase(consultaDe('cuantoPreparar', { producto: 'p-chicha' }), ctx)).toBe(
-      'Te sobró chicha dos ciclos seguidos. Prepara 6 vasos menos.',
+      'Registraste sobrantes de Chicha en dos ciclos seguidos. Prepara 6 vasos menos.',
     );
   });
 
@@ -727,7 +731,7 @@ describe('cuantoPreparar', () => {
       ctxDe(cierres),
     );
     expect(h.frase).toBe(
-      'Con lo que preparas de rachi te alcanza: en los últimos dos ciclos no te sobró nada.',
+      'Con lo que preparas de rachi te alcanza: en los últimos dos ciclos no registraste sobrantes.',
     );
     expect(h.cifras).toEqual([]);
   });
@@ -735,7 +739,7 @@ describe('cuantoPreparar', () => {
   it('un producto que no se preparó en esos ciclos también le alcanza', () => {
     const cierres = [rachi('2026-09-14', 4, true), rachi('2026-09-28', 4, true)];
     expect(frase(consultaDe('cuantoPreparar', { producto: 'p-pancita' }), ctxDe(cierres))).toBe(
-      'Con lo que preparas de pancita te alcanza: en los últimos dos ciclos no te sobró nada.',
+      'Con lo que preparas de pancita te alcanza: en los últimos dos ciclos no registraste sobrantes.',
     );
   });
 
@@ -772,7 +776,7 @@ describe('compararCiclo', () => {
       consultaDe('compararCiclo'),
       ctxDe([dia('2026-09-14', 300, 86), dia('2026-09-28', 400, 138)]),
     );
-    expect(h.frase).toBe('Ganaste S/ 48.00 más que el ciclo pasado.');
+    expect(h.frase).toBe('Resultado registrado S/ 48.00 más que el ciclo pasado.');
     expect(h.cifras).toEqual(['48.00']);
   });
 
@@ -782,13 +786,13 @@ describe('compararCiclo', () => {
         consultaDe('compararCiclo'),
         ctxDe([dia('2026-09-14', 400, 138), dia('2026-09-28', 300, 86)]),
       ),
-    ).toBe('Ganaste S/ 48.00 menos que el ciclo pasado.');
+    ).toBe('Resultado registrado S/ 48.00 menos que el ciclo pasado.');
     expect(
       frase(
         consultaDe('compararCiclo'),
         ctxDe([dia('2026-09-14', 300, 86), dia('2026-09-28', 300, 86)]),
       ),
-    ).toBe('Ganaste lo mismo que el ciclo pasado.');
+    ).toBe('Resultado registrado igual al ciclo pasado.');
   });
 
   it('con un solo ciclo, o ninguno', () => {
@@ -810,7 +814,9 @@ describe('revisarPrecio', () => {
     ];
     const ctx = ctxDe(cierres, [producto('Anticucho', 10, 8.8)]);
     const h = responderConsulta(consultaDe('revisarPrecio', { producto: 'p-anticucho' }), ctx);
-    expect(h.frase).toBe('Tu anticucho te deja S/ 0.60 menos que en julio. ¿Revisas el precio?');
+    expect(h.frase).toBe(
+      'La diferencia estimada por unidad de Anticucho bajó S/ 0.60 desde julio (precio menos costo estimado). Revisa el precio.',
+    );
     expect(h.cifras).toEqual(['0.60']);
     expect(h.frase).toBe(evaluarReglas(ctx).find(r => r.reglaId === 'precio')?.mensaje);
   });
@@ -825,10 +831,14 @@ describe('revisarPrecio', () => {
     const productos = [producto('Anticucho', 10, 8.2), producto('Pancita', 9, 8)];
     expect(
       frase(consultaDe('revisarPrecio', { producto: 'p-anticucho' }), ctxDe(cierres, productos)),
-    ).toBe('El precio del anticucho está bien: te deja S/ 1.80 por porción.');
+    ).toBe(
+      'El precio del anticucho no muestra una caída: diferencia estimada S/ 1.80 por porción.',
+    );
     expect(
       frase(consultaDe('revisarPrecio', { producto: 'p-pancita' }), ctxDe(cierres, productos)),
-    ).toBe('Tu pancita te deja S/ 2.00 menos que en julio. ¿Revisas el precio?');
+    ).toBe(
+      'La diferencia estimada por unidad de Pancita bajó S/ 2.00 desde julio (precio menos costo estimado). Revisa el precio.',
+    );
   });
 
   it('si no cayó, dice cuánto deja hoy', () => {
@@ -837,7 +847,9 @@ describe('revisarPrecio', () => {
       consultaDe('revisarPrecio', { producto: 'p-anticucho' }),
       ctxDe(cierres, [producto('Anticucho', 10, 8.2)]),
     );
-    expect(h.frase).toBe('El precio del anticucho está bien: te deja S/ 1.80 por porción.');
+    expect(h.frase).toBe(
+      'El precio del anticucho no muestra una caída: diferencia estimada S/ 1.80 por porción.',
+    );
     expect(h.cifras).toEqual(['1.80']);
   });
 
@@ -847,7 +859,7 @@ describe('revisarPrecio', () => {
         consultaDe('revisarPrecio', { producto: 'p-chicha' }),
         ctxDe([], [producto('Chicha', 2, 1.6, { unidad: 'vaso' })]),
       ),
-    ).toBe('El precio de la chicha está bien: te deja S/ 0.40 por porción.');
+    ).toBe('El precio de la chicha no muestra una caída: diferencia estimada S/ 0.40 por vaso.');
   });
 
   it('una caída menor a S/ 0.30 no cuenta', () => {
@@ -857,11 +869,13 @@ describe('revisarPrecio', () => {
         consultaDe('revisarPrecio', { producto: 'p-anticucho' }),
         ctxDe(cierres, [producto('Anticucho', 10, 8.4)]),
       ),
-    ).toBe('El precio del anticucho está bien: te deja S/ 1.60 por porción.');
+    ).toBe(
+      'El precio del anticucho no muestra una caída: diferencia estimada S/ 1.60 por porción.',
+    );
   });
 
   it('sin producto, o con uno que la app no tiene, lo pide', () => {
-    const pide = '¿De cuál producto? Por ejemplo: anticucho.';
+    const pide = '¿De cuál producto? Escribe su nombre como aparece en tu catálogo.';
     expect(frase(consultaDe('revisarPrecio'), ctxDe([], [producto('Anticucho', 10, 8.2)]))).toBe(
       pide,
     );
@@ -1042,14 +1056,13 @@ describe('no mutan lo que reciben', () => {
 });
 
 describe('la regla del día flojo no cambió al compartir su medición', () => {
-  // Resultado de cada regla (null = no aplica) con la semilla real, medido ANTES de refactorizar
-  // `reglas.ts`: seis reglas, de `cobro` a `comparacion`. Si el refactor cambia una sola frase, falla.
+  // Resultado de cada regla (null = no aplica) con la semilla real; conserva cifras y orden.
   const COMUN = [
-    'Tu anticucho te deja S/ 0.40 menos que en julio. ¿Revisas el precio?',
-    'Te sobró rachi dos ciclos seguidos. Prepara 10 porciones menos.',
-    'Puedes sacar S/ 269.00 para la casa sin tocar tu capital.',
-    'Los miércoles ganas S/ 18.13 menos que tu promedio.',
-    'Ganaste S/ 78.00 menos que el ciclo pasado',
+    'La diferencia estimada por unidad de Anticucho bajó S/ 0.40 desde julio (precio menos costo estimado). Revisa el precio.',
+    'Registraste sobrantes de Rachi en dos ciclos seguidos. Prepara 10 porciones menos.',
+    'El resultado registrado del ciclo fue S/ 269.00. Antes de retirar dinero, revisa los cobros pendientes.',
+    'Los miércoles el resultado estimado por producto fue S/ 18.13 menor que el promedio.',
+    'Resultado registrado S/ 78.00 menos que el ciclo pasado',
   ];
   const ANTES: Record<string, string[]> = {
     '2026-10-07': ['Tienes S/ 427.00 por cobrar desde el 29 de septiembre.', ...COMUN],
@@ -1130,15 +1143,17 @@ describe('recorrido con la semilla real', () => {
     expect(dice(consultaDe('cuantoPorCobrar'))).toBe(regla('cobro'));
     expect(dice(consultaDe('revisarPrecio', { producto: 'p-anticucho' }))).toBe(regla('precio'));
     expect(dice(consultaDe('cuantoSacarParaLaCasa'))).toBe(
-      'Puedes sacar S/ 269.00 para la casa sin tocar tu capital.',
+      'El resultado registrado del ciclo fue S/ 269.00. Antes de retirar dinero, revisa los cobros pendientes.',
     );
     expect(dice(consultaDe('cuantoPreparar', { producto: 'p-rachi' }))).toBe(
-      'Te sobró rachi dos ciclos seguidos. Prepara 10 porciones menos.',
+      'Registraste sobrantes de Rachi en dos ciclos seguidos. Prepara 10 porciones menos.',
     );
     expect(dice(consultaDe('peorDia'))).toBe(
       'Los miércoles son tu día más flojo: ganas S/ 18.13 menos que tu promedio.',
     );
-    expect(dice(consultaDe('compararCiclo'))).toBe('Ganaste S/ 78.00 menos que el ciclo pasado.');
+    expect(dice(consultaDe('compararCiclo'))).toBe(
+      'Resultado registrado S/ 78.00 menos que el ciclo pasado.',
+    );
   });
 
   it('los días con y sin cierre responden sin error técnico', () => {

@@ -16,12 +16,22 @@ import { clearAllMockStorages } from '@react-native-async-storage/async-storage/
 import App from '../App';
 import { colors } from '@theme';
 import { PREGUNTAS_SUGERIDAS } from '@analisis/intenciones';
+import { materializarSemilla, validarSemilla } from '@dominio/semilla';
+import { importarSemilla } from '@storage/repositorio';
 import { JEV_URL, SEED_URL } from '../src/config';
 
 const TEXTO_PRIVACIDAD =
-  'Tu pregunta y unos totales se envían a un servicio de inteligencia artificial para entenderla y escribirte la respuesta. Nunca va tu nombre, tu Yape ni tus movimientos.';
+  'Tu pregunta se envía a un servicio de inteligencia artificial para entenderla. Algunas respuestas se envían ya calculadas para valorar cómo va el negocio. Nunca va tu nombre, tu Yape ni tus movimientos.';
 const RUTA_SEMILLA = join(__dirname, '..', 'seed', 'semilla.json');
 const SEMILLA = readFileSync(RUTA_SEMILLA, 'utf8');
+const prepararDemostracion = async () => {
+  const validada = validarSemilla(JSON.parse(SEMILLA));
+  if (!validada.ok) throw new Error('La semilla no valida');
+  await importarSemilla(
+    materializarSemilla(validada.semilla, new Date()),
+    new Date().toISOString(),
+  );
+};
 
 type Tipo = 'interpretar' | 'redactar' | 'juzgar';
 interface Cuerpo {
@@ -189,18 +199,18 @@ describe('Chat "Preguntarle a mis datos": lo que se envía y cuándo', () => {
     expect(red.tipos().filter(t => t === 'interpretar')).toHaveLength(1);
   });
 
-  it('una intención que se juzga hace 1 petición para interpretar, 1 para redactar y 1 para juzgar', async () => {
+  it('una intención que se juzga pide clasificación y juicio, sin redacción', async () => {
     const red = ponerRed({
       interpretar: () => respuestaJson(interpretacion('peorDia')),
-      redactar: () => respuestaJson({ texto: 'No sale.' }),
       juzgar: () => respuestaJson({ semaforo: 'ojo', confianza: 0.9 }),
     });
+    await prepararDemostracion();
     const p = await montarApp();
 
     await p.abrirDesdeInicio();
     await p.preguntar('¿qué día me va peor?');
 
-    expect([...red.tipos()].sort()).toEqual(['interpretar', 'juzgar', 'redactar']);
+    expect(red.tipos()).toEqual(['interpretar', 'juzgar']);
   });
 
   it('tocar "Preguntar" con el campo vacío o con solo espacios no envía nada', async () => {
@@ -393,6 +403,7 @@ describe('Chat "Preguntarle a mis datos": lo que se ve', () => {
       interpretar: () => respuestaJson(interpretacion('peorDia')),
       juzgar: () => respuestaJson({ semaforo: 'urgente', confianza: 0.3 }),
     });
+    await prepararDemostracion();
     const p = await montarApp();
 
     await p.abrirDesdeInicio();
@@ -407,6 +418,7 @@ describe('Chat "Preguntarle a mis datos": lo que se ve', () => {
       interpretar: () => respuestaJson(interpretacion('peorDia')),
       juzgar: () => respuestaJson({ semaforo: 'urgente', confianza: 0.9 }),
     });
+    await prepararDemostracion();
     const p = await montarApp();
 
     await p.abrirDesdeInicio();
@@ -730,6 +742,7 @@ describe('Chat "Preguntarle a mis datos": los accesos', () => {
 
   it('el botón flotante no tapa "Cerrar mi día": el scroll le deja su espacio al final', async () => {
     ponerRed({});
+    await prepararDemostracion();
     const p = await montarApp();
 
     const scroll = p.app.root.findAll(n => esHost(n, 'RCTScrollView'))[0];

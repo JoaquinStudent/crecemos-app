@@ -280,7 +280,7 @@ describe('Inicio: tarjeta del ciclo de compra', () => {
     expect(colorDe('inicio-ciclo-vendiste')).toBe(colors.success);
     expect(textoDe('inicio-ciclo-gastaste')).toBe('− S/ 318.00');
     expect(colorDe('inicio-ciclo-gastaste')).toBe(colors.danger);
-    expect(textos()).toContain('Te queda');
+    expect(textos()).toContain('Resultado registrado');
     expect(textos()).toContain('Vendiste');
     expect(textos()).toContain('Gastaste');
   });
@@ -539,7 +539,7 @@ describe('Inicio: sin cierres y los datos de ejemplo', () => {
     expect(textos()).toContain('Aún no cierras ningún día');
     expect(existe('inicio-cerrar-dia')).toBe(true);
     expect(textoDe('inicio-semilla-mensaje')).toBe(
-      'Sin señal no pasa nada: la app funciona igual.',
+      'Puedes probar la app con datos de ejemplo. Se cargarán solo si tocas este botón.',
     );
     expect(textos()).toContain('Cargar datos de ejemplo');
     expect(existe('inicio-cargar-ejemplo')).toBe(true);
@@ -549,7 +549,8 @@ describe('Inicio: sin cierres y los datos de ejemplo', () => {
   it('con una semilla inválida dice "No pudimos cargar los datos de ejemplo" y deja reintentar', async () => {
     servidorQueResponde(JSON.stringify({ version: 1, semilla: 'x' }));
 
-    const { existe, textoDe, textos } = await montarApp();
+    const { tocar, existe, textoDe, textos } = await montarApp();
+    await tocar('inicio-cargar-ejemplo');
 
     expect(textoDe('inicio-semilla-mensaje')).toBe('No pudimos cargar los datos de ejemplo');
     expect(existe('inicio-cargar-ejemplo')).toBe(true);
@@ -562,7 +563,8 @@ describe('Inicio: sin cierres y los datos de ejemplo', () => {
       () => new Promise<Response>(resolver => (soltar = resolver)),
     ) as unknown as typeof fetch;
 
-    const { existe, textoDe } = await montarApp();
+    const { tocar, existe, textoDe } = await montarApp();
+    await tocar('inicio-cargar-ejemplo');
 
     expect(textoDe('inicio-semilla-mensaje')).toBe('Cargando datos de ejemplo…');
     expect(existe('inicio-cargar-ejemplo')).toBe(false);
@@ -587,7 +589,8 @@ describe('Inicio: sin cierres y los datos de ejemplo', () => {
     // Semilla válida sin cierres: queda "lista" con 0 cierres, como quien ya borró todo.
     servidorQueResponde(semillaMinima([]));
 
-    const { existe, textos } = await montarApp();
+    const { tocar, existe, textos } = await montarApp();
+    await tocar('inicio-cargar-ejemplo');
 
     expect(existe('inicio-cerrar-dia')).toBe(true);
     expect(existe('inicio-semilla-mensaje')).toBe(false);
@@ -703,7 +706,7 @@ const sembrarDosCiclosSinAlertas = async () => {
 };
 
 const FRASE_DEL_INSIGHT =
-  'La pancita se vende más, pero el anticucho te deja S/ 0.80 más por porción.';
+  'La pancita se vende más. La diferencia estimada por unidad del anticucho es S/ 0.80 mayor (precio menos costo estimado).';
 
 describe('Inicio: el orden de las tarjetas', () => {
   beforeEach(() => {
@@ -954,7 +957,7 @@ describe('Inicio: las recomendaciones', () => {
       /^Tienes S\/ 120\.00 por cobrar desde el \d+ de \w+\.$/,
     );
     expect(textoDe('inicio-recomendacion-precio-texto')).toMatch(
-      /^Tu anticucho te deja S\/ 1\.40 menos que en \w+\. ¿Revisas el precio\?$/,
+      /^La diferencia estimada por unidad de Anticucho bajó S\/ 1\.40 desde \w+ \(precio menos costo estimado\)\. Revisa el precio\.$/,
     );
   });
 
@@ -968,10 +971,10 @@ describe('Inicio: las recomendaciones', () => {
       'inicio-recomendacion-comparacion',
     ]);
     expect(textoDe('inicio-recomendacion-retiro-texto')).toBe(
-      'Puedes sacar S/ 100.00 para la casa sin tocar tu capital.',
+      'El resultado registrado del ciclo fue S/ 100.00. Antes de retirar dinero, revisa los cobros pendientes.',
     );
     expect(textoDe('inicio-recomendacion-comparacion-texto')).toBe(
-      'Ganaste S/ 100.00 más que el ciclo pasado',
+      'Resultado registrado S/ 100.00 más que el ciclo pasado',
     );
   });
 

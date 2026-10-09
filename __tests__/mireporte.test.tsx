@@ -433,14 +433,16 @@ describe('Mi reporte', () => {
       }`,
     );
     expect(app.textosDeLaPantalla()).toContain('Venta promedio mensual');
-    expect(app.textosDeLaPantalla()).toContain('Ganancia promedio mensual');
+    expect(app.textosDeLaPantalla()).toContain('Resultado registrado promedio mensual');
     expect(app.textosDeLaPantalla()).toContain('Constancia de registro');
 
     await app.tocar('reporte-compartir');
     const enviado = compartir.mock.calls[0][0];
     expect(enviado).toBe(textoReporte(s, FREDDY));
     expect(enviado).toContain('Venta promedio mensual: S/ 5,120.00');
-    expect(enviado).toContain('Ganancia promedio mensual: S/ 2,180.00');
+    expect(enviado).toContain(
+      'Resultado registrado promedio mensual (ventas menos gastos): S/ 2,180.00',
+    );
   });
 
   it('el periodo y el pie dicen las fechas en palabras, con los días registrados', async () => {

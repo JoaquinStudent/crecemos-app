@@ -44,7 +44,7 @@ const Contenido = ({
   onClose: () => void;
   onEditar: (fecha: FechaNegocio) => void;
 }) => {
-  const { eliminarDia } = useCrecemos();
+  const { eliminarDia, productos } = useCrecemos();
   const insets = useSafeAreaInsets();
   const [confirmando, setConfirmando] = useState(false);
   const [borrando, setBorrando] = useState(false);
@@ -71,7 +71,7 @@ const Contenido = ({
           </Text>
 
           <View style={styles.resultado}>
-            <Text variant="label">Te queda</Text>
+            <Text variant="label">Resultado registrado</Text>
             <Text
               variant="amount"
               color={teQueda < 0 ? 'danger' : 'success'}
@@ -79,7 +79,24 @@ const Contenido = ({
             >
               {formatoSoles(teQueda)}
             </Text>
+            <Text variant="caption" color="textMuted">
+              Ventas menos gastos registrados. Incluye pagos pendientes de recibir.
+            </Text>
           </View>
+
+          {cierre.lineas.map(linea => (
+            <Text
+              key={linea.productoId}
+              variant="bodySmall"
+              testID={`hoja-producto-${linea.productoId}`}
+            >
+              {`${productos.find(p => p.id === linea.productoId)?.nombre ?? linea.nombre}: ${
+                linea.preparadas - linea.sobrantes
+              } vendidas · ${formatoSoles(
+                (linea.preparadas - linea.sobrantes) * linea.precioUnitario,
+              )}`}
+            </Text>
+          ))}
 
           {confirmando ? (
             <Text

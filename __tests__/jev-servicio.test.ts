@@ -403,21 +403,20 @@ describe('consultar', () => {
   const servidor = (clasificacion: unknown, redaccion: () => Promise<Response>) =>
     jest.fn().mockResolvedValueOnce(json(clasificacion)).mockImplementation(redaccion);
 
-  it('con todo en orden muestra la redacción, con la frase fija a mano, en 2 peticiones', async () => {
+  it('con todo en orden muestra la frase fija en una petición', async () => {
     const f = servidor(AYER, async () => json({ texto: REDACCION }));
 
     const r = await consultar(comoFetch(f), URL_PRUEBA, '¿cuánto vendí ayer?', CTX);
 
     expect(r).toMatchObject({
       tipo: 'respuesta',
-      texto: REDACCION,
+      texto: FRASE_AYER,
       frase: FRASE_AYER,
-      redactada: true,
+      redactada: false,
     });
     expect(r.tipo === 'respuesta' && r.hecho).toEqual(hechoDe(FRASE_AYER));
-    expect(f).toHaveBeenCalledTimes(2);
+    expect(f).toHaveBeenCalledTimes(1);
     expect(JSON.parse(llamadas(f)[0][1].body ?? '').tipo).toBe('interpretar');
-    expect(JSON.parse(llamadas(f)[1][1].body ?? '').tipo).toBe('redactar');
   });
 
   it('una redacción que cambia una cifra se descarta y se muestra la frase fija', async () => {
@@ -426,7 +425,7 @@ describe('consultar', () => {
     const r = await consultar(comoFetch(f), URL_PRUEBA, '¿cuánto vendí ayer?', CTX);
 
     expect(r).toMatchObject({ tipo: 'respuesta', texto: FRASE_AYER, redactada: false });
-    expect(f).toHaveBeenCalledTimes(2);
+    expect(f).toHaveBeenCalledTimes(1);
   });
 
   it('si el redactor cae, falla o devuelve basura, se muestra la frase fija', async () => {
@@ -440,7 +439,7 @@ describe('consultar', () => {
       const f = servidor(AYER, camino);
       const r = await consultar(comoFetch(f), URL_PRUEBA, '¿cuánto vendí ayer?', CTX);
       expect(r).toMatchObject({ tipo: 'respuesta', texto: FRASE_AYER, redactada: false });
-      expect(f).toHaveBeenCalledTimes(2);
+      expect(f).toHaveBeenCalledTimes(1);
     }
   });
 
@@ -461,7 +460,7 @@ describe('consultar', () => {
     await pendiente;
 
     expect(resultado).toMatchObject({ tipo: 'respuesta', texto: FRASE_AYER, redactada: false });
-    expect(g).toHaveBeenCalledTimes(2);
+    expect(g).toHaveBeenCalledTimes(1);
   });
 
   it('sin internet (e6) dice que necesita internet, en una sola petición', async () => {
@@ -566,7 +565,7 @@ describe('consultar', () => {
     const segunda = await consultar(comoFetch(bien), URL_PRUEBA, '¿cuánto vendí ayer?', CTX);
 
     expect(primera.tipo).toBe('sinInternet');
-    expect(segunda).toMatchObject({ tipo: 'respuesta', redactada: true });
+    expect(segunda).toMatchObject({ tipo: 'respuesta', redactada: false });
   });
 
   it('ningún código ni mensaje técnico llega al texto de Freddy, por ningún camino', async () => {
@@ -595,7 +594,7 @@ describe('consultar', () => {
 
 // --- El semáforo: juzgarRespuesta y su lugar en consultar ------------------------------------------
 
-const FRASE_CICLO = 'Ganaste S/ 78.00 menos que el ciclo pasado.';
+const FRASE_CICLO = 'Resultado registrado S/ 78.00 menos que el ciclo pasado.';
 const REDACCION_CICLO = 'Este ciclo te quedaron S/ 78.00 menos que en el pasado.';
 const HECHO_JUICIO: HechoJuicio = {
   ...hechoDe(FRASE_CICLO),
@@ -750,7 +749,7 @@ describe('consultar con semáforo', () => {
   const interpreta = async () => json(CICLO);
   const redacta = async () => json({ texto: REDACCION_CICLO });
 
-  it('en una intención juzgable pide redactar y juzgar, y la respuesta lleva el semáforo', async () => {
+  it('en una intención juzgable pide juicio y muestra la frase fija', async () => {
     const f = servidor({
       interpretar: interpreta,
       redactar: redacta,
@@ -766,14 +765,14 @@ describe('consultar con semáforo', () => {
 
     expect(r).toMatchObject({
       tipo: 'respuesta',
-      texto: REDACCION_CICLO,
+      texto: FRASE_CICLO,
       frase: FRASE_CICLO,
-      redactada: true,
+      redactada: false,
       semaforo: 'ojo',
     });
-    expect(f).toHaveBeenCalledTimes(3);
+    expect(f).toHaveBeenCalledTimes(2);
     expect(tiposDe(f)[0]).toBe('interpretar');
-    expect(tiposDe(f).slice(1).sort()).toEqual(['juzgar', 'redactar']);
+    expect(tiposDe(f).slice(1)).toEqual(['juzgar']);
     // Lo que se manda a juzgar sale del dominio: la frase, las cifras y las señales con nombre.
     const juicio = llamadas(f)
       .map(([, init]) => JSON.parse(init.body ?? '{}'))
@@ -786,7 +785,7 @@ describe('consultar con semáforo', () => {
     });
   });
 
-  it('pide la redacción y el juicio a la vez, sin esperar a uno para pedir el otro', async () => {
+  it('pide solo el juicio después de clasificar', async () => {
     let enVuelo = 0;
     let maximo = 0;
     const lento = (cuerpo: unknown) => async () => {
@@ -804,7 +803,7 @@ describe('consultar con semáforo', () => {
 
     await consultar(comoFetch(f), URL_PRUEBA, 'hola', CTX_CICLO);
 
-    expect(maximo).toBe(2);
+    expect(maximo).toBe(1);
   });
 
   it('si el juicio falla, tarda, o su confianza es menor a 0.6, sale igual sin semáforo ni mensaje técnico', async () => {
@@ -818,7 +817,7 @@ describe('consultar con semáforo', () => {
     for (const juzgar of fallos) {
       const f = servidor({ interpretar: interpreta, redactar: redacta, juzgar });
       const r = await consultar(comoFetch(f), URL_PRUEBA, 'hola', CTX_CICLO);
-      expect(r).toMatchObject({ tipo: 'respuesta', texto: REDACCION_CICLO, redactada: true });
+      expect(r).toMatchObject({ tipo: 'respuesta', texto: FRASE_CICLO, redactada: false });
       expect(r).not.toHaveProperty('semaforo');
       expect(JSON.stringify(r)).not.toMatch(TECNICO);
     }
@@ -842,7 +841,6 @@ describe('consultar con semáforo', () => {
     const f = jest
       .fn()
       .mockResolvedValueOnce(json(CICLO))
-      .mockResolvedValueOnce(json({ texto: REDACCION_CICLO }))
       .mockImplementationOnce((url: unknown, init?: { signal?: AbortSignal }) => lento(url, init));
     let resultado: unknown;
     const pendiente = consultar(comoFetch(f), URL_PRUEBA, 'hola', CTX_CICLO).then(r => {
@@ -852,7 +850,7 @@ describe('consultar con semáforo', () => {
     await jest.advanceTimersByTimeAsync(8000);
     await pendiente;
 
-    expect(resultado).toMatchObject({ tipo: 'respuesta', texto: REDACCION_CICLO, redactada: true });
+    expect(resultado).toMatchObject({ tipo: 'respuesta', texto: FRASE_CICLO, redactada: false });
     expect(resultado).not.toHaveProperty('semaforo');
   });
 
@@ -864,9 +862,9 @@ describe('consultar con semáforo', () => {
 
     const r = await consultar(comoFetch(f), URL_PRUEBA, '¿cuánto vendí ayer?', CTX);
 
-    expect(r).toMatchObject({ tipo: 'respuesta', redactada: true });
+    expect(r).toMatchObject({ tipo: 'respuesta', redactada: false });
     expect(r).not.toHaveProperty('semaforo');
-    expect(tiposDe(f)).toEqual(['interpretar', 'redactar']);
+    expect(tiposDe(f)).toEqual(['interpretar']);
   });
 
   it('una respuesta juzgable sin datos ("todavía no…") no pide ni redactar ni juzgar', async () => {

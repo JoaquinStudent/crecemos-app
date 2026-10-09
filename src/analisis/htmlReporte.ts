@@ -28,7 +28,8 @@ const SIN_MES = 'aún no hay un mes completo';
 const TITULO_COMO_LEER = 'Cómo leer este reporte';
 const DEFINICION_VENTA =
   'lo que vendió el negocio en un mes, promediado sobre los últimos meses completos.';
-const DEFINICION_GANANCIA = 'lo que le queda al negocio en el mes, después de restar lo que gastó.';
+const DEFINICION_GANANCIA =
+  'ventas menos gastos registrados en el mes; incluye pagos pendientes de recibir.';
 const DEFINICION_CONSTANCIA = `el porcentaje de los últimos ${VENTANA_DIAS} días en los que el negocio registró su día de ventas.`;
 
 const ENTIDADES: Record<string, string> = {
@@ -164,7 +165,7 @@ const tarjetas = (s: Senales): string => {
   return (
     '<div class="tarjetas">' +
     cifra('Venta promedio mensual', s.ventaPromedioMensual) +
-    cifra('Ganancia promedio mensual', s.gananciaPromedioMensual) +
+    cifra('Resultado registrado promedio mensual', s.gananciaPromedioMensual) +
     '<div class="tarjeta"><div class="etiqueta">Constancia de registro</div>' +
     `<div class="valor">${s.constancia} %</div>` +
     `<div class="detalle">${diasRegistradosTexto(s.diasRegistrados)}</div>` +
@@ -228,7 +229,7 @@ const comoLeer = (): string => {
   return (
     `<div class="seccion"><div class="subtitulo">${TITULO_COMO_LEER}</div>` +
     definicion('Venta promedio mensual', DEFINICION_VENTA) +
-    definicion('Ganancia promedio mensual', DEFINICION_GANANCIA) +
+    definicion('Resultado registrado promedio mensual', DEFINICION_GANANCIA) +
     definicion('Constancia de registro', DEFINICION_CONSTANCIA) +
     '</div>'
   );
