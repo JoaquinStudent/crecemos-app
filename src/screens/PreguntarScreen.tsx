@@ -29,18 +29,23 @@ import { Button } from '@components/atoms/Button';
 import { Icon } from '@components/atoms/Icon';
 import { Input } from '@components/atoms/Input';
 import { BurbujaChat } from '@components/molecules/BurbujaChat';
+import { responderCharla } from '@analisis/charla';
 import { PREGUNTAS_SUGERIDAS } from '@analisis/intenciones';
 import { fechaLocal } from '@dominio/fecha';
-import type { Semaforo } from '@dominio/tipos';
+import type { Consulta, Semaforo } from '@dominio/tipos';
 import { useCrecemos } from '@context/CrecemosProvider';
-import { consultar, MAX_CARACTERES_PREGUNTA, TEXTO_NO_ENTENDI } from '@services/jev';
+import { consultar, MAX_CARACTERES_PREGUNTA } from '@services/jev';
 import type { RootStackParamList } from '@navigation/RootStack';
 import { JEV_URL } from '../config';
 
 const TEXTO_PRIVACIDAD =
   'Tu pregunta y unos totales se envían a un servicio de inteligencia artificial para entenderla y escribirte la respuesta. Nunca va tu nombre, tu Yape ni tus movimientos.';
 const TEXTO_AVISO_CORTO = 'Tu pregunta se envía a una IA';
-const TEXTO_INVITACION = 'Toca una pregunta o escribe la tuya:';
+const TEXTO_INVITACION =
+  'Pregúntame lo que quieras de tus ventas. Toca una pregunta o escribe la tuya:';
+/** Cuando no se entendió la pregunta: dice con qué sí puede ayudar y ofrece las sugeridas. */
+const TEXTO_NO_ENTENDI =
+  'No te entendí bien. Puedo ayudarte con tus ventas, lo que te deben y qué producto te deja más. Prueba con una de estas:';
 /** Alto máximo del panel de sugeridas: si no cabe, se desplaza por dentro y siempre se puede cerrar. */
 const ALTO_MAXIMO_PANEL = 200;
 
@@ -50,11 +55,12 @@ interface Mensaje {
   autor: 'freddy' | 'jev';
   texto: string;
   semaforo?: Semaforo;
+  /** La burbuja termina invitando a una pregunta sugerida, que sale justo debajo. */
   noEntendi?: boolean;
 }
 
 export const PreguntarScreen = () => {
-  const { cierres, productos } = useCrecemos();
+  const { cierres, productos, perfil } = useCrecemos();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList, 'Preguntar'>>();
 
   const [mensajes, setMensajes] = useState<Mensaje[]>([]);
@@ -67,6 +73,9 @@ export const PreguntarScreen = () => {
   const ocupado = useRef(false);
   const montado = useRef(true);
   const siguienteId = useRef(0);
+  // La última consulta resuelta del hilo, solo en el teléfono: completa los seguimientos ("¿y de la
+  // pancita?"). Nunca viaja a Jev y se va con la pantalla, igual que el historial.
+  const previa = useRef<Consulta | null>(null);
   const scroll = useRef<React.ComponentRef<typeof ScrollView>>(null);
   // Dónde empieza (de arriba hacia abajo) la última pregunta de Freddy, para dejarla a la vista.
   const alturaUltimaPregunta = useRef<number | null>(null);
@@ -95,18 +104,34 @@ export const PreguntarScreen = () => {
     setTexto('');
     setPanelAbierto(false);
     agregar({ autor: 'freddy', texto: limpia });
+    // La charla corta (hola, gracias…) se contesta aquí, al instante y sin red. El nombre del perfil
+    // solo arma la frase en el teléfono: nunca viaja.
+    const charla = responderCharla(limpia, perfil.nombre);
+    if (charla !== null) {
+      agregar({ autor: 'jev', texto: charla.texto, noEntendi: charla.conSugeridas });
+      ocupado.current = false;
+      setPensando(false);
+      return;
+    }
     try {
       // El fetch se toma al momento de usarlo y se inyecta: aquí no hay ninguna llamada de red propia.
-      const respuesta = await consultar(globalThis.fetch, JEV_URL, limpia, {
-        cierres,
-        productos,
-        hoy: fechaLocal(new Date()),
-      }).catch(() => null);
+      const respuesta = await consultar(
+        globalThis.fetch,
+        JEV_URL,
+        limpia,
+        {
+          cierres,
+          productos,
+          hoy: fechaLocal(new Date()),
+        },
+        previa.current,
+      ).catch(() => null);
       if (respuesta === null || respuesta.tipo === 'noEntendi') {
-        agregar({ autor: 'jev', texto: respuesta?.texto ?? TEXTO_NO_ENTENDI, noEntendi: true });
+        agregar({ autor: 'jev', texto: TEXTO_NO_ENTENDI, noEntendi: true });
       } else if (respuesta.tipo === 'sinInternet') {
         agregar({ autor: 'jev', texto: respuesta.texto });
       } else {
+        previa.current = respuesta.consulta;
         agregar({ autor: 'jev', texto: respuesta.texto, semaforo: respuesta.semaforo });
       }
     } finally {
@@ -116,6 +141,7 @@ export const PreguntarScreen = () => {
   };
 
   const ultimo = mensajes.length > 0 ? mensajes[mensajes.length - 1] : null;
+  // Esta bandera también la llevan las respuestas de charla que invitan a una sugerida ("ayuda").
   const ultimoNoEntendi = ultimo?.noEntendi === true;
   const conversando = ultimo !== null;
 

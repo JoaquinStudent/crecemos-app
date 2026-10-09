@@ -82,7 +82,7 @@ export const INTENCIONES = [
   },
   {
     id: 'cuantoPreparar',
-    descripcion: 'Cuántas porciones debe preparar de un producto, según lo que le ha sobrado.',
+    descripcion: 'Cuánto preparar o qué comprar para mañana, de un producto o de todos: recomendación de compra.',
   },
   {
     id: 'compararCiclo',

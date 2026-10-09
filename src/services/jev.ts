@@ -12,6 +12,7 @@ import {
   interpretarJuicio,
   senalesDeJuicio,
 } from '@analisis/semaforo';
+import { completarConsulta } from '@analisis/seguimiento';
 import { validarRedaccion } from '@analisis/validarRedaccion';
 import type {
   Consulta,
@@ -39,6 +40,8 @@ export type RespuestaChat =
       frase: string;
       redactada: boolean;
       hecho: Hecho;
+      /** La consulta ya resuelta (con lo heredado del hilo): la pantalla la guarda como `previa`. */
+      consulta: Consulta;
       /** El juicio de Jev, solo en las intenciones que se juzgan y si llegó con confianza suficiente. */
       semaforo?: Semaforo;
     }
@@ -174,6 +177,7 @@ export const consultar = async (
   url: string,
   texto: string,
   ctx: ContextoAnalisis,
+  previa?: Consulta | null,
 ): Promise<RespuestaChat> => {
   try {
     const interpretada = await preguntarAJev(fetchFn, url, texto);
@@ -182,9 +186,11 @@ export const consultar = async (
         ? noEntendi()
         : { tipo: 'sinInternet', texto: TEXTO_SIN_INTERNET };
     }
-    if (interpretada.consulta.intencion === 'noEntendi') return noEntendi();
+    // El hilo se completa aquí, en el teléfono: a Jev solo viajó el texto de esta pregunta.
+    const consulta = completarConsulta(interpretada.consulta, previa, texto);
+    if (consulta.intencion === 'noEntendi') return noEntendi();
 
-    const hecho = responderConsulta(interpretada.consulta, ctx);
+    const hecho = responderConsulta(consulta, ctx);
     if (hecho.intencion === 'noEntendi') return noEntendi();
     const fija: RespuestaChat = {
       tipo: 'respuesta',
@@ -192,11 +198,10 @@ export const consultar = async (
       frase: hecho.frase,
       redactada: false,
       hecho,
+      consulta,
     };
     // La redacción y el juicio se piden a la vez; ninguno de los dos hace falta para mostrar la frase.
-    const senales = esJuzgable(hecho.intencion)
-      ? senalesDeJuicio(interpretada.consulta, ctx)
-      : null;
+    const senales = esJuzgable(hecho.intencion) ? senalesDeJuicio(consulta, ctx) : null;
     const [redaccion, juicio] = await Promise.all([
       hecho.cifras.length > 0 ? redactarRespuesta(fetchFn, url, hecho) : null,
       senales === null ? null : juzgarRespuesta(fetchFn, url, armarHechoParaJuicio(hecho, senales)),

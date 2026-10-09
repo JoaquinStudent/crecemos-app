@@ -739,11 +739,11 @@ describe('cuantoPreparar', () => {
     );
   });
 
-  it('sin producto, lo pide', () => {
+  it('sin producto, responde para todos los que tienen datos (spec08_e22)', () => {
     const cierres = [rachi('2026-09-14', 4, true), rachi('2026-09-28', 4, true)];
     const h = responderConsulta(consultaDe('cuantoPreparar'), ctxDe(cierres));
-    expect(h.frase).toBe('¿De cuál producto? Por ejemplo: rachi.');
-    expect(h.cifras).toEqual([]);
+    expect(h.frase).toBe('Para mañana, según lo que te sobró: rachi, prepara 4 porciones menos.');
+    expect(h.cifras).toEqual(['4']);
   });
 
   it('con menos de dos ciclos', () => {

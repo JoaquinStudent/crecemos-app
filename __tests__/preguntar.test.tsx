@@ -708,11 +708,10 @@ describe('Chat "Preguntarle a mis datos": los accesos', () => {
     global.fetch = fetchPorDefecto;
   });
 
-  it('el botón flotante de Inicio lleva ícono y texto, mide 48 o más y queda abajo a la derecha', async () => {
+  it('el botón flotante de Inicio es solo un robot con etiqueta, mide 48 o más y queda abajo a la derecha', async () => {
     ponerRed({});
     const p = await montarApp();
 
-    expect(p.textosEn('inicio-preguntar')).toEqual(['Preguntar']);
     const boton = p.app.root.findAll(
       n => n.props.testID === 'inicio-preguntar' && esHost(n, 'View'),
     )[0];
@@ -720,10 +719,13 @@ describe('Chat "Preguntarle a mis datos": los accesos', () => {
     expect(estilo.position).toBe('absolute');
     expect(estilo.right).toBeGreaterThan(0);
     expect(estilo.bottom).toBeGreaterThan(0);
+    expect(estilo.width).toBeGreaterThanOrEqual(48);
     expect(estilo.height).toBeGreaterThanOrEqual(48);
-    // Lleva un ícono además del texto.
-    expect(boton.findAll(n => (n.type as unknown) === 'RNSVGSvgView').length).toBeGreaterThan(0);
+    // Sin texto: lo dice la etiqueta accesible, para el lector de pantalla.
+    expect(boton.findAll(n => esHost(n, 'Text'))).toHaveLength(0);
     expect(boton.props.accessibilityLabel).toBe('Preguntar');
+    expect(boton.props.accessibilityRole).toBe('button');
+    expect(boton.findAll(n => (n.type as unknown) === 'RNSVGSvgView').length).toBeGreaterThan(0);
   });
 
   it('el botón flotante no tapa "Cerrar mi día": el scroll le deja su espacio al final', async () => {

@@ -1,7 +1,7 @@
 // src/screens/InicioScreen.tsx
 // Responde "¿cómo me fue?" y "¿qué decido hoy?". De arriba hacia abajo: saludo, ciclo de compra,
 // el insight, las recomendaciones, el Yape por cobrar, el último día y el botón "Cerrar mi día".
-// Encima de todo, en la esquina inferior derecha, el botón flotante "Preguntar" abre el chat; el
+// Encima de todo, en la esquina inferior derecha, el botón flotante del robot abre el chat; el
 // scroll deja un espacio al final para que nunca tape "Cerrar mi día".
 import React, { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
@@ -9,7 +9,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { CompositeNavigationProp, useNavigation } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { ArrowRight, Lightbulb, MessageCircle } from 'lucide-react-native';
+import { ArrowRight, Bot, Lightbulb } from 'lucide-react-native';
 import { colors, radius, spacing } from '@theme';
 import { Text } from '@components/atoms/Text';
 import { Button } from '@components/atoms/Button';
@@ -145,15 +145,18 @@ export const InicioScreen = () => {
         )}
       </ScrollView>
 
-      {/* Ícono Y texto (UX, regla 1). No dispara ninguna petición: solo abre el chat. */}
-      <Button
-        title="Preguntar"
-        leftIcon={MessageCircle}
-        size="lg"
-        style={styles.flotante}
-        testID="inicio-preguntar"
+      {/* Solo el robot, para ahorrar espacio: excepción pedida por el usuario a la regla de UX de
+          "ícono con texto". Por eso lleva su etiqueta accesible "Preguntar" y mide 56 dp (≥ 48).
+          No dispara ninguna petición: solo abre el chat. */}
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Preguntar"
         onPress={() => navigation.navigate('Preguntar')}
-      />
+        style={({ pressed }) => [styles.flotante, pressed && styles.flotantePresionado]}
+        testID="inicio-preguntar"
+      >
+        <Icon icon={Bot} color="textInverse" size="xl" />
+      </Pressable>
     </SafeAreaView>
   );
 };
@@ -459,18 +462,24 @@ const DatosDeEjemplo = ({
 const styles = StyleSheet.create({
   pantalla: { flex: 1, backgroundColor: colors.background },
   contenido: { padding: spacing.lg, gap: spacing.xl },
-  conFlotante: { paddingBottom: ALTO_FLOTANTE + spacing.lg * 2 },
+  conFlotante: { paddingBottom: ALTO_FLOTANTE + spacing.lg + spacing.sm },
   flotante: {
     position: 'absolute',
     right: spacing.lg,
     bottom: spacing.lg,
+    width: ALTO_FLOTANTE,
     height: ALTO_FLOTANTE,
+    borderRadius: ALTO_FLOTANTE / 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primary,
     shadowColor: colors.text,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
     shadowRadius: 6,
     elevation: 4,
   },
+  flotantePresionado: { backgroundColor: colors.primaryPressed },
   encabezado: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   saludo: { flex: 1, paddingRight: spacing.md },
   perfil: { minWidth: 48, minHeight: 48, alignItems: 'center', gap: spacing.xxs },

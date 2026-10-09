@@ -43,7 +43,9 @@ import {
 } from '@analisis/semaforo';
 import { extraerCifras, validarRedaccion } from '@analisis/validarRedaccion';
 import { consultar, redactarRespuesta } from '@services/jev';
-import { guardarCierre } from '@storage/repositorio';
+import { PERFIL_POR_DEFECTO } from '@dominio/perfil';
+import { PRODUCTOS_POR_DEFECTO } from '@dominio/productosPorDefecto';
+import { guardarCierre, guardarPerfil } from '@storage/repositorio';
 
 // Mediodía del 2026-10-07 en Lima: solo alimenta el instante de creación; "hoy" y la fecha de cada cierre son explícitas.
 const ahora = new Date('2026-10-07T12:00:00-05:00');
@@ -521,7 +523,7 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
   it('spec08_e5 con poca confianza no inventa', () => {
     // Given: que Jev responde la intención con una confianza de 0.4 (el mínimo es 0.6)
     // When: se interpreta la pregunta
-    // Then: la pantalla dice "No entendí tu pregunta. Prueba con una de estas:", muestra las preguntas sugeridas y no muestra ninguna cifra
+    // Then: la pantalla dice "No te entendí bien. Puedo ayudarte con tus ventas, lo que te deben y qué producto te deja más. Prueba con una de estas:", muestra las preguntas sugeridas y no muestra ninguna cifra
     return (async () => {
       const dudosa = redDeLaApp(textoSemilla(), {
         interpretar: () => respuestaJson({ ...interpretacion('compararCiclo'), confianza: 0.4 }),
@@ -535,13 +537,15 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
 
         // La pantalla dice que no entendió y ofrece las preguntas sugeridas, después de la respuesta.
         const pantalla = textosEn('preguntar-pantalla');
-        expect(pantalla).toContain('No entendí tu pregunta. Prueba con una de estas:');
+        expect(pantalla).toContain(
+          'No te entendí bien. Puedo ayudarte con tus ventas, lo que te deben y qué producto te deja más. Prueba con una de estas:',
+        );
         for (const sugerida of PREGUNTAS_SUGERIDAS) expect(pantalla).toContain(sugerida);
         expect(posicionDe('preguntar-sugerida-0')).toBeGreaterThan(posicionDe('chat-burbuja-1'));
 
         // Ninguna cifra: ni en la respuesta ni en ningún otro lugar del chat.
         expect(textoDe('chat-burbuja-1-texto')).toBe(
-          'No entendí tu pregunta. Prueba con una de estas:',
+          'No te entendí bien. Puedo ayudarte con tus ventas, lo que te deben y qué producto te deja más. Prueba con una de estas:',
         );
         expect(pantalla.some(t => /\d|S\//.test(t))).toBe(false);
         // Con duda, solo se pidió interpretar: ni redacción ni juicio.
@@ -1131,6 +1135,251 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
         for (const fondo of fondos) {
           expect([colors.successSoft, colors.warningSoft, colors.dangerSoft]).toContain(fondo);
         }
+      });
+    })();
+  });
+
+  // @spec08_e19 — Un saludo se responde al instante, sin red
+  it('spec08_e19 un saludo se responde al instante sin red', () => {
+    // Given: el chat abierto y la red caída
+    // When: se escribe "hola" y se toca "Preguntar"
+    // Then: aparece la pregunta y debajo una respuesta amable de charla sin ninguna cifra, sin semáforo y sin ningún mensaje técnico, y no se hace ninguna petición de red. Lo mismo vale para el agradecimiento, la despedida y "qué puedes hacer"; este último ofrece las preguntas sugeridas. Si el perfil tiene nombre, el saludo puede usarlo, y el nombre nunca sale del teléfono
+    return (async () => {
+      const caida = redDeLaApp(null);
+      await conApp(caida, async () => {
+        await abrirElChat();
+        const llamadasAntes = caida.fetch.mock.calls.length;
+        let burbujas = 0;
+        for (const charla of ['hola', 'gracias', 'chau']) {
+          await preguntar(charla);
+          burbujas += 2;
+          expect(textoDe(`chat-burbuja-${burbujas - 2}-texto`)).toBe(charla);
+          const respuesta = textoDe(`chat-burbuja-${burbujas - 1}-texto`);
+          expect(respuesta.length).toBeGreaterThan(10);
+          expect(respuesta).not.toMatch(/\d|S\/|No te entendí|Necesitas internet/);
+          expect(respuesta).not.toMatch(CODIGOS_TECNICOS);
+          expect(hayNodo(`chat-burbuja-${burbujas - 1}-semaforo`)).toBe(false);
+        }
+        // "Qué puedes hacer" explica y ofrece las preguntas sugeridas bajo la burbuja.
+        await preguntar('¿qué puedes hacer?');
+        expect(textoDe('chat-burbuja-7-texto')).toMatch(/Prueba con una de estas:$/);
+        for (const sugerida of PREGUNTAS_SUGERIDAS) {
+          expect(textosEn('preguntar-pantalla')).toContain(sugerida);
+        }
+        // Ni una sola petición de red, ni a Jev ni a nadie.
+        expect(caida.tiposDelChat()).toEqual([]);
+        expect(caida.fetch.mock.calls.length).toBe(llamadasAntes);
+      });
+
+      // Con nombre en el perfil, el saludo lo usa; y sigue sin viajar nada.
+      const otra = redDeLaApp(null);
+      await conApp(
+        otra,
+        async () => {
+          await abrirElChat();
+          const antes = otra.fetch.mock.calls.length;
+          await preguntar('hola');
+          expect(textoDe('chat-burbuja-1-texto')).toContain('Freddy');
+          expect(otra.fetch.mock.calls.length).toBe(antes);
+        },
+        async () => {
+          await guardarPerfil({ ...PERFIL_POR_DEFECTO, nombre: 'Freddy', actualizadoEn: ahora.toISOString() });
+        },
+      );
+    })();
+  });
+
+  // @spec08_e20 — Una pregunta mezclada con un saludo sí va a Jev
+  it('spec08_e20 una pregunta mezclada con un saludo si va a jev', () => {
+    // Given: el chat abierto con datos de ejemplo y un Jev que interpreta "venta de un día"
+    // When: se escribe "hola, ¿cuánto vendí ayer?" y se toca "Preguntar"
+    // Then: no se trata como charla: se hace la petición para interpretar y la respuesta lleva la cifra calculada por el código
+    return (async () => {
+      const texto = textoSemilla();
+      const validada = validarSemilla(JSON.parse(texto));
+      if (!validada.ok) throw new Error('La semilla del repositorio no valida');
+      const { cierres, productos } = materializarSemilla(validada.semilla, new Date());
+      const esperado = responderConsulta(
+        jevInterpreta({ intencion: 'ventaDelDia', producto: 'ninguno', dia: 'ayer', confianza: 0.9 }),
+        { cierres, productos, hoy: fechaLocal(new Date()) },
+      );
+      const red = redDeLaApp(texto, {
+        interpretar: () => respuestaJson(interpretacion('ventaDelDia', 'ayer')),
+      });
+      await conApp(red, async () => {
+        await abrirElChat();
+        await preguntar('hola, ¿cuánto vendí ayer?');
+
+        expect(red.tiposDelChat()[0]).toBe('interpretar');
+        const enviada = red.fetch.mock.calls
+          .map(([, init]) => JSON.parse(init?.body ?? '{}'))
+          .find(c => c.tipo === 'interpretar');
+        expect(enviada).toEqual({ tipo: 'interpretar', texto: 'hola, ¿cuánto vendí ayer?' });
+        // La respuesta es la frase calculada por el código (el redactor no responde).
+        expect(textoDe('chat-burbuja-1-texto')).toBe(esperado.frase);
+      });
+    })();
+  });
+
+  // @spec08_e21 — El botón flotante es solo el robot, con etiqueta accesible
+  it('spec08_e21 el boton flotante es solo el robot con etiqueta accesible', () => {
+    // Given: la app en Inicio
+    // When: se mira el botón flotante que abre el chat
+    // Then: es un botón redondo de al menos 48 dp que muestra solo el ícono de un robot, sin texto, y su etiqueta accesible es "Preguntar"
+    return (async () => {
+      await conApp(redDeLaApp(null), async () => {
+        const boton = raiz().findAll(n => n.props.testID === 'inicio-preguntar' && esHost(n, 'View'))[0];
+        expect(boton).toBeDefined();
+        // Solo el ícono: ningún texto dentro del botón; la etiqueta es solo para el lector de pantalla.
+        expect(boton.findAll(n => esHost(n, 'Text'))).toHaveLength(0);
+        expect(boton.props.accessibilityRole).toBe('button');
+        expect(boton.props.accessibilityLabel).toBe('Preguntar');
+        const iconos = boton
+          .findAll(n => typeof (n.type as { displayName?: string }).displayName === 'string')
+          .map(n => (n.type as { displayName: string }).displayName);
+        expect(iconos).toContain('Bot');
+        // Redondo y de 48 dp o más.
+        const estilo = StyleSheet.flatten(boton.props.style);
+        expect(estilo.width).toBeGreaterThanOrEqual(48);
+        expect(estilo.height).toBeGreaterThanOrEqual(48);
+        expect(estilo.borderRadius).toBeGreaterThanOrEqual((estilo.height as number) / 2);
+        expect(estilo.backgroundColor).toBe(colors.primary);
+      });
+    })();
+  });
+
+  // @spec08_e22 — "Qué comprar mañana" sin producto responde para todos los productos
+  it('spec08_e22 que comprar manana sin producto responde para todos', () => {
+    // Given: dos ciclos cerrados donde, en cada uno, sobraron 6 y 4 porciones de anticucho y nada de pancita, y que Jev interpreta "recomiéndame qué comprar más mañana" como la intención "cuánto preparar" sin producto
+    // When: se calcula la respuesta
+    // Then: la respuesta es "Para mañana, según lo que te sobró: anticucho, prepara 4 porciones menos; pancita, te alcanza lo que preparas." con las mismas cifras y reglas que para un solo producto, y las cifras van a la redacción como siempre; con menos de dos ciclos sale la frase fija de siempre
+    return (async () => {
+      const dosProductos = PRODUCTOS_POR_DEFECTO.slice(0, 2);
+      const cierres = [
+        cierreDe('2026-09-14', {
+          abreCiclo: true,
+          lineas: [linea('Anticucho', 20, 6, 10, 8.2), linea('Pancita', 30, 0, 9, 8)],
+        }),
+        cierreDe('2026-09-28', {
+          abreCiclo: true,
+          lineas: [linea('Anticucho', 20, 4, 10, 8.2), linea('Pancita', 30, 0, 9, 8)],
+        }),
+      ];
+      const ctx = ctxDe(cierres, dosProductos);
+      const consulta = jevInterpreta({
+        intencion: 'cuantoPreparar',
+        producto: 'ninguno',
+        dia: 'ninguno',
+        confianza: 0.72,
+      });
+      const hecho = responderConsulta(consulta, ctx);
+      expect(hecho.frase).toBe(
+        'Para mañana, según lo que te sobró: anticucho, prepara 4 porciones menos; pancita, te alcanza lo que preparas.',
+      );
+      // Las mismas cifras que para un solo producto: la del anticucho es la que sale de cuantoPreparar.
+      const solo = responderConsulta(
+        jevInterpreta({ intencion: 'cuantoPreparar', producto: 'anticucho', dia: 'ninguno', confianza: 0.9 }),
+        ctx,
+      );
+      expect(solo.frase).toContain('Prepara 4 porciones menos');
+      // Las cifras van a la redacción como siempre.
+      expect(hecho.cifras).toEqual(['4']);
+      const servidor = servidorSimulado({
+        interpretar: responde({ ...interpretacion('cuantoPreparar'), confianza: 0.72 }),
+        redactar: responde({ texto: 'Para mañana, anticucho: prepara 4 porciones menos. De pancita, igual.' }),
+        juzgar: responde(juicioDe('ojo', 0.8)),
+      });
+      const r = await consultar(
+        servidor.fetch as unknown as typeof fetch,
+        URL_JEV,
+        'recomiéndame qué comprar más mañana',
+        ctx,
+      );
+      expect(r).toMatchObject({ tipo: 'respuesta', redactada: true });
+      expect(servidor.tipos()).toContain('redactar');
+      // Con menos de dos ciclos, la frase fija de siempre.
+      expect(responderConsulta(consulta, ctxDe([cierres[0]], dosProductos)).frase).toBe(
+        'Todavía no cierras un ciclo completo. Cuando compres mercadería otra vez, te lo calculo.',
+      );
+    })();
+  });
+
+  // @spec08_e23 — Un seguimiento reutiliza la intención anterior
+  it('spec08_e23 un seguimiento reutiliza la intencion anterior', () => {
+    // Given: el chat con datos de ejemplo, la pregunta "¿cuánto debo preparar de anticucho?" ya respondida y un Jev que a "¿y de la pancita?" responde que no entendió pero detecta el producto "pancita"
+    // When: se escribe "¿y de la pancita?" y se toca "Preguntar"
+    // Then: la respuesta es la de "cuánto preparar" para la pancita, calculada por el código, y a Jev solo viajó el texto de la pregunta actual: ni la pregunta anterior, ni su intención, ni su producto
+    return (async () => {
+      const texto = textoSemilla();
+      const validada = validarSemilla(JSON.parse(texto));
+      if (!validada.ok) throw new Error('La semilla del repositorio no valida');
+      const { cierres, productos } = materializarSemilla(validada.semilla, new Date());
+      const ctx = { cierres, productos, hoy: fechaLocal(new Date()) };
+      const esperada = responderConsulta(
+        jevInterpreta({ intencion: 'cuantoPreparar', producto: 'pancita', dia: 'ninguno', confianza: 0.9 }),
+        ctx,
+      );
+      const red = redDeLaApp(texto, {
+        interpretar: cuerpo =>
+          respuestaJson(
+            cuerpo.texto === '¿y de la pancita?'
+              ? { intencion: 'noEntendi', producto: 'pancita', dia: 'ninguno', confianza: 0.77 }
+              : { ...interpretacion('cuantoPreparar'), producto: 'anticucho' },
+          ),
+      });
+      await conApp(red, async () => {
+        await abrirElChat();
+        await preguntar('¿cuánto debo preparar de anticucho?');
+        await preguntar('¿y de la pancita?');
+
+        expect(textoDe('chat-burbuja-3-texto')).toBe(esperada.frase);
+        // A Jev solo viaja el texto de la pregunta actual.
+        const enviadas = red.fetch.mock.calls
+          .map(([, init]) => init?.body ?? '{}')
+          .filter(cuerpo => JSON.parse(cuerpo).tipo === 'interpretar');
+        expect(enviadas).toHaveLength(2);
+        expect(JSON.parse(enviadas[1])).toEqual({ tipo: 'interpretar', texto: '¿y de la pancita?' });
+        expect(enviadas[1]).not.toMatch(/anticucho|cuantoPreparar|preparar/i);
+      });
+    })();
+  });
+
+  // @spec08_e24 — Una pregunta completa nueva no hereda nada
+  it('spec08_e24 una pregunta completa nueva no hereda nada', () => {
+    // Given: el chat con datos de ejemplo, la pregunta "¿cuánto debo preparar de anticucho?" ya respondida y un Jev que a "¿cuánto debo preparar mañana?" responde "cuánto preparar" sin producto
+    // When: se escribe "¿cuánto debo preparar mañana?" y se toca "Preguntar"
+    // Then: la respuesta es la de todos los productos, sin heredar el anticucho de la pregunta anterior
+    return (async () => {
+      const texto = textoSemilla();
+      const validada = validarSemilla(JSON.parse(texto));
+      if (!validada.ok) throw new Error('La semilla del repositorio no valida');
+      const { cierres, productos } = materializarSemilla(validada.semilla, new Date());
+      const ctx = { cierres, productos, hoy: fechaLocal(new Date()) };
+      const paraTodos = responderConsulta(
+        jevInterpreta({ intencion: 'cuantoPreparar', producto: 'ninguno', dia: 'ninguno', confianza: 0.9 }),
+        ctx,
+      );
+      const soloAnticucho = responderConsulta(
+        jevInterpreta({ intencion: 'cuantoPreparar', producto: 'anticucho', dia: 'ninguno', confianza: 0.9 }),
+        ctx,
+      );
+      expect(paraTodos.frase).toMatch(/^Para mañana/);
+      expect(paraTodos.frase).not.toBe(soloAnticucho.frase);
+      const red = redDeLaApp(texto, {
+        interpretar: cuerpo =>
+          respuestaJson(
+            cuerpo.texto === '¿cuánto debo preparar mañana?'
+              ? interpretacion('cuantoPreparar')
+              : { ...interpretacion('cuantoPreparar'), producto: 'anticucho' },
+          ),
+      });
+      await conApp(red, async () => {
+        await abrirElChat();
+        await preguntar('¿cuánto debo preparar de anticucho?');
+        expect(textoDe('chat-burbuja-1-texto')).toBe(soloAnticucho.frase);
+        await preguntar('¿cuánto debo preparar mañana?');
+
+        expect(textoDe('chat-burbuja-3-texto')).toBe(paraTodos.frase);
       });
     })();
   });

@@ -22,6 +22,7 @@ import type {
 import { articulo, extremosDeVentas, gananciaPorProducto } from './metricas';
 import {
   caidaDePrecio,
+  cicloCerradoYActual,
   CICLOS_MINIMOS,
   cobroMensaje,
   comparacionMensaje,
@@ -96,7 +97,8 @@ export const INTENCIONES: readonly Intencion[] = [
   },
   {
     id: 'cuantoPreparar',
-    descripcion: 'Cuántas porciones debe preparar de un producto, según lo que le ha sobrado.',
+    descripcion:
+      'Cuánto preparar o qué comprar para mañana, de un producto o de todos: recomendación de compra.',
     sugerida: '¿Cuánto preparo de rachi?',
   },
   {
@@ -315,8 +317,44 @@ const cuantoSacarParaLaCasa = (ctx: ContextoAnalisis): Hecho =>
     agruparCiclos(ctx.cierres).length < CICLOS_MINIMOS ? SIN_CICLO_CERRADO : retiroMensaje(ctx),
   );
 
+/** Los productos con datos en los dos últimos ciclos: primero los de la app, en su orden; luego los demás. */
+const productosConDatos = (ctx: ContextoAnalisis): string[] => {
+  const ciclos = cicloCerradoYActual(ctx);
+  if (ciclos === null) return [];
+  const vistos = new Set<string>();
+  for (const ciclo of [ciclos.cerrado, ciclos.actual]) {
+    for (const c of ciclo.cierres) for (const l of c.lineas) vistos.add(l.productoId);
+  }
+  const conocidos = ctx.productos.map(p => p.id);
+  const activos = ctx.productos.filter(p => p.activo && vistos.has(p.id)).map(p => p.id);
+  const otros = [...vistos].filter(id => !conocidos.includes(id)).sort();
+  return [...activos, ...otros];
+};
+
+/** "Qué compro mañana" sin producto: la misma cuenta de un producto, para todos los que tienen datos. */
+const cuantoPrepararTodos = (ctx: ContextoAnalisis): Hecho => {
+  const conDatos = productosConDatos(ctx);
+  if (agruparCiclos(ctx.cierres).length < CICLOS_MINIMOS) {
+    return hecho('cuantoPreparar', SIN_CICLO_CERRADO);
+  }
+  const partes: string[] = [];
+  for (const id of conDatos) {
+    const sobrante = sobranteDeDosCiclos(ctx, id);
+    if (sobrante === null) continue;
+    const producto = ctx.productos.find(p => p.id === id);
+    const nombre = (sobrante.nombre ?? producto?.nombre ?? nombreDeId(id)).toLowerCase();
+    partes.push(
+      sobrante.cantidad === 0
+        ? `${nombre}, te alcanza lo que preparas`
+        : `${nombre}, prepara ${cantidad(sobrante.cantidad, producto?.unidad ?? 'porcion')} menos`,
+    );
+  }
+  if (partes.length === 0) return hecho('cuantoPreparar', POCAS_VENTAS);
+  return hecho('cuantoPreparar', `Para mañana, según lo que te sobró: ${partes.join('; ')}.`);
+};
+
 const cuantoPreparar = (consulta: Consulta, ctx: ContextoAnalisis): Hecho => {
-  if (consulta.producto === undefined) return pedirProducto('cuantoPreparar', 'rachi');
+  if (consulta.producto === undefined) return cuantoPrepararTodos(ctx);
   const sobrante = sobranteDeDosCiclos(ctx, consulta.producto);
   if (sobrante === null) return hecho('cuantoPreparar', SIN_CICLO_CERRADO);
   const producto = ctx.productos.find(p => p.id === consulta.producto);
