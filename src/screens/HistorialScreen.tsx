@@ -6,6 +6,7 @@ import React, { useMemo, useState } from 'react';
 import { Pressable, SectionList, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
+import { ArrowDown, ArrowUp, Clock, List } from 'lucide-react-native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { ColorName, colors, radius, spacing } from '@theme';
 import { Text } from '@components/atoms/Text';
@@ -19,10 +20,10 @@ import { useCrecemos } from '@context/CrecemosProvider';
 import type { TabsParamList } from '@navigation/Tabs';
 
 const FILTROS: readonly ChipOption<FiltroHistorial>[] = [
-  { value: 'todo', label: 'Todo' },
-  { value: 'ingresos', label: 'Ingresos' },
-  { value: 'gastos', label: 'Gastos' },
-  { value: 'porCobrar', label: 'Por cobrar' },
+  { value: 'todo', label: 'Todo', icon: List },
+  { value: 'ingresos', label: 'Ingresos', icon: ArrowUp, tone: 'success' },
+  { value: 'gastos', label: 'Gastos', icon: ArrowDown, tone: 'danger' },
+  { value: 'porCobrar', label: 'Por cobrar', icon: Clock, tone: 'warning' },
 ];
 
 type Seccion = GrupoDia & { key: string; data: Movimiento[] };
@@ -65,7 +66,14 @@ export const HistorialScreen = () => {
           Historial
         </Text>
         {cierres.length > 0 ? (
-          <ChipGroup options={FILTROS} value={filtro} onChange={setFiltro} testIDPrefix="filtro" />
+          <ChipGroup
+            options={FILTROS}
+            value={filtro}
+            onChange={setFiltro}
+            testIDPrefix="filtro"
+            layout="scroll"
+            style={styles.filtros}
+          />
         ) : null}
       </View>
 
@@ -184,6 +192,8 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.md,
     gap: spacing.md,
   },
+  // Los chips llegan al borde de la pantalla: el último asoma y avisa que hay más.
+  filtros: { marginHorizontal: -spacing.lg },
   vacio: { padding: spacing.lg },
   tarjeta: { backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.lg },
   separado: { marginTop: spacing.md },

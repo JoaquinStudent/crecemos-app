@@ -27,6 +27,7 @@ import { colors, radius, spacing } from '@theme';
 import { Text } from '@components/atoms/Text';
 import { Button } from '@components/atoms/Button';
 import { Icon } from '@components/atoms/Icon';
+import { Chip } from '@components/molecules/Chip';
 import { Input } from '@components/atoms/Input';
 import { BurbujaChat } from '@components/molecules/BurbujaChat';
 import { responderCharla } from '@analisis/charla';
@@ -258,9 +259,10 @@ export const PreguntarScreen = () => {
                 {PREGUNTAS_SUGERIDAS.map((pregunta, i) => (
                   <Chip
                     key={pregunta}
-                    pregunta={pregunta}
-                    apagado={pensando}
-                    alTocar={() => preguntar(pregunta)}
+                    label={pregunta}
+                    role="button"
+                    disabled={pensando}
+                    onPress={() => preguntar(pregunta)}
                     testID={`preguntar-sugerida-${i}`}
                   />
                 ))}
@@ -297,9 +299,10 @@ export const PreguntarScreen = () => {
                 {PREGUNTAS_SUGERIDAS.map((pregunta, i) => (
                   <Chip
                     key={pregunta}
-                    pregunta={pregunta}
-                    apagado={pensando}
-                    alTocar={() => preguntar(pregunta)}
+                    label={pregunta}
+                    role="button"
+                    disabled={pensando}
+                    onPress={() => preguntar(pregunta)}
                     testID={`preguntar-panel-sugerida-${i}`}
                   />
                 ))}
@@ -331,37 +334,6 @@ export const PreguntarScreen = () => {
   );
 };
 
-/** Una pregunta sugerida tocable; mientras Jev piensa se apaga para que no salgan dos preguntas. */
-const Chip = ({
-  pregunta,
-  apagado,
-  alTocar,
-  testID,
-}: {
-  pregunta: string;
-  apagado: boolean;
-  alTocar: () => void;
-  testID: string;
-}) => (
-  <Pressable
-    accessibilityRole="button"
-    accessibilityLabel={pregunta}
-    accessibilityState={{ disabled: apagado }}
-    disabled={apagado}
-    onPress={alTocar}
-    style={({ pressed }) => [
-      styles.chip,
-      pressed && styles.chipPresionado,
-      apagado && styles.chipApagado,
-    ]}
-    testID={testID}
-  >
-    <Text variant="label" color={apagado ? 'textMuted' : 'text'}>
-      {pregunta}
-    </Text>
-  </Pressable>
-);
-
 const styles = StyleSheet.create({
   pantalla: { flex: 1, backgroundColor: colors.background },
   cabecera: { paddingHorizontal: spacing.lg, paddingTop: spacing.xs, gap: spacing.sm },
@@ -388,17 +360,6 @@ const styles = StyleSheet.create({
   chat: { flex: 1 },
   conversacion: { padding: spacing.lg, gap: spacing.md },
   sugeridas: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  chip: {
-    justifyContent: 'center',
-    minHeight: 48,
-    paddingHorizontal: spacing.lg,
-    borderRadius: radius.full,
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    backgroundColor: colors.background,
-  },
-  chipPresionado: { backgroundColor: colors.surface },
-  chipApagado: { backgroundColor: colors.disabledSoft },
   pie: {
     gap: spacing.xs,
     paddingHorizontal: spacing.lg,
