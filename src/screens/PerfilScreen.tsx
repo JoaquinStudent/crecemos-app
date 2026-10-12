@@ -18,9 +18,11 @@ import { Input } from '@components/atoms/Input';
 import { AvatarPerfil } from '@components/molecules/AvatarPerfil';
 import { Callout } from '@components/molecules/Callout';
 import { Card } from '@components/molecules/Card';
+import { ChipGroup } from '@components/molecules/ChipGroup';
 import { SwitchRow } from '@components/molecules/SwitchRow';
 import { CambiarPrecioSheet } from '@components/organisms/CambiarPrecioSheet';
 import { fechaLocal } from '@dominio/fecha';
+import { ajustesDeRecordatorio, OPCIONES_HORA_RECORDATORIO } from '@dominio/recordatorio';
 import { formatoFechaCorta, formatoSoles } from '@dominio/formato';
 import { avatarDe } from '@dominio/foto';
 import { validarNumeroYape } from '@dominio/validacion';
@@ -29,6 +31,7 @@ import type { DatosProducto } from '@dominio/validacion';
 import type { Perfil, Producto } from '@dominio/tipos';
 import { useCrecemos } from '@context/CrecemosProvider';
 import { elegirFoto, mensajeFoto } from '@services/foto';
+import { avisaConLaAppCerrada, pedirPermisoDeAvisos } from '@services/recordatorio';
 import type { RootStackParamList } from '@navigation/RootStack';
 
 type CampoDato =
@@ -103,6 +106,38 @@ export const PerfilScreen = () => {
     setEditando(null);
   });
   const pagoSeguro = useAccionSegura((parcial: Partial<Perfil>) => guardarPerfil(parcial));
+
+  // Recordatorio diario. Prender pide permiso solo cuando la persona lo toca, y antes le explica por
+  // qué; si el sistema lo niega, el interruptor se queda apagado y se lo dice en palabras claras.
+  const ajustesRecordatorio = ajustesDeRecordatorio(perfil);
+  const [explicandoPermiso, setExplicandoPermiso] = useState(false);
+  const [permisoNegado, setPermisoNegado] = useState(false);
+  const activarRecordatorio = useAccionSegura(async () => {
+    const permiso = await pedirPermisoDeAvisos();
+    setExplicandoPermiso(false);
+    if (permiso !== 'concedido') {
+      setPermisoNegado(true);
+      return;
+    }
+    await guardarPerfil({ recordatorioActivo: true });
+  }, 'No pudimos activar el recordatorio. Inténtalo otra vez.');
+  const cambiarRecordatorio = useAccionSegura(
+    (parcial: Partial<Perfil>) => guardarPerfil(parcial),
+    'No pudimos guardar el recordatorio. Inténtalo otra vez.',
+  );
+  const alCambiarRecordatorio = (prender: boolean) => {
+    activarRecordatorio.limpiarError();
+    cambiarRecordatorio.limpiarError();
+    setPermisoNegado(false);
+    if (!prender) {
+      setExplicandoPermiso(false);
+      cambiarRecordatorio.ejecutar({ recordatorioActivo: false });
+    } else if (avisaConLaAppCerrada()) {
+      setExplicandoPermiso(true);
+    } else {
+      activarRecordatorio.ejecutar();
+    }
+  };
   const fotoSegura = useAccionSegura(async () => {
     await quitarFoto();
     setConfirmandoQuitar(false);
@@ -467,6 +502,71 @@ export const PerfilScreen = () => {
           </View>
 
           <View style={styles.seccion}>
+            <Text variant="h3">Recordatorio diario</Text>
+            <View style={styles.tarjeta}>
+              <SwitchRow
+                label="Recordarme cerrar mi día"
+                description={
+                  avisaConLaAppCerrada()
+                    ? 'Te avisamos a la hora que elijas si aún no cerraste tu día.'
+                    : 'Si pasa la hora que elijas y aún no cierras tu día, te lo recordamos aquí, en Inicio. No pide ningún permiso.'
+                }
+                value={ajustesRecordatorio.activo}
+                onValueChange={alCambiarRecordatorio}
+                testID="switch-recordatorio"
+              />
+              {explicandoPermiso ? (
+                <View style={[styles.separador, styles.panelPermiso]} testID="recordatorio-permiso-explicacion">
+                  <Text variant="bodyStrong">Para avisarte necesito tu permiso</Text>
+                  <Text variant="bodySmall" color="textMuted">
+                    Solo lo usamos para recordarte cerrar tu día a la hora que elijas. No enviamos
+                    nada a internet.
+                  </Text>
+                  <Button
+                    title="Sí, activar el recordatorio"
+                    variant="outline"
+                    fullWidth
+                    loading={activarRecordatorio.ejecutando}
+                    onPress={() => activarRecordatorio.ejecutar()}
+                    testID="recordatorio-permiso-si"
+                  />
+                  <Button
+                    title="Ahora no"
+                    variant="ghost"
+                    fullWidth
+                    onPress={() => setExplicandoPermiso(false)}
+                    testID="recordatorio-permiso-no"
+                  />
+                </View>
+              ) : null}
+              {permisoNegado ? (
+                <Text
+                  variant="bodySmall"
+                  style={styles.ayudaInterruptor}
+                  accessibilityLiveRegion="polite"
+                  testID="recordatorio-permiso-negado"
+                >
+                  No pudimos activar el recordatorio porque el permiso para avisarte está apagado.
+                  Puedes prenderlo en los ajustes de tu teléfono y volver a intentarlo.
+                </Text>
+              ) : null}
+              {ajustesRecordatorio.activo ? (
+                <View style={[styles.separador, styles.panelPermiso]}>
+                  <ChipGroup
+                    label="¿A qué hora te aviso?"
+                    options={OPCIONES_HORA_RECORDATORIO.map(o => ({ value: o.valor, label: o.etiqueta }))}
+                    value={ajustesRecordatorio.hora}
+                    onChange={hora => cambiarRecordatorio.ejecutar({ recordatorioHora: hora })}
+                    testIDPrefix="recordatorio-hora"
+                  />
+                </View>
+              ) : null}
+              <MensajeError mensaje={activarRecordatorio.mensajeError} testID="error-activar-recordatorio" />
+              <MensajeError mensaje={cambiarRecordatorio.mensajeError} testID="error-guardar-recordatorio" />
+            </View>
+          </View>
+
+          <View style={styles.seccion}>
             <View>
               <Text variant="h3">Mis productos</Text>
               <Text variant="caption" color="textMuted">
@@ -681,6 +781,7 @@ const styles = StyleSheet.create({
   acciones: { flexDirection: 'row', gap: spacing.sm },
   indentada: { paddingLeft: spacing.lg },
   ayudaInterruptor: { paddingBottom: spacing.md },
+  panelPermiso: { paddingVertical: spacing.md, gap: spacing.sm },
   tarjetaProducto: { backgroundColor: colors.background, gap: spacing.xs },
   filaProducto: {
     flexDirection: 'row',

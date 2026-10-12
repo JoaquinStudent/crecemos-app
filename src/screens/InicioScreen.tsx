@@ -15,6 +15,7 @@ import {
   ArrowRight,
   ArrowUp,
   CalendarDays,
+  Clock,
   FileText,
   HandCoins,
   Lightbulb,
@@ -63,10 +64,13 @@ import {
 } from '@dominio/ciclo';
 import { totalPorCobrar } from '@dominio/cobro';
 import { fechaLocal, restarDias } from '@dominio/fecha';
+import { textoAvisoDeCierre } from '@dominio/recordatorio';
 import { formatoFecha, formatoFechaCorta, formatoSoles } from '@dominio/formato';
 import { progreso, textoPlazo, totalAportado, type Meta } from '@dominio/meta';
 import { useAccionSegura } from '@hooks/useAccionSegura';
+import { useAhora } from '@hooks/useAhora';
 import { useConteo } from '@hooks/useConteo';
+import { useRecordatorio } from '@hooks/useRecordatorio';
 import { useCrecemos, type EstadoSemilla } from '@context/CrecemosProvider';
 import type { Ciclo, Recomendacion } from '@dominio/tipos';
 import type { RootStackParamList } from '@navigation/RootStack';
@@ -94,7 +98,8 @@ export const InicioScreen = () => {
   const { cierres, productos, perfil, meta, cargando, semilla, cargarDatosDeEjemplo, marcarCobrado } =
     useCrecemos();
   const navigation = useNavigation<InicioNavigation>();
-  const hoy = fechaLocal(new Date());
+  const ahora = useAhora();
+  const hoy = fechaLocal(ahora);
   const [anotandoYape, setAnotandoYape] = useState(false);
   const anotarYape = () => setAnotandoYape(true);
 
@@ -121,6 +126,7 @@ export const InicioScreen = () => {
   );
   const nombre = perfil.nombre.trim();
   const cerradoHoy = cierres.some(c => c.fecha === hoy);
+  const recordatorio = useRecordatorio(perfil, cierres, cargando, ahora);
   const irACerrarDia = () => navigation.navigate('CerrarDia');
   const preguntarAlAsistente = (pregunta: string) => navigation.navigate('Asistente', { pregunta });
 
@@ -155,6 +161,10 @@ export const InicioScreen = () => {
             </Text>
           </Pressable>
         </View>
+
+        {recordatorio.mostrarAviso ? (
+          <AvisoDeCierre hora={recordatorio.hora} alCerrar={irACerrarDia} />
+        ) : null}
 
         {cargando ? (
           <CargandoBloques bloques={3} alto={140} testID="inicio-cargando" />
@@ -407,6 +417,26 @@ const TarjetaSemana = ({
       onPress={alPreguntar}
     />
   </Card>
+);
+
+/**
+ * El recordatorio diario, dentro de la app: pasada la hora elegida y con el día sin cerrar, avisa y
+ * ofrece el botón. No se quita solo: se va cuando cierras tu día o cuando empieza otro día.
+ */
+const AvisoDeCierre = ({ hora, alCerrar }: { hora: string; alCerrar: () => void }) => (
+  <Callout icon={Clock} accessibilityLiveRegion="polite" testID="inicio-aviso-cierre">
+    <Text variant="bodyStrong" testID="inicio-aviso-cierre-texto">
+      {textoAvisoDeCierre(hora)}
+    </Text>
+    <Button
+      title="Cerrar mi día"
+      size="lg"
+      fullWidth
+      style={styles.separadoChico}
+      testID="inicio-aviso-cierre-boton"
+      onPress={alCerrar}
+    />
+  </Callout>
 );
 
 /**

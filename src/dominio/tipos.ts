@@ -16,6 +16,10 @@ export interface Perfil {
   /** Si el Yape no está a su nombre: de quién es y qué es para Freddy (hermana, esposa…). */
   yapeTitular?: string;
   yapeParentesco?: string;
+  /** Recordatorio diario "¿Cerramos tu día?". Ausente = apagado (perfiles guardados antes). */
+  recordatorioActivo?: boolean;
+  /** 'HH:MM' en 24 horas. Ausente o ilegible = 21:30. */
+  recordatorioHora?: string;
   actualizadoEn: Instante;
 }
 
