@@ -10,7 +10,7 @@ import {
   ViewStyle,
 } from 'react-native';
 import { Eye, EyeOff, LucideIcon } from 'lucide-react-native';
-import { colors, radius, spacing, typography } from '@theme';
+import { colors, radius, size, spacing, typography } from '@theme';
 import { Icon } from '@components/atoms/Icon';
 import { Text } from '@components/atoms/Text';
 
@@ -147,7 +147,7 @@ const styles = StyleSheet.create({
   field: {
     flexDirection: 'row',
     alignItems: 'center',
-    minHeight: 48,
+    minHeight: size.touch,
     paddingHorizontal: spacing.md,
     borderRadius: radius.md,
     borderWidth: 1,

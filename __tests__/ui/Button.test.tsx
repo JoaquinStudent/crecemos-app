@@ -3,6 +3,7 @@ import { act } from 'react-test-renderer';
 import { Button } from '@components/atoms/Button';
 import { Check } from 'lucide-react-native';
 import { colors } from '@theme';
+import { contraste } from '../../testutils/contraste';
 import { desmontar, estilo, hostPorTestID, montar, texto, tocablePorTestID } from '../../testutils/componente';
 
 describe('Button (sobre RNE)', () => {
@@ -70,5 +71,9 @@ describe('Button (sobre RNE)', () => {
     await act(async () => host.props.onPressIn?.({}));
     await act(async () => host.props.onPressOut?.({}));
     await desmontar(r);
+  });
+
+  it('el texto deshabilitado cumple contraste 4.5 sobre su fondo', () => {
+    expect(contraste(colors.disabledText, colors.disabledBg)).toBeGreaterThanOrEqual(4.5);
   });
 });
