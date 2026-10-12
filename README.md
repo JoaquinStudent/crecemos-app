@@ -2,7 +2,7 @@
 
 **Cuadra tu día. Crece tu negocio.**
 
-Crecemos es una app móvil de registro y decisiones para pequeños vendedores informales. Nació de entrevistar a un vendedor real de anticuchos, a quien aquí se llama **Freddy** (sin apellido ni datos de contacto). Es un proyecto académico del React Native Lab de Compartamos Banco × UTP.
+Crecemos es una app móvil de registro y decisiones para pequeños vendedores informales. Nació de entrevistar a un vendedor real de anticuchos, a quien aquí se llama **Freddy** (sin apellido ni datos de contacto). Es un proyecto académico del React Native Lab, pensado para mostrar cómo una entidad financiera podría entender el negocio de quien no tiene historial formal.
 
 ## Qué es
 
@@ -18,15 +18,26 @@ Freddy compra mercadería cada 2 días y razona por ciclos: "el primer día es p
 
 | Función                       | Qué resuelve                                                                                                                                     |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Barra de navegación           | Inicio, Historial, **Cerrar día** (botón central grande), Resumen y Asistente. Cerrar día se abre como pantalla modal y termina con una pantalla de éxito. |
 | Cerrar mi día                 | Anota las porciones preparadas y las que sobraron por producto, el Yape y los gastos. La app calcula la venta.                                   |
+| Cuéntame tu día               | Escribe una frase libre ("hice 40 anticuchos y sobraron 3") y la app **llena el formulario para que lo revises**. Se interpreta en el teléfono: no envía nada. |
+| Anotar un yape                | Apunta un Yape en el momento en que entra; al cerrar el día la suma ya viene puesta (se puede cambiar).                                          |
 | Resultado registrado, por ciclo de compra | Lo vendido menos los gastos registrados desde que compró mercadería; incluye pagos pendientes de recibir.                       |
-| Historial                     | Un grupo por día, con filtros (ingresos, gastos, por cobrar). Se puede editar o borrar un día sin tocar los precios viejos.                      |
+| Para mañana                   | Sugiere cuánto preparar de cada producto según los mismos días de semanas anteriores, con la mercadería que costaría.                            |
+| Tu semana                     | Los lunes, Inicio muestra el resumen de la semana pasada (ventas, mejor día, comparación).                                                       |
+| Recordatorio                  | A la hora que elijas, un aviso **dentro de la app** si aún no cerraste tu día. No son notificaciones del sistema.                                 |
+| Historial                     | Un grupo por día, con filtros (ingresos, gastos, por cobrar) y resumen del mes. Se puede editar o borrar un día sin tocar los precios viejos.    |
 | Cobros del Yape               | Suma lo que entró a una cuenta ajena y falta cobrar, y permite marcarlo como cobrado.                                                            |
-| Comparar productos            | Contrasta unidades vendidas y diferencia estimada por unidad (precio menos costo estimado).                                                     |
+| Qué me deja cada uno          | Contrasta unidades vendidas y diferencia estimada por unidad (precio menos costo estimado).                                                      |
+| Simulador de precio           | Prueba "¿y si subo el precio?" y muestra la diferencia estimada, sin tocar tus datos.                                                            |
+| Mi cuota (meta de ahorro)     | Una alcancía con la cuota que quieres juntar y un aporte diario sugerido; cada aporte se anota y se suma.                                        |
 | Mis productos                 | Permite crear, renombrar, editar, desactivar y reactivar productos desde Perfil.                                                                  |
 | Recomendaciones               | Seis reglas fijas (cobro, precio, cuánto preparar, cuánto retirar, día flojo, comparación con el ciclo anterior). Muestra las 2 más importantes. |
-| Mi reporte                    | Un reporte con totales para el banco: venta y ganancia promedio mensual, y constancia de registro, en texto o en PDF. Freddy decide si lo comparte. |
-| Preguntarle a mis datos       | Un chat opcional para preguntar con sus palabras ("¿qué día me va peor?"). Necesita internet. Ver [El chat](#el-chat-preguntarle-a-mis-datos).     |
+| Mi reporte y pasaporte para la entidad financiera | Totales con venta y ganancia promedio mensual, una **cuota mensual de referencia** y una constancia de registro con código QR generado en el teléfono, en texto o en PDF. Es una referencia, no una aprobación ni una calificación: la entidad decide con su propio análisis, y el código no reemplaza su verificación. Se comparte solo si la persona lo decide. |
+| Asistente (Preguntarle a mis datos) | Pregunta con sus palabras ("¿qué día me va peor?"). **Funciona también sin internet**: el teléfono clasifica la pregunta y responde con las mismas frases fijas. Con internet, además, puede dar un semáforo. Ver [El asistente](#el-chat-preguntarle-a-mis-datos). |
+| Datos de ejemplo              | Se cargan y se **borran** desde Perfil, para probar la app sin registrar nada propio.                                                            |
+
+La interfaz usa React Native Elements con un tema propio y las fuentes Inter (cuerpo y montos) y Outfit (títulos).
 
 No es un score que decide créditos. Las reglas son aritmética sobre lo que él registró y cada una se puede explicar línea por línea.
 
@@ -79,11 +90,11 @@ El nombre que ve la persona es **Crecemos**. Los identificadores nativos conserv
 
 ## El chat "Preguntarle a mis datos"
 
-Es una función **opcional**: la app entera funciona sin ella. Se abre con el botón redondo del robot en Inicio (o desde Resumen) y le permite a Freddy escribir o tocar una pregunta ("¿cuánto vendí ayer?", "¿qué día me va peor?", "¿cuánto me deben?").
+Es una función **opcional**: la app entera funciona sin ella. Se abre desde la pestaña **Asistente** y le permite a Freddy escribir o tocar una pregunta ("¿cuánto vendí ayer?", "¿qué día me va peor?", "¿cuánto me deben?").
 
-- **Solo con internet y solo al enviar.** Abrir la pantalla o escribir no manda nada; cada petición sale al tocar "Preguntar". Sin internet el chat lo dice con una frase sencilla y el resto de la app sigue igual. Un saludo ("hola") se contesta en el propio teléfono, sin red.
+- **Funciona sin internet.** Abrir la pantalla o escribir no manda nada; con red, cada petición sale al tocar "Preguntar". Sin red (o si el servidor falla) el teléfono clasifica la pregunta por su cuenta, responde con las mismas frases fijas, sin semáforo, y avisa "Respondí sin internet". Un saludo ("hola") siempre se contesta en el propio teléfono.
 - **Las cifras y frases las calcula la app, no el modelo.** El modelo identifica a cuál de doce preguntas conocidas se refiere y, en algunas respuestas, puede valorar señales con un semáforo (Bien, Ojo, Urgente). El teléfono identifica los productos configurados y muestra frases fijas revisadas.
-- **Qué viaja y qué no.** Viaja el texto de la pregunta y, para el juicio opcional, la respuesta ya calculada con sus totales. **Nunca** viajan el catálogo, el nombre, el Yape, el perfil ni los movimientos de un día. La pantalla avisa de esto al abrirse. La conversación no se guarda en el teléfono: se pierde al salir de la pantalla.
+- **Qué viaja y qué no.** Viaja el texto de la pregunta y, para el juicio opcional, la respuesta ya calculada con sus totales. **Nunca** viajan el catálogo, el nombre, el Yape, el perfil ni los movimientos de un día. La pantalla avisa de esto al abrirse. La conversación **solo vive en memoria**: no se guarda en el teléfono y se pierde al cerrar la app.
 - **La clave del proveedor no está en la app ni en el repositorio.** La app habla con un servidor intermedio propio (un Cloudflare Worker, en `servidor/`) que guarda la clave como secreto y reenvía lo mínimo a un proveedor de modelos (OpenRouter). El servidor valida el tamaño de lo que recibe y limita las peticiones por dirección IP. El endpoint es público: la protección de MVP es ese límite y un tope de gasto en la clave; una autenticación real queda fuera.
 - **Las dos únicas direcciones de red de la app** son `src/services/seed.ts` (los datos de ejemplo) y `src/services/jev.ts` (este chat). La dirección del servidor está en `src/config.ts`.
 - **Los modelos los alojan terceros.** Se pide a los proveedores que no guarden ni entrenen con los datos; eso reduce el riesgo pero no lo elimina.
@@ -95,6 +106,7 @@ Para usar tu propio servidor, sigue los pasos de [`servidor/README.md`](servidor
 Una instalación nueva empieza con el catálogo vacío. Si la persona toca **«Cargar datos de ejemplo»**, la app descarga `seed/semilla.json` desde GitHub (unos 34 KB, 75 cierres de día en unos 90 días, con 4 productos). Su dirección está en `src/config.ts`.
 
 - Sin señal, abre vacía y ofrece reintentar la carga voluntaria. Nunca muestra un error técnico.
+- **Para volver a empezar la demostración:** Perfil → «Borrar datos de ejemplo» → «Cargar datos de ejemplo». Borrar quita solo lo marcado como ejemplo (días y productos); los datos propios, la meta «Mi cuota» y los yapes anotados no se tocan, y cargar el ejemplo no crea ni meta ni yapes.
 - No reemplaza productos ni cierres propios. Las instalaciones anteriores conservan su catálogo y sus importes históricos.
 - Las fechas se corren para que cada cierre caiga en el mismo día de la semana en que se pensó, sea cual sea el día en que se abre la app.
 - Se regenera con `npm run semilla`. Es determinista: el mismo comando da siempre los mismos bytes.
@@ -114,8 +126,9 @@ Una instalación nueva empieza con el catálogo vacío. Si la persona toca **«C
 | 07     | Foto de perfil desde la galería o la cámara y reporte en PDF de una página para compartir.                                   |
 | 08     | El chat "Preguntarle a mis datos": las cifras las calcula la app, el modelo entiende la pregunta y puede juzgarla; servidor propio. |
 | 09     | Lenguaje claro, fórmulas explicadas y catálogo configurable; datos de ejemplo voluntarios. |
+| 12     | Auditoría: barra de navegación con Cerrar día al centro, Asistente como pestaña (también sin internet), Para mañana, Tu semana, simulador de precio, Mi cuota, Anotar un yape, Cuéntame tu día, recordatorio, pasaporte con cuota de referencia, datos de ejemplo borrables, React Native Elements con Inter y Outfit, cola de escrituras y versión del esquema. |
 
-Los Sprints 10 y 11 están previstos para compras y pagos; la auditoría pasó al Sprint 12.
+Los Sprints 10 y 11 están previstos para compras y pagos.
 
 ### Metodología
 
@@ -157,21 +170,22 @@ Jest fija la zona horaria a `America/Lima`: la fecha del negocio es la fecha loc
 src/
   dominio/      Reglas del negocio y tipos. TypeScript puro, sin React.
   analisis/     Métricas, reglas de decisión, señales del reporte y lógica del chat (intenciones, semáforo, charla). Puro.
-  storage/      Repositorio sobre AsyncStorage (guarda en SQLite por dentro).
+  storage/      Repositorio sobre AsyncStorage (guarda en SQLite por dentro): escrituras en cola y versión del esquema.
   context/      Estado de la app: un solo proveedor.
   navigation/   Pestañas y pantallas apiladas.
-  screens/      Inicio, Cerrar mi día, Historial, Resumen, Comparar productos, Perfil, Mi reporte, Preguntarle a mis datos.
+  screens/      Inicio, Cerrar mi día, Historial, Resumen, Qué me deja cada uno, Mi cuota, Perfil, Mi reporte, Asistente.
+  hooks/        Derivados compartidos (ciclos), recordatorio, conteo animado y acciones seguras.
   components/   Átomos, moléculas y organismos reutilizables.
   services/     La red (seed.ts y jev.ts), la hoja de compartir, la foto y el PDF.
 servidor/       Servidor intermedio del chat (Cloudflare Worker): guarda la clave y reenvía.
   theme/        Colores, espaciado y tipografía.
 ```
 
-`dominio/` y `analisis/` no importan React ni React Native, y reciben la fecha de hoy como parámetro. Por eso se prueban sin montar nada y sin simular el reloj. La interfaz no calcula: pide el resultado al dominio y lo dibuja. El stack es React Native 0.87, TypeScript, React Navigation 7, AsyncStorage 3, Zod y lucide para los íconos. No hay librerías de gráficos: las barras son `View` de ancho porcentual.
+`dominio/` y `analisis/` no importan React ni React Native, y reciben la fecha de hoy como parámetro. Por eso se prueban sin montar nada y sin simular el reloj. La interfaz no calcula: pide el resultado al dominio y lo dibuja. El stack es React Native 0.87, TypeScript, React Navigation 7, React Native Elements 5, AsyncStorage 3, Zod y lucide para los íconos. No hay librerías de gráficos: las barras son `View` de ancho porcentual.
 
 ## Privacidad y datos
 
-- Los registros viven en el teléfono, en una base propia de la app. Registrar, ver el historial y calcular recomendaciones usa cero bytes de red. El chat opcional usa internet al tocar "Preguntar" y los datos de ejemplo se descargan solo al solicitarlos.
+- Los registros viven en el teléfono, en una base propia de la app. Registrar, ver el historial, calcular recomendaciones y preguntarle al asistente sin internet usan cero bytes de red. El asistente usa internet (si hay) al tocar "Preguntar" y los datos de ejemplo se descargan solo al solicitarlos.
 - Nada sale sin una acción explícita. El reporte se comparte con la hoja nativa del teléfono, solo cuando se toca "Compartir reporte", y se ve antes la vista previa.
 - El reporte es texto plano de unos 500 caracteres (el tope es 2,000). Lleva el nombre y el negocio del perfil, la venta y la ganancia promedio mensual, la constancia de registro y los días registrados por mes. **Nunca** lleva el número de Yape, el titular, el parentesco, la ubicación ni el monto de un cierre suelto.
 - Sin analítica, sin publicidad, sin reporte de errores y sin cuentas ni inicio de sesión.
@@ -183,19 +197,19 @@ servidor/       Servidor intermedio del chat (Cloudflare Worker): guarda la clav
 | Limitación                                                                                                                                          |
 | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Los precios y costos de la semilla son supuestos y no se confirmaron con el vendedor. Cuando se confirmen, se cambian y se corre `npm run semilla`. |
-| No existe "Anotar un yape" suelto: el Yape se anota al cerrar el día.                                                                               |
+| Los avisos y el recordatorio son **solo dentro de la app**: no hay notificaciones del sistema, así que no suenan con la app cerrada.               |
+| La conversación del asistente solo vive en memoria: se pierde al cerrar la app.                                                                     |
+| La cuota de referencia y el código de constancia **no son una aprobación ni una calificación**: la entidad decide con su propio análisis.          |
 | El reporte tiene un periodo fijo (los últimos 3 meses completos); no hay selector de periodo.                                                       |
-| El chat solo funciona con internet, entiende doce tipos de preguntas, no guarda la conversación y su endpoint es público (con límite por IP y tope de gasto, sin autenticación). |
+| El asistente con internet entiende doce tipos de preguntas y su endpoint es público (con límite por IP y tope de gasto, sin autenticación). Sin internet responde igual, sin semáforo. |
 | iPhone: con la firma gratuita de Apple la app dura 7 días.                                                                                          |
-| No se verificó en un iPhone chico, con el texto del sistema agrandado ni en Android. El chat con el teclado abierto en un iPhone chico tampoco.    |
-| Los datos de ejemplo se cargan voluntariamente, pero aún no hay un botón para borrarlos.                                                         |
+| Android y los iPhone chicos con texto del sistema agrandado **no se probaron en un dispositivo real**; las pruebas automáticas no reemplazan esa revisión. |
+| El dinero se calcula en soles con redondeo a 2 decimales en cada total (no en centavos enteros); las pruebas de propiedades vigilan que no aparezcan decimales de más. |
 | Con el simulador encendido, las pruebas de interfaz son lentas y pueden agotar el tiempo (ver Cómo probarla).                                       |
 | Sin backend ni inicio de sesión, por decisión de diseño. Si se pierde el teléfono, se pierden los datos: no hay respaldo ni importación.            |
 
-<!-- ANDROID-ESTADO: pendiente de completar -->
-
-Estado del build de Android: por confirmar.
+Estado del build de Android: se genera el APK release (ver arriba), pendiente de probar en un teléfono físico.
 
 ## Autoría
 
-Proyecto académico, React Native Lab, Compartamos Banco × UTP, 2026. Repositorio: `JoaquinStudent/crecemos-app`.
+Proyecto académico, React Native Lab, 2026. Repositorio: `JoaquinStudent/crecemos-app`.

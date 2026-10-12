@@ -1,5 +1,5 @@
 // src/theme/colors.ts
-// Paleta Compartamos Banco. Ver contexto-hack/03-producto/Identidad.md
+// Paleta de marca magenta/naranja. Ver contexto-hack/03-producto/Identidad.md
 export const colors = {
   // Marca
   primary: '#CD0157',
