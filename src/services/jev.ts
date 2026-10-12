@@ -153,7 +153,9 @@ export const redactarRespuesta = async (
 /**
  * Le pide al servidor que juzgue una respuesta YA calculada (el semáforo). Viaja SOLO
  * `{ tipo: 'juzgar', hecho: { intencion, frase, cifras, senales } }`: la frase, las cifras y las
- * señales con nombre que armó el código; nada del perfil, del Yape ni de los cierres. Devuelve el
+ * señales con nombre que armó el código; nada del perfil, del Yape ni de los cierres. En
+ * `cuantoPorCobrar` ni siquiera la frase y las cifras (monto y fecha del Yape por cobrar): ver
+ * `armarHechoParaJuicio`. Devuelve el
  * juicio si llegó con confianza suficiente (`interpretarJuicio`) y `null` en cualquier otro caso:
  * sin red, 8 s, respuesta inválida o duda. Nunca lanza.
  */

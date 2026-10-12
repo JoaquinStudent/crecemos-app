@@ -214,15 +214,30 @@ export const senalesDeJuicio = (
 };
 
 /**
+ * Intenciones cuya frase y cifras NO salen del teléfono porque traen montos o fechas de los cobros
+ * (el Yape que le deben): al servidor solo viajan las señales con nombre ("plazo: vencido",
+ * "monto: alto"). El juicio no las necesita: Jev juzga con las señales, no hace cuentas.
+ */
+const SIN_CIFRAS_AL_SERVIDOR: readonly IntencionId[] = ['cuantoPorCobrar'];
+
+/** La frase neutra que reemplaza a la real cuando la real traería montos o fechas de cobros. */
+export const FRASE_NEUTRA_COBROS = 'Tienes pagos por cobrar.';
+
+/**
  * El cuerpo de la petición para juzgar: la intención, la frase, las cifras y las señales. Nada más:
  * ni el perfil, ni el Yape, ni un cierre. Copia lo que recibe y deja fuera cualquier otra llave.
+ * En `cuantoPorCobrar` no va la frase real ni las cifras (monto y fecha del Yape por cobrar): va
+ * una frase neutra, sin cifras, y las señales de vocabulario cerrado.
  */
-export const armarHechoParaJuicio = (hecho: Hecho, senales: SenalesJuicio): HechoJuicio => ({
-  intencion: hecho.intencion,
-  frase: hecho.frase,
-  cifras: [...hecho.cifras],
-  senales: { ...senales },
-});
+export const armarHechoParaJuicio = (hecho: Hecho, senales: SenalesJuicio): HechoJuicio => {
+  const reservado = SIN_CIFRAS_AL_SERVIDOR.includes(hecho.intencion);
+  return {
+    intencion: hecho.intencion,
+    frase: reservado ? FRASE_NEUTRA_COBROS : hecho.frase,
+    cifras: reservado ? [] : [...hecho.cifras],
+    senales: { ...senales },
+  };
+};
 
 const esquemaJuicio = z.object({
   semaforo: z.enum(['bien', 'ojo', 'urgente']),
