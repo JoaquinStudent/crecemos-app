@@ -5,6 +5,7 @@ import { esEjemplo } from '@dominio/origen';
 import { diasEntre, restarDias } from '@dominio/fecha';
 import { formatoFechaCorta, formatoSoles, nombreMes, redondearSoles } from '@dominio/formato';
 import type { Cierre, FechaNegocio, MesCompleto, Perfil, Senales } from '@dominio/tipos';
+import { construirPasaporte, lineasTextoPasaporte } from './pasaporte';
 
 /** Ventana de la constancia: 90 días contando hoy. */
 export const VENTANA_DIAS = 90;
@@ -133,9 +134,10 @@ export const textoFaltan = (diasFaltantes: number): string =>
 
 /**
  * Texto plano del reporte (≤ 2,000 caracteres). Solo totales y promedios, más el nombre y el negocio
- * del perfil: nada del Yape, la ubicación ni de un cierre individual (RNF-08, regla 8).
+ * del perfil: nada del Yape, la ubicación ni de un cierre individual (RNF-08, regla 8). Con `hoy`
+ * suma la cuota de referencia y el código de constancia (el pasaporte); sin él, el reporte de siempre.
  */
-export const textoReporte = (s: Senales, perfil: Perfil | null): string => {
+export const textoReporte = (s: Senales, perfil: Perfil | null, hoy?: FechaNegocio): string => {
   const quien = [perfil?.nombre, perfil?.negocio]
     .map(parte => (parte ?? '').trim().slice(0, MAX_ROTULO))
     .filter(parte => parte !== '')
@@ -160,6 +162,7 @@ export const textoReporte = (s: Senales, perfil: Perfil | null): string => {
           s.diasRegistrados,
         )})`;
 
+  const pasaporte = hoy === undefined ? null : construirPasaporte(s, hoy);
   const lineas = [
     'Reporte de actividad del negocio',
     ...(s.soloEjemplo ? [AVISO_EJEMPLO] : []),
@@ -180,6 +183,7 @@ export const textoReporte = (s: Senales, perfil: Perfil | null): string => {
       ? []
       : [`Registra desde el ${formatoFechaCorta(s.registraDesde)} (${dias(s.antiguedadDias)})`]),
     ...(s.enConstruccion ? [textoFaltan(s.diasFaltantes)] : []),
+    ...(pasaporte === null ? [] : lineasTextoPasaporte(pasaporte)),
     'Son totales registrados por el propio negocio en la app Crecemos; incluyen pagos pendientes de recibir y no incluyen movimientos individuales.',
   ];
   return lineas.join('\n');

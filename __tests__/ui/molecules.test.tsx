@@ -3,6 +3,8 @@ import { act } from 'react-test-renderer';
 import { ArrowUp, Info } from 'lucide-react-native';
 import { Callout, ANCHO_BORDE_CALLOUT } from '@components/molecules/Callout';
 import { Card } from '@components/molecules/Card';
+import { CodigoQR } from '@components/molecules/CodigoQR';
+import { corridasQR, modulosQR } from '@analisis/pasaporte';
 import { EmptyState } from '@components/molecules/EmptyState';
 import { ListRow } from '@components/molecules/ListRow';
 import { ScreenHeader } from '@components/molecules/ScreenHeader';
@@ -211,6 +213,28 @@ describe('ListRow', () => {
     expect(host.props.accessible).toBe(true);
     await act(async () => tocablePorTestID(r, 'fila').props.onPress());
     expect(onPress).toHaveBeenCalledTimes(1);
+    await desmontar(r);
+  });
+});
+
+describe('CodigoQR', () => {
+  const modulos = modulosQR('CRECEMOS1|P=20260723-20261006|V=5120.00|G=2180.00|D=58|C=650|E=20261007|K=178E5687');
+
+  it('es una imagen accesible con el código en palabras', async () => {
+    const r = await montar(<CodigoQR modulos={modulos} codigo="CR-178E-5687" testID="qr" />);
+    const host = hostPorTestID(r, 'qr');
+    expect(host.props.accessible).toBe(true);
+    expect(host.props.accessibilityRole).toBe('image');
+    expect(host.props.accessibilityLabel).toBe('Código de constancia CR-178E-5687');
+    await desmontar(r);
+  });
+
+  it('dibuja un rectángulo por tramo oscuro (más el fondo), no uno por módulo', async () => {
+    const r = await montar(<CodigoQR modulos={modulos} codigo="CR-178E-5687" testID="qr" />);
+    const rects = hostPorTestID(r, 'qr').findAll(n => String(n.type) === 'RNSVGRect');
+    const oscuros = modulos.flat().filter(Boolean).length;
+    expect(rects.length).toBe(corridasQR(modulos).length + 1);
+    expect(rects.length).toBeLessThan(oscuros);
     await desmontar(r);
   });
 });

@@ -19,8 +19,22 @@ import { ProgressBar } from '@components/atoms/ProgressBar';
 import { AvatarPerfil } from '@components/molecules/AvatarPerfil';
 import { Callout } from '@components/molecules/Callout';
 import { CargandoBloques } from '@components/molecules/CargandoBloques';
+import { CodigoQR } from '@components/molecules/CodigoQR';
 import { ScreenHeader } from '@components/molecules/ScreenHeader';
 import { htmlReporte, NOMBRE_ARCHIVO_PDF } from '@analisis/htmlReporte';
+import {
+  AVISO_EJEMPLO_SECCION,
+  construirPasaporte,
+  explicacionCuota,
+  modulosQR,
+  NOTA_CODIGO,
+  NOTA_CUOTA,
+  SIN_CONSTANCIA_MES,
+  textoCuota,
+  TITULO_CODIGO,
+  TITULO_CUOTA,
+  type Pasaporte,
+} from '@analisis/pasaporte';
 import {
   DIAS_CONVINCENTE,
   diasRegistradosTexto,
@@ -48,6 +62,8 @@ const TEXTO_AYUDA_PDF = 'El PDF lleva solo totales. No lleva tu Yape ni tus movi
 const TITULO_PDF = 'Reporte de actividad del negocio';
 /** Foto de la identidad en la hoja de pantalla, en dp. */
 const TAMANO_FOTO = 56;
+/** Lado del QR en la hoja de pantalla, en dp. */
+const TAMANO_QR = 132;
 
 /** Alto de la zona de las barras: la del mes mayor la llena entera. */
 const ALTO_BARRAS = 96;
@@ -79,7 +95,8 @@ export const MiReporteScreen = () => {
     const fecha = fechaLocal(new Date());
     return { senales: senalesBanco(cierres, fecha), hoy: fecha };
   }, [cierres]);
-  const texto = useMemo(() => textoReporte(senales, perfil), [senales, perfil]);
+  const texto = useMemo(() => textoReporte(senales, perfil, hoy), [senales, perfil, hoy]);
+  const pasaporte = useMemo(() => construirPasaporte(senales, hoy), [senales, hoy]);
 
   // El mensaje amable del último fallo (o nada). Cerrar la hoja sin compartir no es un fallo.
   const [mensajeError, setMensajeError] = useState<string | null>(null);
@@ -163,7 +180,7 @@ export const MiReporteScreen = () => {
           </Text>
         </View>
 
-        {cargando ? null : <Hoja senales={senales} perfil={perfil} />}
+        {cargando ? null : <Hoja senales={senales} perfil={perfil} pasaporte={pasaporte} />}
       </ScrollView>
 
       {/* Los botones viven FUERA del scroll, en un pie fijo: siempre a la mano del pulgar. */}
@@ -231,7 +248,15 @@ const EnConstruccion = ({ senales }: { senales: Senales }) => {
 };
 
 /** La vista previa como un documento: lo mismo que viaja en el texto, en una hoja blanca. */
-const Hoja = ({ senales, perfil }: { senales: Senales; perfil: Perfil }) => {
+const Hoja = ({
+  senales,
+  perfil,
+  pasaporte,
+}: {
+  senales: Senales;
+  perfil: Perfil;
+  pasaporte: Pasaporte | null;
+}) => {
   const quien = [perfil.nombre, perfil.negocio]
     .map(parte => parte.trim())
     .filter(parte => parte !== '')
@@ -292,6 +317,8 @@ const Hoja = ({ senales, perfil }: { senales: Senales; perfil: Perfil }) => {
 
       {hayMeses ? <Barras meses={senales.meses} /> : null}
 
+      {pasaporte !== null ? <SeccionPasaporte pasaporte={pasaporte} /> : null}
+
       {hayDias ? (
         <View style={styles.pieHoja}>
           <Icon icon={CircleCheck} color="success" size="lg" />
@@ -304,6 +331,71 @@ const Hoja = ({ senales, perfil }: { senales: Senales; perfil: Perfil }) => {
           </Text>
         </View>
       ) : null}
+    </View>
+  );
+};
+
+/**
+ * El pasaporte para el banco: la cuota de referencia, los días registrados por mes y el código de
+ * constancia con su QR. Todo en palabras y con su aclaración: es una referencia, no una aprobación.
+ */
+const SeccionPasaporte = ({ pasaporte }: { pasaporte: Pasaporte }) => {
+  const modulos = useMemo(() => modulosQR(pasaporte.textoQR), [pasaporte.textoQR]);
+  const { cuota, constanciaMensual, codigo, soloEjemplo } = pasaporte;
+  const marca = soloEjemplo ? (
+    <Text variant="captionStrong" color="primary">
+      {AVISO_EJEMPLO_SECCION}
+    </Text>
+  ) : null;
+  return (
+    <View style={styles.pasaporte} testID="reporte-pasaporte">
+      <View style={styles.linea} />
+
+      <View style={styles.bloque} testID="reporte-cuota-bloque">
+        <Text variant="labelStrong">{TITULO_CUOTA}</Text>
+        {marca}
+        <Text variant="bodyStrong" testID="reporte-cuota">
+          {textoCuota(cuota)}
+        </Text>
+        {cuota.disponible ? (
+          <Text variant="bodySmall" color="textMuted" testID="reporte-cuota-explicacion">
+            {explicacionCuota(cuota)}
+          </Text>
+        ) : null}
+        <Text variant="bodySmall" color="textMuted" testID="reporte-cuota-nota">
+          {NOTA_CUOTA}
+        </Text>
+      </View>
+
+      <View style={styles.bloque} testID="reporte-constancia-bloque">
+        <Text variant="labelStrong">Constancia de registro por mes</Text>
+        {marca}
+        {constanciaMensual.length === 0 ? (
+          <Text variant="bodySmall" color="textMuted" testID="reporte-constancia-sin-mes">
+            {SIN_CONSTANCIA_MES}
+          </Text>
+        ) : (
+          constanciaMensual.map(m => (
+            <Text variant="bodySmall" key={m.mes} testID={`reporte-constancia-mes-${m.mes}`}>
+              {m.frase}
+            </Text>
+          ))
+        )}
+      </View>
+
+      <View style={styles.bloque} testID="reporte-codigo-bloque">
+        <Text variant="labelStrong">{TITULO_CODIGO}</Text>
+        {marca}
+        <View style={styles.codigoFila}>
+          <CodigoQR modulos={modulos} codigo={codigo} size={TAMANO_QR} testID="reporte-qr" />
+          <Text variant="bodyStrong" style={styles.codigoTexto} testID="reporte-codigo">
+            {codigo}
+          </Text>
+        </View>
+        <Text variant="bodySmall" color="textMuted" testID="reporte-codigo-nota">
+          {NOTA_CODIGO}
+        </Text>
+      </View>
     </View>
   );
 };
@@ -411,6 +503,10 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 6,
     borderTopRightRadius: 6,
   },
+  pasaporte: { gap: spacing.md },
+  bloque: { gap: spacing.xs },
+  codigoFila: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  codigoTexto: { flex: 1 },
   pieHoja: {
     flexDirection: 'row',
     alignItems: 'center',

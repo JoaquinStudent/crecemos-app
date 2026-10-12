@@ -22,6 +22,7 @@ import { formatoSoles } from '@dominio/formato';
 import { materializarSemilla, validarSemilla } from '@dominio/semilla';
 import type { Cierre, FechaNegocio, Perfil, Senales } from '@dominio/tipos';
 import { htmlReporte, NOMBRE_ARCHIVO_PDF } from '@analisis/htmlReporte';
+import { cuotaReferencia } from '@analisis/pasaporte';
 import { senalesBanco } from '@analisis/senales';
 import { guardarCierre, guardarPerfil, importarSemilla, obtenerPerfil } from '@storage/repositorio';
 
@@ -318,6 +319,8 @@ describe('SPEC-07: Foto de perfil y reporte en PDF', () => {
     expect(s.mesesCompletos).toBe(3);
 
     const html = htmlReporte(s, perfil, HOY);
+    const cuota = cuotaReferencia(s);
+    const cuotaMonto = cuota.disponible ? cuota.monto : -1;
 
     for (const privado of ['987654321', 'Persona de prueba', 'hermana', 'Afuera de la UTP']) {
       expect(html).not.toContain(privado);
@@ -327,14 +330,17 @@ describe('SPEC-07: Foto de perfil y reporte en PDF', () => {
     for (const c of cierres) {
       const venta = c.lineas.reduce((t, l) => t + (l.preparadas - l.sobrantes) * l.precioUnitario, 0);
       const gastos = c.gastos.reduce((t, g) => t + g.monto, 0);
-      for (const monto of [venta, venta - gastos, gastos].filter(m => m > 0)) {
+      // (La cuota de referencia, S/ 650.00, es una cifra derivada del promedio y puede coincidir con
+      // un día suelto por casualidad: se deja aparte.)
+      for (const monto of [venta, venta - gastos, gastos].filter(m => m > 0 && m !== cuotaMonto)) {
         expect(html).not.toContain(formatoSoles(monto));
       }
     }
-    // Los únicos montos en soles del documento son los dos promedios y la venta de cada mes.
+    // Los únicos montos en soles del documento son los dos promedios, la venta de cada mes y la
+    // cuota de referencia (el 30 % del resultado promedio, redondeado hacia abajo a S/ 10).
     const montos = new Set(html.match(/S\/ [\d,]+\.\d{2}/g));
     expect([...montos].sort()).toEqual(
-      ['S/ 2,180.00', 'S/ 4,900.00', 'S/ 5,100.00', 'S/ 5,120.00', 'S/ 5,360.00'].sort(),
+      ['S/ 2,180.00', 'S/ 4,900.00', 'S/ 5,100.00', 'S/ 5,120.00', 'S/ 5,360.00', 'S/ 650.00'].sort(),
     );
   });
 

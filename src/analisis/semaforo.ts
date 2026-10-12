@@ -11,7 +11,6 @@ import { diasEntre } from '@dominio/fecha';
 import { redondearSoles } from '@dominio/formato';
 import { requiereRevision } from '@dominio/producto';
 import type {
-  Ciclo,
   Consulta,
   ContextoAnalisis,
   Hecho,
@@ -27,8 +26,6 @@ import {
   cicloCerradoYActual,
   DIAS_COBRO_VENCIDO,
   peorDiaMedido,
-  SOBRANTES_MINIMOS,
-  sobranteDeDosCiclos,
   UMBRAL_COBRO_SOLES,
 } from './reglas';
 

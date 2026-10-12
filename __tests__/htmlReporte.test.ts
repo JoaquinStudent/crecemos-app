@@ -8,6 +8,7 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { escaparHtml, htmlReporte, NOMBRE_ARCHIVO_PDF } from '@analisis/htmlReporte';
+import { construirPasaporte, cuotaReferencia, modulosQR, svgQR } from '@analisis/pasaporte';
 import { senalesBanco } from '@analisis/senales';
 import { formatoSoles } from '@dominio/formato';
 import { materializarSemilla, validarSemilla } from '@dominio/semilla';
@@ -132,7 +133,7 @@ describe('htmlReporte · el documento', () => {
   });
 
   it('las etiquetas de bloque quedan balanceadas', () => {
-    for (const etiqueta of ['div', 'table', 'tr', 'p', 'strong', 'span', 'tbody', 'thead']) {
+    for (const etiqueta of ['div', 'table', 'tr', 'strong', 'span', 'svg', 'tbody', 'thead']) {
       expect(cuenta(html, `<${etiqueta}`)).toBe(cuenta(html, `</${etiqueta}>`));
     }
   });
@@ -280,17 +281,17 @@ describe('htmlReporte · barras por mes', () => {
     html = htmlReporte(senalesDe(), perfilDe(), HOY);
   });
 
-  it('la barra mayor llena el alto (170 pt) y las demás son proporcionales', () => {
-    // 4,900 ÷ 5,360 × 170 = 155.4 · 5,100 ÷ 5,360 × 170 = 161.8
-    expect(html).toContain('<div class="barra" style="height: 155pt"></div>');
-    expect(html).toContain('<div class="barra" style="height: 162pt"></div>');
-    expect(html).toContain('<div class="barra" style="height: 170pt"></div>');
+  it('la barra mayor llena el alto (70 pt) y las demás son proporcionales', () => {
+    // 4,900 ÷ 5,360 × 70 = 64.0 · 5,100 ÷ 5,360 × 70 = 66.6
+    expect(html).toContain('<div class="barra" style="height: 64pt"></div>');
+    expect(html).toContain('<div class="barra" style="height: 67pt"></div>');
+    expect(html).toContain('<div class="barra" style="height: 70pt"></div>');
     expect(cuenta(html, 'class="barra"')).toBe(3);
   });
 
   it('el monto va encima de su barra y el mes en tres letras debajo', () => {
     expect(html).toContain(
-      '<div class="monto">S/ 4,900.00</div><div class="barra" style="height: 155pt"></div><div class="mes">Jul</div>',
+      '<div class="monto">S/ 4,900.00</div><div class="barra" style="height: 64pt"></div><div class="mes">Jul</div>',
     );
     expect(html).toContain('<div class="mes">Ago</div>');
     expect(html).toContain('<div class="mes">Sep</div>');
@@ -311,7 +312,7 @@ describe('htmlReporte · barras por mes', () => {
     expect(conCero).toContain(
       '<div class="monto">S/ 0.00</div><div class="barra" style="height: 3pt">',
     );
-    expect(conCero).toContain('<div class="barra" style="height: 170pt">');
+    expect(conCero).toContain('<div class="barra" style="height: 70pt">');
   });
 
   it('si todos los meses valen 0 todas las barras son mínimas', () => {
@@ -335,7 +336,7 @@ describe('htmlReporte · barras por mes', () => {
       perfilDe(),
       HOY,
     );
-    expect(uno).toContain('<div class="barra" style="height: 170pt">');
+    expect(uno).toContain('<div class="barra" style="height: 70pt">');
   });
 
   it('sin ningún mes completo no hay gráfico', () => {
@@ -521,8 +522,8 @@ const regla = (html: string, selector: string): string => {
 describe('htmlReporte · línea de promedio', () => {
   it('dibuja una línea punteada horizontal con la etiqueta "Promedio S/ …"', () => {
     const html = htmlReporte(senalesDe(), perfilDe(), HOY);
-    // 5,120 ÷ 5,360 × 170 = 162.4 pt sobre la base de las barras (18 pt de los meses).
-    expect(html).toContain('<div class="promedio" style="bottom: 180pt"></div>');
+    // 5,120 ÷ 5,360 × 70 = 66.9 pt sobre la base de las barras (18 pt de los meses).
+    expect(html).toContain('<div class="promedio" style="bottom: 85pt"></div>');
     expect(cuenta(html, 'class="promedio"')).toBe(1);
     expect(regla(html, '.promedio')).toContain('dotted');
     expect(soloTexto(html)).toContain('Promedio S/ 5,120.00');
@@ -537,7 +538,8 @@ describe('htmlReporte · línea de promedio', () => {
   it('no usa JavaScript: es un <div> con el borde punteado y la altura en pt', () => {
     const html = htmlReporte(senalesDe(), perfilDe(), HOY);
     expect(html.toLowerCase()).not.toContain('<script');
-    expect(html).not.toContain('<svg');
+    // El único <svg> del documento es el QR del pasaporte: el gráfico es de <div>.
+    expect(html.slice(0, html.indexOf('class="seccion pasaporte"'))).not.toContain('<svg');
     expect(html).not.toContain('<canvas');
     expect(regla(html, '.promedio')).toContain('position: absolute');
   });
@@ -552,13 +554,13 @@ describe('htmlReporte · línea de promedio', () => {
       perfilDe(),
       HOY,
     );
-    expect(html).toContain('<div class="promedio" style="bottom: 188pt"></div>');
+    expect(html).toContain('<div class="promedio" style="bottom: 88pt"></div>');
     expect(soloTexto(html)).toContain('Promedio S/ 800.00');
   });
 
   it('un promedio mayor que la barra mayor no se sale del gráfico', () => {
     const html = htmlReporte(senalesDe({ ventaPromedioMensual: 999999 }), perfilDe(), HOY);
-    expect(html).toContain('<div class="promedio" style="bottom: 188pt"></div>');
+    expect(html).toContain('<div class="promedio" style="bottom: 88pt"></div>');
   });
 
   it('si todas las ventas son 0 la línea queda en la base', () => {
@@ -583,7 +585,7 @@ describe('htmlReporte · línea de promedio', () => {
   it('el monto de cada barra sigue encima de ella y el mes debajo', () => {
     const html = htmlReporte(senalesDe(), perfilDe(), HOY);
     expect(html.indexOf('<div class="monto">S/ 5,360.00</div>')).toBeLessThan(
-      html.indexOf('<div class="barra" style="height: 170pt">'),
+      html.indexOf('<div class="barra" style="height: 70pt">'),
     );
     expect(html).toContain('<div class="mes">Sep</div>');
   });
@@ -698,30 +700,30 @@ describe('htmlReporte · jerarquía y una sola página A4', () => {
     expect(cuenta(html, 'class="barra"')).toBe(3);
   });
 
-  it('el peor caso sigue siendo un documento ligero (menos de 12 KB sin la foto)', () => {
+  it('el peor caso sigue siendo un documento ligero (menos de 16 KB sin la foto)', () => {
     const sinFoto = htmlReporte(
       senalesDe({ enConstruccion: true, diasFaltantes: 21 }),
       perfilDe({ nombre: 'N'.repeat(60), negocio: 'B'.repeat(60) }),
       HOY,
     );
-    expect(Buffer.byteLength(sinFoto, 'utf8')).toBeLessThan(12 * 1024);
+    expect(Buffer.byteLength(sinFoto, 'utf8')).toBeLessThan(16 * 1024);
   });
 });
 
 describe('htmlReporte · cabe en una página', () => {
   const bytes = (texto: string): number => Buffer.byteLength(texto, 'utf8');
 
-  it('sin foto, con 3 meses, pesa menos de 12 KB', () => {
-    expect(bytes(htmlReporte(senalesDe(), perfilDe(), HOY))).toBeLessThan(12 * 1024);
+  it('sin foto, con 3 meses, pesa menos de 16 KB', () => {
+    expect(bytes(htmlReporte(senalesDe(), perfilDe(), HOY))).toBeLessThan(16 * 1024);
   });
 
-  it('en el peor caso (en construcción, nombres de 60 caracteres) sigue por debajo de 12 KB', () => {
+  it('en el peor caso (en construcción, nombres de 60 caracteres) sigue por debajo de 16 KB', () => {
     const html = htmlReporte(
       senalesDe({ enConstruccion: true, diasFaltantes: 21 }),
       perfilDe({ nombre: 'N'.repeat(60), negocio: 'B'.repeat(60) }),
       HOY,
     );
-    expect(bytes(html)).toBeLessThan(12 * 1024);
+    expect(bytes(html)).toBeLessThan(16 * 1024);
   });
 
   it('tiene como mucho 3 barras aunque la señal traiga más meses por error', () => {
@@ -779,17 +781,89 @@ describe('con la semilla real y hoy = 2026-10-20', () => {
       expect(html).not.toContain(dato);
     }
     const s = senalesBanco(cierres, HOY);
+    const cuota = cuotaReferencia(s);
     const permitidos = new Set([
       formatoSoles(s.ventaPromedioMensual),
       formatoSoles(s.gananciaPromedioMensual),
       ...s.meses.map(m => formatoSoles(m.venta)),
+      // La cuota de referencia y su base (el resultado promedio) también son cifras del pasaporte.
+      ...(cuota.disponible ? [formatoSoles(cuota.monto)] : []),
     ]);
     const montos = new Set(html.match(/S\/ [\d,]+\.\d{2}/g));
     expect(montos.size).toBeGreaterThan(0);
     for (const monto of montos) expect(permitidos.has(monto)).toBe(true);
   });
 
-  it('sin foto cabe en una página: menos de 12 KB', () => {
-    expect(Buffer.byteLength(html, 'utf8')).toBeLessThan(12 * 1024);
+  it('sin foto cabe en una página: menos de 16 KB', () => {
+    expect(Buffer.byteLength(html, 'utf8')).toBeLessThan(16 * 1024);
+  });
+});
+
+describe('htmlReporte · pasaporte para el banco', () => {
+  const html = htmlReporte(senalesDe(), perfilDe(), HOY);
+  const texto = soloTexto(html);
+  const pasaporte = construirPasaporte(senalesDe(), HOY);
+
+  it('lleva la cuota de referencia y dice que es una referencia', () => {
+    expect(texto).toContain('Cuota mensual de referencia');
+    expect(texto).toContain('Cerca de S/ 650.00 al mes');
+    expect(texto).toContain('Es una referencia: la entidad decide con su propio análisis.');
+    expect(texto).toContain(
+      '30 % de tu resultado registrado promedio mensual (S/ 2,180.00), de 3 meses completos',
+    );
+  });
+
+  it('lleva el código de constancia, el QR en línea y la aclaración honesta', () => {
+    expect(pasaporte?.codigo).toMatch(/^CR-[0-9A-F]{4}-[0-9A-F]{4}$/);
+    expect(texto).toContain('Código de constancia');
+    expect(html).toContain(`<div class="numero-codigo">${pasaporte?.codigo}</div>`);
+    expect(html).toContain('<svg');
+    expect(cuenta(html, '<svg')).toBe(1);
+    expect(texto).toContain(
+      'Se generó en el teléfono con tus registros; sirve para comparar con los números del reporte. No reemplaza una verificación de la entidad.',
+    );
+    expect(texto).not.toMatch(/certific|garant|aprobad|criptogr|prueba de/i);
+  });
+
+  it('el QR del PDF dibuja exactamente los módulos del QR del código', () => {
+    const modulos = modulosQR(pasaporte?.textoQR ?? '');
+    expect(html).toContain(svgQR(modulos, 84));
+  });
+
+  it('lleva la frase de constancia del último mes completo', () => {
+    expect(texto).toContain('Registraste 18 de 30 días en septiembre');
+  });
+
+  it('el aviso "Datos de ejemplo" va en cada sección nueva cuando solo hay ejemplo', () => {
+    const ej = soloTexto(htmlReporte(senalesDe({ soloEjemplo: true }), perfilDe(), HOY));
+    // Una vez en el aviso grande, y una por cada sección nueva (cuota y código).
+    expect(ej.split('Datos de ejemplo').length - 1).toBeGreaterThanOrEqual(3);
+    expect(texto).not.toContain('· Datos de ejemplo');
+  });
+
+  it('sin días registrados no hay pasaporte; sin mes completo, el código sí y la cifra no', () => {
+    const vacio = htmlReporte(senalesBanco([], HOY), perfilDe(), HOY);
+    expect(vacio).not.toContain('<svg');
+    expect(vacio).not.toContain('Código de constancia');
+    const sinMes = soloTexto(htmlReporte(sinMeses(), perfilDe(), HOY));
+    expect(sinMes).toContain('Aún no hay un mes completo para calcular una referencia.');
+    expect(sinMes).toContain('Código de constancia');
+  });
+
+  it('el pasaporte va después del gráfico y antes de "Cómo leer este reporte"', () => {
+    expect(html.indexOf('Cuota mensual de referencia')).toBeGreaterThan(html.indexOf('Venta por mes'));
+    expect(html.indexOf('Cuota mensual de referencia')).toBeLessThan(
+      html.indexOf('Cómo leer este reporte'),
+    );
+  });
+
+  it('sigue siendo una sola hoja sin saltos, y ligero (< 16 KB) con el QR', () => {
+    expect(cuenta(html, 'class="hoja"')).toBe(1);
+    expect(html).not.toMatch(/page-break-(before|after):\s*always/);
+    expect(Buffer.byteLength(html, 'utf8')).toBeLessThan(16 * 1024);
+  });
+
+  it('es determinista: mismas señales y fecha, mismo documento', () => {
+    expect(htmlReporte(senalesDe(), perfilDe(), HOY)).toBe(html);
   });
 });
