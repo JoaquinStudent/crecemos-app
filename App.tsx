@@ -10,18 +10,21 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { CrecemosProvider } from '@context/CrecemosProvider';
 import { RootStack } from '@navigation/RootStack';
 import { ErrorDeCarga } from '@components/organisms/ErrorDeCarga';
+import { TemaProvider } from '@components/organisms/TemaProvider';
 
 function App() {
   return (
     <SafeAreaProvider>
-      <StatusBar barStyle="dark-content" />
-      <CrecemosProvider>
-        <ErrorDeCarga>
-          <NavigationContainer>
-            <RootStack />
-          </NavigationContainer>
-        </ErrorDeCarga>
-      </CrecemosProvider>
+      <TemaProvider>
+        <StatusBar barStyle="dark-content" />
+        <CrecemosProvider>
+          <ErrorDeCarga>
+            <NavigationContainer>
+              <RootStack />
+            </NavigationContainer>
+          </ErrorDeCarga>
+        </CrecemosProvider>
+      </TemaProvider>
     </SafeAreaProvider>
   );
 }
