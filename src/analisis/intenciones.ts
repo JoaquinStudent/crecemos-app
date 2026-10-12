@@ -9,6 +9,7 @@ import { totalPorCobrar } from '@dominio/cobro';
 import { diaSemana, restarDias } from '@dominio/fecha';
 import { formatoFecha, formatoSoles, redondearSoles } from '@dominio/formato';
 import { teDeja } from '@dominio/producto';
+import { unidadSegunCantidad } from '@dominio/unidades';
 import type {
   Cierre,
   Consulta,
@@ -220,12 +221,8 @@ const unidadDe = (ctx: ContextoAnalisis, productoId: string): string =>
   ctx.productos.find(p => p.id === productoId)?.unidad ?? 'porcion';
 
 /** '1 porción', '410 porciones', '1 vaso', '12 vasos'. */
-const cantidad = (n: number, unidad: string): string => {
-  const uno = unidad === 'porcion' ? 'porción' : unidad;
-  const varios =
-    unidad === 'porcion' ? 'porciones' : /[aeiouáéíóú]$/i.test(uno) ? `${uno}s` : `${uno}es`;
-  return `${conMiles(n)} ${n === 1 ? uno : varios}`;
-};
+const cantidad = (n: number, unidad: string): string =>
+  `${conMiles(n)} ${unidadSegunCantidad(n, unidad)}`;
 
 /** "El anticucho" o "La pancita", para empezar una frase. */
 const conArticulo = (nombre: string): string =>

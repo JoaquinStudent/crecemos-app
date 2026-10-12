@@ -6,6 +6,7 @@ import { totalPorCobrar } from '@dominio/cobro';
 import { diasEntre, diaSemana } from '@dominio/fecha';
 import { formatoFechaCorta, formatoSoles, nombreMes, redondearSoles } from '@dominio/formato';
 import { teDeja } from '@dominio/producto';
+import { unidadSegunCantidad } from '@dominio/unidades';
 import type { Ciclo, ContextoAnalisis, Producto, Recomendacion } from '@dominio/tipos';
 import { compararCiclos, gananciaDelDia } from './metricas';
 import { planificarManana } from './planificador';
@@ -353,8 +354,10 @@ export const REGLAS: Regla[] = [
     mensaje: ctx => {
       const p = productoQueSobraSinPlan(ctx);
       if (p === null) return '';
-      const unidad =
-        ctx.productos.find(x => x.id === p.productoId)?.unidad === 'vaso' ? 'vasos' : 'porciones';
+      const unidad = unidadSegunCantidad(
+        p.cantidad,
+        ctx.productos.find(x => x.id === p.productoId)?.unidad ?? 'porcion',
+      );
       const nombre = ctx.productos.find(x => x.id === p.productoId)?.nombre ?? p.nombre;
       return `Registraste sobrantes de ${nombre} en dos ciclos seguidos. Prepara ${p.cantidad} ${unidad} menos.`;
     },

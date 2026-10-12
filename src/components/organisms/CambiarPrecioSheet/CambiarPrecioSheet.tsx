@@ -14,6 +14,7 @@ import { Icon } from '@components/atoms/Icon';
 import { AmountInput } from '@components/molecules/AmountInput';
 import { formatoFechaCorta, formatoSoles, parseAmount, redondearSoles } from '@dominio/formato';
 import { teDeja } from '@dominio/producto';
+import { singularUnidad } from '@dominio/unidades';
 import type { Producto } from '@dominio/tipos';
 import { MensajeError } from '@components/atoms/MensajeError';
 import { BottomSheet } from '@components/organisms/BottomSheet';
@@ -116,7 +117,7 @@ const Contenido = ({ producto, onClose }: { producto: Producto; onClose: () => v
           <Text variant="label">Te va a dejar</Text>
           <Text variant="amount" color={nuevo > 0 ? 'success' : nuevo < 0 ? 'danger' : 'text'}>
             {nuevo < 0 ? '−' : ''}
-            {formatoSoles(Math.abs(nuevo))} por porción
+            {formatoSoles(Math.abs(nuevo))} por {singularUnidad(producto.unidad)}
           </Text>
         </View>
         {diferencia !== 0 ? (

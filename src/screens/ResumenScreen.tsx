@@ -25,6 +25,7 @@ import { compararCiclos } from '@analisis/metricas';
 import { agruparCiclos, mercaderiaDelCiclo, resumirCiclo, textoCapital } from '@dominio/ciclo';
 import { formatoFechaCorta, formatoSoles } from '@dominio/formato';
 import type { Ciclo, Producto, ResumenCiclo } from '@dominio/tipos';
+import { unidadSegunCantidad } from '@dominio/unidades';
 import { useCrecemos } from '@context/CrecemosProvider';
 import type { RootStackParamList } from '@navigation/RootStack';
 import type { TabsParamList } from '@navigation/Tabs';
@@ -229,13 +230,7 @@ const CicloActual = ({
               const bien = vendido >= VENDIDO_MINIMO;
               const base = `mercaderia-${m.productoId}`;
               const unidad = productos.find(p => p.id === m.productoId)?.unidad;
-              const singular = unidad === 'porcion' ? 'porción' : unidad?.trim() || 'unidad';
-              const etiquetaUnidad =
-                m.preparadas === 1
-                  ? singular
-                  : singular === 'porción'
-                  ? 'porciones'
-                  : `${singular}s`;
+              const etiquetaUnidad = unidadSegunCantidad(m.preparadas, unidad);
               return (
                 <View key={m.productoId} style={i > 0 ? styles.separado : undefined} testID={base}>
                   <Text testID={`${base}-texto`}>

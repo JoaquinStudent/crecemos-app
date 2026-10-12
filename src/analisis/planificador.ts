@@ -12,6 +12,7 @@
 import { diaSemana, restarDias } from '@dominio/fecha';
 import { redondearSoles } from '@dominio/formato';
 import type { Cierre, FechaNegocio, Producto } from '@dominio/tipos';
+import { cantidadConUnidad } from '@dominio/unidades';
 
 export const SEMANAS_DE_HISTORIAL = 8;
 export const MUESTRAS_MINIMAS = 3;
@@ -66,12 +67,7 @@ export interface PlanManana {
 }
 
 /** '1 porción', '12 porciones', '3 vasos'. */
-export const textoPorciones = (n: number, unidad: string): string => {
-  if (unidad === 'vaso') return `${n} ${n === 1 ? 'vaso' : 'vasos'}`;
-  if (unidad === 'porcion') return `${n} ${n === 1 ? 'porción' : 'porciones'}`;
-  const nombre = unidad.trim() || 'unidad';
-  return `${n} ${n === 1 ? nombre : `${nombre}s`}`;
-};
+export const textoPorciones = (n: number, unidad: string): string => cantidadConUnidad(n, unidad);
 
 const textoDiferencia = (diferencia: number, dia: string): string => {
   if (diferencia === 0) return `Igual que el último ${dia}`;

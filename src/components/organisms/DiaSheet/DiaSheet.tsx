@@ -124,9 +124,9 @@ const Contenido = ({
 
       {cierre.lineas.map(linea => (
         <Text key={linea.productoId} variant="bodySmall" testID={`hoja-producto-${linea.productoId}`}>
-          {`${productos.find(p => p.id === linea.productoId)?.nombre ?? linea.nombre}: ${
+          {`${productos.find(p => p.id === linea.productoId)?.nombre ?? linea.nombre}: Vendiste ${
             linea.preparadas - linea.sobrantes
-          } vendidas · ${formatoSoles((linea.preparadas - linea.sobrantes) * linea.precioUnitario)}`}
+          } · ${formatoSoles((linea.preparadas - linea.sobrantes) * linea.precioUnitario)}`}
         </Text>
       ))}
 

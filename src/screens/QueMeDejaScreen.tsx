@@ -42,6 +42,7 @@ import { alertaDeCostos } from '@dominio/estacionalidad';
 import { fechaLocal, restarDias } from '@dominio/fecha';
 import { formatoSoles } from '@dominio/formato';
 import type { Cierre, GananciaProducto, Producto } from '@dominio/tipos';
+import { cantidadConUnidad } from '@dominio/unidades';
 import { useCrecemos } from '@context/CrecemosProvider';
 import type { RootStackParamList } from '@navigation/RootStack';
 
@@ -55,12 +56,8 @@ const avance = (valor: number, mayor: number): number =>
 const unidadDe = (productos: Producto[], productoId: string): Producto['unidad'] =>
   productos.find(p => p.id === productoId)?.unidad ?? 'unidad';
 
-const cantidadEnPalabras = (n: number, unidad: Producto['unidad']): string => {
-  if (unidad === 'vaso') return `${n} ${n === 1 ? 'vaso' : 'vasos'}`;
-  if (unidad === 'porcion') return `${n} ${n === 1 ? 'porción' : 'porciones'}`;
-  const nombre = unidad.trim() || 'unidad';
-  return `${n} ${n === 1 ? nombre : `${nombre}s`}`;
-};
+const cantidadEnPalabras = (n: number, unidad: Producto['unidad']): string =>
+  cantidadConUnidad(n, unidad);
 
 const periodoEnPalabras = (ciclos: number): string =>
   ciclos > 0
