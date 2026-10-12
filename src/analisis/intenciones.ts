@@ -32,7 +32,7 @@ import {
   peorDiaDeLaSemana,
   retiroMensaje,
 } from './reglas';
-import { extraerCifras } from './validarRedaccion';
+import { extraerCifras } from './cifras';
 
 export interface Intencion {
   id: IntencionId;

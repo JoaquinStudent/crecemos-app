@@ -19,7 +19,6 @@ import {
   senalesDeJuicio,
 } from '@analisis/semaforo';
 import { completarConsulta } from '@analisis/seguimiento';
-import { validarRedaccion } from '@analisis/validarRedaccion';
 import type {
   Consulta,
   ContextoAnalisis,
@@ -38,10 +37,6 @@ import { bytesUtf8 } from './seed';
 export type ErrorJev = 'SIN_RED' | 'TIEMPO_AGOTADO' | 'RESPUESTA_INVALIDA' | 'LIMITE' | 'SERVIDOR';
 
 export type ResultadoJev = { ok: true; consulta: Consulta } | { ok: false; error: ErrorJev };
-
-export type ResultadoRedactar =
-  | { ok: true; texto: string }
-  | { ok: false; error: ErrorJev | 'REDACCION_DESCARTADA' };
 
 /** Lo que el chat pone en pantalla; `texto` es siempre lo que lee Freddy. */
 export type RespuestaChat =
@@ -161,30 +156,6 @@ export const preguntarAJev = async (
   if (!publicada.ok) return publicada;
   const consulta = interpretarRespuesta(publicada.json);
   return consulta === null ? { ok: false, error: 'RESPUESTA_INVALIDA' } : { ok: true, consulta };
-};
-
-/**
- * Compatibilidad con el contrato anterior; `consultar` ya no llama a esta ruta.
- * Le pide al servidor que diga con otras palabras una respuesta YA calculada. Viaja SOLO
- * `{ tipo: 'redactar', hecho: { intencion, frase, cifras } }`. La redacción se acepta únicamente si
- * `validarRedaccion` confirma que trae las mismas cifras; si no, `REDACCION_DESCARTADA`.
- */
-export const redactarRespuesta = async (
-  fetchFn: typeof fetch,
-  url: string,
-  hecho: Hecho,
-): Promise<ResultadoRedactar> => {
-  const publicada = await publicar(fetchFn, url, {
-    tipo: 'redactar',
-    hecho: { intencion: hecho.intencion, frase: hecho.frase, cifras: hecho.cifras },
-  });
-  if (!publicada.ok) return publicada;
-  const texto = (publicada.json as { texto?: unknown } | null)?.texto;
-  if (typeof texto !== 'string') return { ok: false, error: 'RESPUESTA_INVALIDA' };
-  const validada = validarRedaccion(texto, hecho);
-  return validada.ok
-    ? { ok: true, texto: validada.texto }
-    : { ok: false, error: 'REDACCION_DESCARTADA' };
 };
 
 /**

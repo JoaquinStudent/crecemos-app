@@ -1,6 +1,7 @@
 // src/services/seed.ts
-// EL ÚNICO fetch() del proyecto (sdd/AGENTS.md, regla 8). Descarga la semilla de ejemplo
-// con un solo GET, sin cuerpo, sin encabezados y sin datos del usuario. Nunca lanza.
+// El fetch() de la demostración (la otra llamada de red es el asistente, en jev.ts). Descarga la
+// semilla de ejemplo con un solo GET, sin cuerpo, sin encabezados y sin datos del usuario. Solo
+// corre cuando la persona toca "Cargar datos de ejemplo". Nunca lanza.
 import { validarSemilla } from '@dominio/semilla';
 import type { SemillaJSON } from '@dominio/tipos';
 

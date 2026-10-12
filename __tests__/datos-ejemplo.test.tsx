@@ -14,7 +14,7 @@ import {
 } from '@dominio/origen';
 import { PERFIL_POR_DEFECTO } from '@dominio/perfil';
 import { materializarSemilla } from '@dominio/semilla';
-import type { Cierre, Producto, SemillaJSON } from '@dominio/tipos';
+import type { Cierre, SemillaJSON } from '@dominio/tipos';
 import {
   borrarDatosDeEjemplo,
   guardarCierre,

@@ -1,13 +1,12 @@
 // servidor/worker.js
 // Servidor intermedio del chat "Preguntarle a mis datos" (Cloudflare Worker). Es lo ÚNICO con lo que
-// habla la app: guarda la clave de OpenRouter como secreto (`OPENROUTER_API_KEY`) y reenvía tres
+// habla la app: guarda la clave de OpenRouter como secreto (`OPENROUTER_API_KEY`) y reenvía dos
 // tipos de petición, siempre con el mínimo de datos:
 //   { tipo: 'interpretar', texto }            -> { intencion, dia, confianza, modelo }
-//   { tipo: 'redactar', hecho: {...} }        -> { texto } (ruta heredada)
 //   { tipo: 'juzgar', hecho: {..., senales} } -> { semaforo, confianza, modelo }   (solo Jev, sin respaldo)
 // Primero clasifica Jev por la API tipada de OpenRouter (/api/v1/systemone, preguntas "choice"); si falla
-// o responde algo inválido, clasifica DeepSeek por chat/completions. La app actual usa frases fijas;
-// el endpoint de redacción sirve a clientes antiguos.
+// o responde algo inválido, clasifica DeepSeek por chat/completions. La app muestra frases fijas
+// revisadas: ya no hay ruta de redacción.
 // Sin dependencias, sin CORS (es una app nativa) y SIN ningún log: lo que escribe Freddy no se escribe
 // en ninguna parte. No hay ninguna clave en este archivo: llega por `env`.
 
@@ -24,7 +23,6 @@ const MAX_TEXTO = 200;
 const MAX_FRASE = 300;
 const MAX_CIFRAS = 12;
 const MAX_CIFRA = 24;
-const MAX_REDACCION = 280;
 
 // Tiempos. La app corta a los 8 s, así que el Worker reparte 7,5 s entre los dos intentos: Jev tiene
 // 4 s como mucho y DeepSeek lo que quede (nunca más de 7 s en una llamada).
@@ -197,16 +195,6 @@ const PREGUNTA_SEMAFORO = {
   },
 };
 
-const PROMPT_REDACTAR =
-  'Reescribe la frase con otras palabras, en español de Perú, tuteando, corta (máximo 200 caracteres) y cálida, como si hablaras con un vendedor ambulante. Conserva EXACTAMENTE todas las cifras, los montos y las fechas, tal cual; no agregues ninguna cifra ni dato nuevo; no uses emojis ni enlaces.';
-
-const ESQUEMA_REDACTAR = {
-  type: 'object',
-  properties: { texto: { type: 'string', maxLength: MAX_REDACCION } },
-  required: ['texto'],
-  additionalProperties: false,
-};
-
 // --- Respuestas -----------------------------------------------------------------------------
 
 const responder = (cuerpo, status = 200, extra = {}) =>
@@ -270,12 +258,6 @@ const interpretacionValida = x => {
   if (typeof confianza !== 'number' || !Number.isFinite(confianza)) return null;
   if (confianza < 0 || confianza > 1) return null;
   return { intencion, dia, confianza };
-};
-
-const redaccionValida = x => {
-  if (!esObjeto(x)) return null;
-  const texto = textoValido(x.texto, MAX_REDACCION);
-  return texto === null ? null : { texto };
 };
 
 // --- Entrada --------------------------------------------------------------------------------
@@ -522,37 +504,6 @@ const juzgar = async (env, solicitud) => {
   return responder(juicio ?? { semaforo: null, confianza: 0, modelo });
 };
 
-const redactar = async (env, solicitud) => {
-  const hecho = hechoValido(solicitud.hecho);
-  if (hecho === null) return error('SOLICITUD_INVALIDA', 400);
-
-  const redaccion = redaccionValida(
-    await llamarModelo(env, {
-      modelo: variable(env.DEEPSEEK_MODELO, MODELO_DEEPSEEK_POR_DEFECTO),
-      mensajes: [
-        { role: 'system', content: PROMPT_REDACTAR },
-        {
-          role: 'user',
-          content: `Frase: ${hecho.frase}\nCifras que debes conservar: ${
-            hecho.cifras.length > 0 ? hecho.cifras.join(', ') : 'ninguna'
-          }`,
-        },
-      ],
-      nombre: 'redaccion',
-      esquema: ESQUEMA_REDACTAR,
-      temperatura: 0.4,
-      maxTokens: 200,
-      proveedor: {
-        only: proveedoresDe(env),
-        data_collection: 'deny',
-        require_parameters: true,
-      },
-      tiempoMs: TIEMPO_LLAMADA_MS,
-    }),
-  );
-  return redaccion === null ? error('NO_DISPONIBLE', 502) : responder(redaccion);
-};
-
 // --- Entrada principal ----------------------------------------------------------------------
 
 const manejar = async (request, env) => {
@@ -589,7 +540,6 @@ const manejar = async (request, env) => {
   if (!esObjeto(solicitud)) return error('SOLICITUD_INVALIDA', 400);
 
   if (solicitud.tipo === 'interpretar') return interpretar(env, solicitud);
-  if (solicitud.tipo === 'redactar') return redactar(env, solicitud);
   if (solicitud.tipo === 'juzgar') return juzgar(env, solicitud);
   return error('SOLICITUD_INVALIDA', 400);
 };

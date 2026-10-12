@@ -6,7 +6,6 @@ clave como secreto y reenvía solo lo necesario.
 | La app manda                                                           | El Worker hace                                                                                                                              | Responde                                |
 | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
 | `{ "tipo": "interpretar", "texto": "¿cuánto vendí ayer?" }`            | Pide a **Jev** (API tipada) que elija una de las 12 preguntas conocidas. Si Jev falla o responde algo inválido, lo hace **DeepSeek**        | `{ intencion, dia, confianza, modelo }` |
-| `{ "tipo": "redactar", "hecho": { intencion, frase, cifras } }`        | Ruta heredada para clientes antiguos; la app actual muestra frases fijas revisadas y no la llama                                            | `{ texto }`                             |
 | `{ "tipo": "juzgar", "hecho": { intencion, frase, cifras, senales } }` | Pide **solo a Jev** que juzgue la respuesta ya calculada: `bien`, `ojo` o `urgente`. Sin respaldo: si Jev falla o duda, responde sin juicio | `{ semaforo, confianza, modelo }`       |
 
 Todo pasa por OpenRouter, con **la misma clave** (`OPENROUTER_API_KEY`) para las dos APIs:
@@ -19,7 +18,7 @@ Todo pasa por OpenRouter, con **la misma clave** (`OPENROUTER_API_KEY`) para las
   app (por ejemplo `tendencia: baja`, `magnitud: grande`). Solo se juzgan las respuestas que
   aceptan juicio (comparar ciclos, cobros, retiro para la casa, cuánto preparar, revisar un precio y el
   peor día).
-- **DeepSeek** (respaldo para clasificar y redacción heredada) va por el chat,
+- **DeepSeek** (respaldo para clasificar) va por el chat,
   `https://openrouter.ai/api/v1/chat/completions`, con salidas estructuradas (JSON con valores
   permitidos).
 
@@ -92,20 +91,6 @@ Debe responder algo como (los números y la versión de `modelo` cambian):
   "confianza": 0.95,
   "modelo": "typesafe/jev-1.13-20260917"
 }
-```
-
-Redactar una respuesta ya calculada:
-
-```sh
-curl -s -X POST https://crecemos-asistente.joaquiningsoft.workers.dev \
-  -H 'Content-Type: application/json' \
-  -d '{"tipo":"redactar","hecho":{"intencion":"ventaDelDia","frase":"Ayer, martes 6 de octubre, vendiste S/ 205.00.","cifras":["6","205.00"]}}'
-```
-
-Debe responder algo como (las palabras cambian, las cifras no):
-
-```json
-{ "texto": "Ayer, martes 6 de octubre, te entraron S/ 205.00." }
 ```
 
 Juzgar una respuesta ya calculada (el semáforo):

@@ -38,7 +38,7 @@ import {
 } from '@analisis/reglas';
 import { planificarManana, textoPorciones } from '@analisis/planificador';
 import { formatoSoles } from '@dominio/formato';
-import { extraerCifras } from '@analisis/validarRedaccion';
+import { extraerCifras } from '@analisis/cifras';
 
 const ahora = new Date('2026-10-07T12:00:00-05:00');
 const HOY: FechaNegocio = '2026-10-07';

@@ -13,17 +13,13 @@ import type {
   HechoJuicio,
   LineaCierre,
 } from '@dominio/tipos';
-import { INTENCIONES, PREGUNTAS_SUGERIDAS, responderConsulta } from '@analisis/intenciones';
-import { extraerCifras } from '@analisis/validarRedaccion';
+import { PREGUNTAS_SUGERIDAS } from '@analisis/intenciones';
+import { extraerCifras } from '@analisis/cifras';
 import {
   consultar,
   juzgarRespuesta,
-  reiniciarEstadoDeRed,
-  TIEMPO_TRAS_FALLA_MS,
-  VENTANA_FALLA_MS,
   MAX_CARACTERES_PREGUNTA,
   preguntarAJev,
-  redactarRespuesta,
   TAMANO_MAXIMO_BYTES,
   TEXTO_NO_ENTENDI,
   TEXTO_SIN_INTERNET,
@@ -304,111 +300,6 @@ describe('preguntarAJev', () => {
       ok: false,
       error: 'RESPUESTA_INVALIDA',
     });
-  });
-});
-
-describe('redactarRespuesta', () => {
-  it('una redacción con las mismas cifras es ok', async () => {
-    const f = jest.fn(async () =>
-      json({ texto: 'Ayer, martes 6 de octubre, te entraron S/ 205.00.' }),
-    );
-
-    await expect(redactarRespuesta(comoFetch(f), URL_PRUEBA, hechoDe(FRASE_AYER))).resolves.toEqual(
-      {
-        ok: true,
-        texto: 'Ayer, martes 6 de octubre, te entraron S/ 205.00.',
-      },
-    );
-  });
-
-  it('es un POST con un solo encabezado y el cuerpo exacto: el tipo y el hecho', async () => {
-    const f = jest.fn(async () => json({ texto: FRASE_AYER }));
-
-    await redactarRespuesta(comoFetch(f), URL_PRUEBA, hechoDe(FRASE_AYER));
-
-    expect(f).toHaveBeenCalledTimes(1);
-    const [url, init] = llamadas(f)[0];
-    expect(url).toBe(URL_PRUEBA);
-    expect(init.method).toBe('POST');
-    expect(init.headers).toEqual({ 'Content-Type': 'application/json' });
-    expect(init.body).toBe(
-      JSON.stringify({
-        tipo: 'redactar',
-        hecho: { intencion: 'ventaDelDia', frase: FRASE_AYER, cifras: ['6', '205.00'] },
-      }),
-    );
-    expect(Object.keys(init).sort()).toEqual(['body', 'headers', 'method', 'signal']);
-  });
-
-  it('solo viajan la intención, la frase y las cifras aunque el hecho traiga algo más', async () => {
-    const f = jest.fn(async () => json({ texto: FRASE_AYER }));
-    const conExtra = { ...hechoDe(FRASE_AYER), nombre: 'Freddy', yape: '987654321' } as Hecho;
-
-    await redactarRespuesta(comoFetch(f), URL_PRUEBA, conExtra);
-
-    const cuerpo = llamadas(f)[0][1].body ?? '';
-    expect(cuerpo).not.toContain('Freddy');
-    expect(cuerpo).not.toContain('987654321');
-    expect(Object.keys(JSON.parse(cuerpo).hecho).sort()).toEqual(['cifras', 'frase', 'intencion']);
-  });
-
-  it('una cifra distinta, una que falta, un enlace o un texto largo es REDACCION_DESCARTADA', async () => {
-    const malas = [
-      'Ayer vendiste S/ 250.00',
-      'Ayer, martes 6 de octubre, vendiste mucho.',
-      'Ayer, martes 6 de octubre, vendiste S/ 205.00 en https://ejemplo.pe',
-      `Ayer, martes 6 de octubre, vendiste S/ 205.00. ${'bien '.repeat(60)}`,
-      '',
-    ];
-    for (const mala of malas) {
-      const f = jest.fn(async () => json({ texto: mala }));
-      await expect(
-        redactarRespuesta(comoFetch(f), URL_PRUEBA, hechoDe(FRASE_AYER)),
-      ).resolves.toEqual({ ok: false, error: 'REDACCION_DESCARTADA' });
-    }
-  });
-
-  it('SIN_RED, HTTP no exitoso y TIEMPO_AGOTADO, sin reintentar', async () => {
-    const cae = jest.fn(() => Promise.reject(new TypeError('Network request failed')));
-    const fallo = jest.fn(async () => json({ error: 'NO_DISPONIBLE' }, false, 502));
-
-    await expect(
-      redactarRespuesta(comoFetch(cae), URL_PRUEBA, hechoDe(FRASE_AYER)),
-    ).resolves.toEqual({
-      ok: false,
-      error: 'SIN_RED',
-    });
-    await expect(
-      redactarRespuesta(comoFetch(fallo), URL_PRUEBA, hechoDe(FRASE_AYER)),
-    ).resolves.toEqual({ ok: false, error: 'SERVIDOR' });
-
-    jest.useFakeTimers();
-    const f = colgado();
-    let resultado: unknown;
-    const pendiente = redactarRespuesta(comoFetch(f), URL_PRUEBA, hechoDe(FRASE_AYER)).then(r => {
-      resultado = r;
-    });
-    await jest.advanceTimersByTimeAsync(8000);
-    await pendiente;
-    expect(resultado).toEqual({ ok: false, error: 'TIEMPO_AGOTADO' });
-    expect(f).toHaveBeenCalledTimes(1);
-    expect(jest.getTimerCount()).toBe(0);
-  });
-
-  it('un JSON roto, sin texto, con texto que no es texto o de más de 4 KB es RESPUESTA_INVALIDA', async () => {
-    const cuerpos = [
-      '{ roto',
-      JSON.stringify({}),
-      JSON.stringify({ texto: 205 }),
-      JSON.stringify([]),
-      JSON.stringify({ texto: FRASE_AYER, relleno: 'ñ'.repeat(TAMANO_MAXIMO_BYTES) }),
-    ];
-    for (const cuerpo of cuerpos) {
-      const f = jest.fn(async () => respuesta(cuerpo));
-      await expect(
-        redactarRespuesta(comoFetch(f), URL_PRUEBA, hechoDe(FRASE_AYER)),
-      ).resolves.toEqual({ ok: false, error: 'RESPUESTA_INVALIDA' });
-    }
   });
 });
 

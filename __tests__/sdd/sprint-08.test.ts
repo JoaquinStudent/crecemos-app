@@ -24,7 +24,6 @@ import type {
   ContextoAnalisis,
   FechaNegocio,
   Gasto,
-  Hecho,
   LineaCierre,
   Perfil,
   Producto,
@@ -41,9 +40,9 @@ import {
   senalesDeJuicio,
   SIMBOLO_SEMAFORO,
 } from '@analisis/semaforo';
-import { extraerCifras, validarRedaccion } from '@analisis/validarRedaccion';
+import { extraerCifras } from '@analisis/cifras';
 import { planificarManana } from '@analisis/planificador';
-import { consultar, redactarRespuesta } from '@services/jev';
+import { consultar } from '@services/jev';
 import { PERFIL_POR_DEFECTO } from '@dominio/perfil';
 import { PRODUCTOS_POR_DEFECTO } from '@dominio/productosPorDefecto';
 import { guardarCierre, guardarPerfil, importarSemilla } from '@storage/repositorio';
@@ -619,59 +618,6 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
       // Ni el nombre, ni el Yape, ni ningún dato de un cierre salen del teléfono.
       noFiltraNadaDeFreddy(JSON.stringify(llamadasDe(fetchSim)[0]), cierres, perfil);
     })();
-  });
-
-  // @spec08_e8 — Al redactor solo viaja el hecho ya calculado
-  it('spec08_e8 al redactor solo viaja el hecho ya calculado', () => {
-    // Given: la respuesta calculada "Ayer, martes 6 de octubre, vendiste S/ 205.00."
-    // When: se pide la redacción
-    // Then: la petición es exactamente el tipo "redactar" con la intención y las cifras de ese hecho, y no contiene el perfil, el Yape ni ningún cierre
-    return (async () => {
-      const { cierres, perfil } = datosDeFreddy();
-      const hecho = responderConsulta(
-        jevInterpreta({ intencion: 'ventaDelDia', producto: 'ninguno', dia: 'ayer', confianza: 0.9 }),
-        ventaDeAyer(),
-      );
-      expect(hecho.frase).toBe(FRASE_AYER);
-      const fetchSim = jest
-        .fn()
-        .mockResolvedValue(respuestaJson({ texto: 'Ayer, martes 6 de octubre, te entraron S/ 205.00.' }));
-
-      const resultado = await redactarRespuesta(fetchSim as unknown as typeof fetch, URL_JEV, hecho);
-
-      expect(resultado.ok).toBe(true);
-      expect(fetchSim).toHaveBeenCalledTimes(1);
-      const [url, init] = llamadasDe(fetchSim)[0];
-      expect(url).toBe(URL_JEV);
-      // Exactamente el tipo "redactar" y el hecho ya calculado: la intención, la frase y las cifras.
-      expect(JSON.parse(init.body ?? '')).toEqual({
-        tipo: 'redactar',
-        hecho: { intencion: 'ventaDelDia', frase: FRASE_AYER, cifras: ['6', '205.00'] },
-      });
-      expect(init.headers).toEqual({ 'Content-Type': 'application/json' });
-      // El perfil, el Yape y los cierres no viajan.
-      noFiltraNadaDeFreddy(JSON.stringify(llamadasDe(fetchSim)[0]), cierres, perfil);
-    })();
-  });
-
-  // @spec08_e9 — Una redacción con una cifra distinta se descarta
-  it('spec08_e9 una redaccion con una cifra distinta se descarta', () => {
-    // Given: el hecho "vendiste S/ 205.00" y un redactor que responde "Ayer vendiste S/ 250.00"
-    // When: se valida la redacción
-    // Then: se descarta y la pantalla muestra la frase fija con "S/ 205.00"
-    const frase = 'vendiste S/ 205.00';
-    const hecho: Hecho = { intencion: 'ventaDelDia', frase, cifras: extraerCifras(frase) };
-
-    const resultado = validarRedaccion('Ayer vendiste S/ 250.00', hecho);
-
-    // Se descarta: no hay texto que mostrar, y lo que se muestra es la frase fija del código.
-    expect(resultado).toEqual({ ok: false, motivo: 'CIFRA_NUEVA' });
-    expect(hecho.frase).toContain('S/ 205.00');
-    // Con la cifra correcta, en cambio, la redacción sí pasa.
-    expect(validarRedaccion('Ayer vendiste S/ 205.00', hecho)).toEqual({
-      ok: true,
-      texto: 'Ayer vendiste S/ 205.00',
-    });
   });
 
   // @spec08_e10 — Si el redactor falla o tarda, se muestra la frase fija

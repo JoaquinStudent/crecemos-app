@@ -1,5 +1,6 @@
 // src/screens/PerfilScreen.tsx
-// "Mi perfil" (mock 07, sin foto): quién es, cómo le pagan y qué vende.
+// "Mi perfil": foto y datos de quien usa la app, cómo le pagan, el recordatorio diario, sus
+// productos y los datos de ejemplo (cargarlos o borrarlos).
 // Es la pantalla que hace posible el insight: sin precio y costo no hay "Te deja".
 import React, { useCallback, useRef, useState } from 'react';
 import { Pressable, ScrollView, StatusBar, StyleSheet, View } from 'react-native';
