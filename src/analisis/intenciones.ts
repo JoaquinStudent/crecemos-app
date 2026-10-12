@@ -325,7 +325,7 @@ const cuantoPorCobrar = (ctx: ContextoAnalisis): Hecho =>
 const cuantoSacarParaLaCasa = (ctx: ContextoAnalisis): Hecho =>
   hecho(
     'cuantoSacarParaLaCasa',
-    agruparCiclos(ctx.cierres).length < CICLOS_MINIMOS ? SIN_CICLO_CERRADO : retiroMensaje(ctx),
+    (ctx.ciclos ?? agruparCiclos(ctx.cierres)).length < CICLOS_MINIMOS ? SIN_CICLO_CERRADO : retiroMensaje(ctx),
   );
 
 /**

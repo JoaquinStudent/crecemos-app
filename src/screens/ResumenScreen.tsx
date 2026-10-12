@@ -5,7 +5,7 @@
 // porcentaje. Termina con los botones a "Qué me deja cada uno", "Mi reporte" y "Preguntarle a mis
 // datos" (la pestaña Asistente). Sin "Este mes / Todo", sin gráfico de ciclos y sin buscar.
 // Las barras son Views de ancho porcentual, sin librerías.
-import React from 'react';
+import React, { useMemo } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, type CompositeNavigationProp } from '@react-navigation/native';
@@ -22,11 +22,12 @@ import { Card } from '@components/molecules/Card';
 import { CargandoBloques } from '@components/molecules/CargandoBloques';
 import { EmptyState } from '@components/molecules/EmptyState';
 import { compararCiclos } from '@analisis/metricas';
-import { agruparCiclos, mercaderiaDelCiclo, resumirCiclo, textoCapital } from '@dominio/ciclo';
+import { mercaderiaDelCiclo, textoCapital } from '@dominio/ciclo';
 import { formatoFechaCorta, formatoSoles } from '@dominio/formato';
 import type { Ciclo, Producto, ResumenCiclo } from '@dominio/tipos';
 import { unidadSegunCantidad } from '@dominio/unidades';
 import { useCrecemos } from '@context/CrecemosProvider';
+import { useDerivados } from '@hooks/useDerivados';
 import type { RootStackParamList } from '@navigation/RootStack';
 import type { TabsParamList } from '@navigation/Tabs';
 
@@ -47,13 +48,10 @@ const rango = (ciclo: Ciclo): string =>
     : `${formatoFechaCorta(ciclo.inicio)} — ${formatoFechaCorta(ciclo.fin)}`;
 
 export const ResumenScreen = () => {
-  const { cierres, productos, cargando } = useCrecemos();
+  const { productos, cargando } = useCrecemos();
+  const { cicloActual: actual, cicloAnterior: anterior, resumenActual, resumenAnterior } = useDerivados();
   const navigation = useNavigation<ResumenNavigation>();
 
-  // El ciclo actual es el último.
-  const ciclos = agruparCiclos(cierres);
-  const actual = ciclos.length > 0 ? ciclos[ciclos.length - 1] : null;
-  const anterior = ciclos.length > 1 ? ciclos[ciclos.length - 2] : null;
 
   return (
     <SafeAreaView style={styles.pantalla} edges={['top']}>
@@ -64,8 +62,13 @@ export const ResumenScreen = () => {
 
         {cargando ? (
           <CargandoBloques bloques={3} alto={120} testID="resumen-cargando" />
-        ) : actual ? (
-          <CicloActual ciclo={actual} anterior={anterior} productos={productos} />
+        ) : actual && resumenActual ? (
+          <CicloActual
+            ciclo={actual}
+            resumen={resumenActual}
+            resumenAnterior={anterior ? resumenAnterior : null}
+            productos={productos}
+          />
         ) : (
           <EmptyState
             title="Aún no cierras ningún día"
@@ -112,15 +115,16 @@ export const ResumenScreen = () => {
 
 const CicloActual = ({
   ciclo,
-  anterior,
+  resumen,
+  resumenAnterior,
   productos,
 }: {
   ciclo: Ciclo;
-  anterior: Ciclo | null;
+  resumen: ResumenCiclo;
+  resumenAnterior: ResumenCiclo | null;
   productos: Producto[];
 }) => {
-  const resumen = resumirCiclo(ciclo);
-  const mercaderia = mercaderiaDelCiclo(ciclo, productos);
+  const mercaderia = useMemo(() => mercaderiaDelCiclo(ciclo, productos), [ciclo, productos]);
 
   // La ganancia es lo que te queda mientras sea positivo; si vendió menos que su capital, no hay.
   const ganancia = Math.max(resumen.teQueda, 0);
@@ -219,7 +223,7 @@ const CicloActual = ({
         ) : null}
       </Card>
 
-      {anterior ? <Comparacion actual={resumen} anterior={resumirCiclo(anterior)} /> : null}
+      {resumenAnterior ? <Comparacion actual={resumen} anterior={resumenAnterior} /> : null}
 
       {mercaderia.length > 0 ? (
         <View style={styles.seccion}>

@@ -56,23 +56,19 @@ import {
   type ResumenSemana,
 } from '@analisis/semanal';
 import { calcularCierre } from '@dominio/cierre';
-import {
-  agruparCiclos,
-  porcentajeCapitalRecuperado,
-  resumirCiclo,
-  textoCapital,
-} from '@dominio/ciclo';
+import { porcentajeCapitalRecuperado, textoCapital } from '@dominio/ciclo';
 import { totalPorCobrar } from '@dominio/cobro';
 import { fechaLocal, restarDias } from '@dominio/fecha';
 import { textoAvisoDeCierre } from '@dominio/recordatorio';
 import { formatoFecha, formatoFechaCorta, formatoSoles } from '@dominio/formato';
 import { progreso, textoPlazo, totalAportado, type Meta } from '@dominio/meta';
 import { useAccionSegura } from '@hooks/useAccionSegura';
+import { useDerivados } from '@hooks/useDerivados';
 import { useAhora } from '@hooks/useAhora';
 import { useConteo } from '@hooks/useConteo';
 import { useRecordatorio } from '@hooks/useRecordatorio';
 import { useCrecemos, type EstadoSemilla } from '@context/CrecemosProvider';
-import type { Ciclo, Recomendacion } from '@dominio/tipos';
+import type { Ciclo, Recomendacion, ResumenCiclo } from '@dominio/tipos';
 import type { RootStackParamList } from '@navigation/RootStack';
 import type { TabsParamList } from '@navigation/Tabs';
 
@@ -108,16 +104,15 @@ export const InicioScreen = () => {
     (masReciente, c) => (masReciente === null || c.fecha > masReciente.fecha ? c : masReciente),
     null,
   );
-  const ciclos = useMemo(() => agruparCiclos(cierres), [cierres]);
-  const cicloActual = ciclos[ciclos.length - 1];
+  const { ciclos, cicloActual, resumenActual } = useDerivados();
   const porCobrar = useMemo(() => totalPorCobrar(cierres), [cierres]);
   const frase = useMemo(
     () => insight(gananciaPorProducto(cierres, restarDias(hoy, DIAS_DEL_INSIGHT), productos)),
     [cierres, hoy, productos],
   );
   const recomendaciones = useMemo(
-    () => evaluarReglas({ cierres, productos, hoy }),
-    [cierres, productos, hoy],
+    () => evaluarReglas({ cierres, productos, hoy, ciclos }),
+    [cierres, productos, hoy, ciclos],
   );
   const plan = useMemo(() => planificarManana(cierres, productos, hoy), [cierres, productos, hoy]);
   const semana = useMemo(
@@ -168,9 +163,9 @@ export const InicioScreen = () => {
 
         {cargando ? (
           <CargandoBloques bloques={3} alto={140} testID="inicio-cargando" />
-        ) : ultimo && cicloActual ? (
+        ) : ultimo && cicloActual && resumenActual ? (
           <>
-            <TarjetaCiclo ciclo={cicloActual} />
+            <TarjetaCiclo ciclo={cicloActual} resumen={resumenActual} />
             <UltimoDia fecha={ultimo.fecha} teQueda={calcularCierre(ultimo).teQueda} />
             {semana ? (
               <TarjetaSemana semana={semana} alPreguntar={() => preguntarAlAsistente(PREGUNTA_SEMANA)} />
@@ -265,8 +260,7 @@ export const InicioScreen = () => {
  * La tarjeta de lo que te queda en el ciclo de compra actual: el monto grande (cuenta hasta su
  * valor), cuánto vendiste, cuánto gastaste de verdad (mercadería incluida) y la barra del capital.
  */
-const TarjetaCiclo = ({ ciclo }: { ciclo: Ciclo }) => {
-  const resumen = resumirCiclo(ciclo);
+const TarjetaCiclo = ({ ciclo, resumen }: { ciclo: Ciclo; resumen: ResumenCiclo }) => {
   const recuperado = resumen.capitalRecuperadoEn !== undefined;
   const porcentaje = porcentajeCapitalRecuperado(resumen);
   // `capital` es la suma de TODOS los gastos del ciclo (mercadería, carbón, gas…): ventas − gastos.

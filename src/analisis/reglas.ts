@@ -54,7 +54,7 @@ export const DIAS_PLURAL = [
 export const cicloCerradoYActual = (
   ctx: ContextoAnalisis,
 ): { cerrado: Ciclo; actual: Ciclo } | null => {
-  const ciclos = agruparCiclos(ctx.cierres);
+  const ciclos = ctx.ciclos ?? agruparCiclos(ctx.cierres);
   if (ciclos.length < CICLOS_MINIMOS) return null;
   return { cerrado: ciclos[ciclos.length - 2], actual: ciclos[ciclos.length - 1] };
 };
@@ -384,9 +384,12 @@ export const REGLAS: Regla[] = [
  * Con menos de 2 ciclos registrados devuelve []: no inventa.
  */
 export const evaluarReglas = (ctx: ContextoAnalisis): Recomendacion[] => {
-  if (agruparCiclos(ctx.cierres).length < CICLOS_MINIMOS) return [];
-  return REGLAS.filter(r => r.aplica(ctx))
+  // Los ciclos se agrupan UNA vez y viajan en el contexto a todas las reglas.
+  const ciclos = ctx.ciclos ?? agruparCiclos(ctx.cierres);
+  if (ciclos.length < CICLOS_MINIMOS) return [];
+  const conCiclos: ContextoAnalisis = { ...ctx, ciclos };
+  return REGLAS.filter(r => r.aplica(conCiclos))
     .sort((a, b) => a.prioridad - b.prioridad)
     .slice(0, MAX_RECOMENDACIONES)
-    .map(r => ({ reglaId: r.id, prioridad: r.prioridad, mensaje: r.mensaje(ctx) }));
+    .map(r => ({ reglaId: r.id, prioridad: r.prioridad, mensaje: r.mensaje(conCiclos) }));
 };

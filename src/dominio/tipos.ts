@@ -169,6 +169,8 @@ export interface ContextoAnalisis {
   cierres: Cierre[];
   productos: Producto[];
   hoy: FechaNegocio;
+  /** `agruparCiclos(cierres)` ya calculado; si falta, cada regla lo agrupa por su cuenta. */
+  ciclos?: Ciclo[];
 }
 
 /** Las doce preguntas que el chat "Preguntarle a mis datos" sabe responder (Sprint-08). */

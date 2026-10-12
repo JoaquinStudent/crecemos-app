@@ -3,7 +3,7 @@
 // Con el parámetro `fecha` es el modo edición: carga ese día y guardar lo reemplaza.
 // Es un modal del stack raíz (no una pestaña): al guardar NO se cierra solo, muestra "Tu día
 // quedó cuadrado" con el resultado y un único botón "Listo" (UX, regla 9: nada desaparece solo).
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -102,7 +102,10 @@ export const CerrarDiaScreen = () => {
   const original = cierres.find(c => c.fecha === (fecha ?? hoy));
   const editandoHoy = fecha === undefined && original !== undefined;
   // Al editar un cierre antiguo se puede conservar una línea de un producto hoy inactivo.
-  const activos = productos.filter(p => p.activo || original?.lineas.some(l => l.productoId === p.id));
+  const activos = useMemo(
+    () => productos.filter(p => p.activo || original?.lineas.some(l => l.productoId === p.id)),
+    [productos, original],
+  );
   const hayOriginal = original !== undefined;
   const cierresRef = useRef(cierres);
   cierresRef.current = cierres;
@@ -175,15 +178,20 @@ export const CerrarDiaScreen = () => {
 
   // Solo van al cierre los productos en los que anotó algo; `ids` guarda el
   // producto de cada línea para ubicar los errores ('lineas.0.sobrantes').
-  const ids = activos
-    .map(p => p.id)
-    .filter(
-      id => (cantidades[id]?.preparadas ?? '') !== '' || (cantidades[id]?.sobrantes ?? '') !== '',
-    );
+  const ids = useMemo(
+    () =>
+      activos
+        .map(p => p.id)
+        .filter(
+          id =>
+            (cantidades[id]?.preparadas ?? '') !== '' || (cantidades[id]?.sobrantes ?? '') !== '',
+        ),
+    [activos, cantidades],
+  );
   // Un monto escrito y no agregado también cuenta (spec01_e11): con el teclado
   // abierto, "Agregar gasto" queda tapado. Agregarlo vacía el campo, así que no se duplica.
   const pendiente = parseAmount(montoGasto);
-  const datos: DatosCierre = {
+  const datos: DatosCierre = useMemo(() => ({
     lineas: ids.map(id => ({
       productoId: id,
       preparadas: enteroDe(cantidades[id].preparadas),
@@ -195,12 +203,15 @@ export const CerrarDiaScreen = () => {
       ...(pendiente > 0 ? [{ categoria, monto: pendiente }] : []),
     ],
     abreCiclo,
-  };
-  // En edición la vista previa usa los precios con que se cerró ese día (D2).
-  const vista = original
-    ? editarCierre(original, datos, productos, null, new Date())
-    : nuevoCierre(datos, productos, null, new Date());
-  const resumenVista = calcularCierre(vista);
+  }), [ids, cantidades, yape, gastos, pendiente, categoria, abreCiclo]);
+  // En edición la vista previa usa los precios con que se cerró ese día (D2). Solo se rehace si
+  // cambian sus entradas reales (no en cada tecla de un campo ajeno, ni con crearId de por medio).
+  const resumenVista = useMemo(() => {
+    const vista = original
+      ? editarCierre(original, datos, productos, null, new Date())
+      : nuevoCierre(datos, productos, null, new Date());
+    return calcularCierre(vista);
+  }, [original, datos, productos]);
   const teQueda = resumenVista.teQueda;
 
   const errorDe = (productoId: string, campo: 'preparadas' | 'sobrantes') => {
