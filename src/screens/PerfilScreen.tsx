@@ -1,10 +1,10 @@
 // src/screens/PerfilScreen.tsx
 // "Mi perfil" (mock 07, sin foto): quién es, cómo le pagan y qué vende.
 // Es la pantalla que hace posible el insight: sin precio y costo no hay "Te deja".
-import React, { useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
+import React, { useCallback, useRef, useState } from 'react';
+import { Pressable, ScrollView, StatusBar, StyleSheet, Switch, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { ChevronLeft, Clock, TriangleAlert } from 'lucide-react-native';
 import { colors, radius, spacing } from '@theme';
@@ -79,6 +79,15 @@ export const PerfilScreen = () => {
   const [erroresProducto, setErroresProducto] = useState<Record<string, string>>({});
 
   const hoy = fechaLocal(new Date());
+
+  // El encabezado de Perfil es magenta: con íconos oscuros la barra de estado no se lee. Mientras
+  // esta pantalla está al frente se pide el estilo claro; al salir se restaura el oscuro de la app.
+  useFocusEffect(
+    useCallback(() => {
+      StatusBar.setBarStyle('light-content');
+      return () => StatusBar.setBarStyle('dark-content');
+    }, []),
+  );
 
   // Cada guardado pasa por `useAccionSegura`: si falla, lo dice en su lugar en vez de callar.
   const datoSeguro = useAccionSegura(async (campo: CampoDato) => {
@@ -586,8 +595,17 @@ const TarjetaProducto = ({
   return (
     <View style={styles.tarjetaProducto} testID={`producto-${producto.id}`}>
       <View style={styles.filaProducto}>
-        <Text variant="bodyStrong">{producto.nombre}</Text>
-        <Text variant="h3">{formatoSoles(producto.precioVenta)}</Text>
+        <Text
+          variant="bodyStrong"
+          numberOfLines={2}
+          style={styles.nombreProducto}
+          testID={`producto-nombre-${producto.id}`}
+        >
+          {producto.nombre}
+        </Text>
+        <Text variant="h3" numberOfLines={1} style={styles.precioProducto}>
+          {formatoSoles(producto.precioVenta)}
+        </Text>
       </View>
       {!producto.activo ? <Text color="textMuted">Inactivo</Text> : null}
       <Text variant="bodySmall" color="textMuted">
@@ -598,13 +616,14 @@ const TarjetaProducto = ({
         · {deja.porcentaje}%
       </Text>
       <Text variant="caption" color="textMuted">Precio de venta menos costo estimado por unidad.</Text>
-      <View style={styles.filaProducto}>
-        <View style={styles.actualizado}>
-          <Icon icon={Clock} size="sm" color="textMuted" />
-          <Text variant="caption" color="textMuted" style={styles.actualizadoTexto}>
-            Precio actualizado el {formatoFechaCorta(producto.actualizadoEn)}
-          </Text>
-        </View>
+      <View style={styles.actualizado}>
+        <Icon icon={Clock} size="sm" color="textMuted" />
+        <Text variant="caption" color="textMuted" style={styles.actualizadoTexto}>
+          Precio actualizado el {formatoFechaCorta(producto.actualizadoEn)}
+        </Text>
+      </View>
+      {/* Tres botones con texto no caben en una fila a 360 dp: la fila se parte en dos. */}
+      <View style={styles.accionesProducto} testID={`acciones-producto-${producto.id}`}>
         <Button
           title="Cambiar precio"
           variant="ghost"
@@ -612,8 +631,6 @@ const TarjetaProducto = ({
           accessibilityLabel={`Cambiar precio de ${producto.nombre}`}
           testID={`cambiar-precio-${producto.id}`}
         />
-      </View>
-      <View style={styles.acciones}>
         <Button title="Editar" variant="ghost" onPress={onEditar} testID={`editar-producto-${producto.id}`} />
         <Button title={producto.activo ? 'Desactivar' : 'Reactivar'} variant="ghost" onPress={onActivo} testID={`activo-producto-${producto.id}`} />
       </View>
@@ -701,7 +718,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: spacing.sm,
   },
-  actualizado: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  nombreProducto: { flex: 1 },
+  precioProducto: { flexShrink: 0 },
+  accionesProducto: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  actualizado: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   actualizadoTexto: { flex: 1 },
   aviso: {
     flexDirection: 'row',

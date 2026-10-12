@@ -6,16 +6,18 @@
 // PDF en el teléfono y abre la hoja de compartir; "Compartir solo el texto" comparte texto plano.
 // No entra del mock el selector de periodo (el periodo es fijo).
 import React, { useMemo, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { ChevronLeft, CircleCheck, Lock, Share2 } from 'lucide-react-native';
+import { CircleCheck, Lock, Share2 } from 'lucide-react-native';
 import { colors, radius, spacing } from '@theme';
 import { Text } from '@components/atoms/Text';
 import { Button } from '@components/atoms/Button';
 import { Icon } from '@components/atoms/Icon';
 import { AvatarPerfil } from '@components/molecules/AvatarPerfil';
+import { CargandoBloques } from '@components/molecules/CargandoBloques';
+import { ScreenHeader } from '@components/molecules/ScreenHeader';
 import { htmlReporte, NOMBRE_ARCHIVO_PDF } from '@analisis/htmlReporte';
 import {
   DIAS_CONVINCENTE,
@@ -67,7 +69,7 @@ const rangoEnPalabras = (primero: string, ultimo: string): string =>
     : `${formatoFechaCorta(primero)} — ${formatoFechaCorta(ultimo)}`;
 
 export const MiReporteScreen = () => {
-  const { cierres, perfil } = useCrecemos();
+  const { cierres, perfil, cargando } = useCrecemos();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList, 'MiReporte'>>();
   const insets = useSafeAreaInsets();
 
@@ -129,36 +131,25 @@ export const MiReporteScreen = () => {
   return (
     <SafeAreaView style={styles.pantalla} edges={['top']} testID="reporte-pantalla">
       <ScrollView contentContainerStyle={styles.contenido}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Atrás"
-          onPress={() => navigation.goBack()}
-          style={styles.atras}
-          testID="reporte-atras"
-        >
-          <Icon icon={ChevronLeft} color="primary" size="lg" />
-          <Text variant="bodyStrong" color="primary">
-            Atrás
-          </Text>
-        </Pressable>
+        <ScreenHeader
+          title="Mi reporte"
+          subtitle="Para mostrarle a tu banco"
+          onBack={() => navigation.goBack()}
+          backTestID="reporte-atras"
+        />
 
-        <View>
-          <Text variant="h1" accessibilityRole="header">
-            Mi reporte
-          </Text>
-          <Text variant="caption" color="textMuted">
-            Para mostrarle a tu banco
-          </Text>
-        </View>
+        {cargando ? (
+          <CargandoBloques bloques={2} alto={160} testID="reporte-cargando" />
+        ) : null}
 
-        {senales.soloEjemplo ? (
+        {cargando ? null : senales.soloEjemplo ? (
           <View style={styles.construccion} testID="reporte-aviso-ejemplo">
             <Text variant="bodyStrong">Datos de ejemplo</Text>
             <Text variant="bodySmall">{AVISO_EJEMPLO}</Text>
           </View>
         ) : null}
 
-        {senales.enConstruccion ? <EnConstruccion senales={senales} /> : null}
+        {cargando ? null : senales.enConstruccion ? <EnConstruccion senales={senales} /> : null}
 
         <View style={styles.privacidad} testID="reporte-aviso-privacidad">
           <Icon icon={Lock} color="primary" size="lg" />
@@ -171,12 +162,12 @@ export const MiReporteScreen = () => {
           </Text>
         </View>
 
-        <Hoja senales={senales} perfil={perfil} />
+        {cargando ? null : <Hoja senales={senales} perfil={perfil} />}
       </ScrollView>
 
       {/* Los botones viven FUERA del scroll, en un pie fijo: siempre a la mano del pulgar. */}
       <View style={[styles.pie, { paddingBottom: spacing.lg + insets.bottom }]}>
-        {sinDias ? (
+        {sinDias && !cargando ? (
           <Text variant="bodySmall" color="textMuted" align="center" testID="reporte-ayuda-vacio">
             {TEXTO_AYUDA_VACIO}
           </Text>
@@ -197,7 +188,7 @@ export const MiReporteScreen = () => {
           leftIcon={Share2}
           size="lg"
           fullWidth
-          disabled={sinDias || preparando}
+          disabled={sinDias || preparando || cargando}
           onPress={compartirComoPdf}
           testID="reporte-compartir-pdf"
         />
@@ -206,7 +197,7 @@ export const MiReporteScreen = () => {
           variant="outline"
           size="md"
           fullWidth
-          disabled={sinDias || preparando}
+          disabled={sinDias || preparando || cargando}
           onPress={compartirComoTexto}
           testID="reporte-compartir"
         />
@@ -259,7 +250,7 @@ const Hoja = ({ senales, perfil }: { senales: Senales; perfil: Perfil }) => {
       style={[styles.hoja, senales.enConstruccion && styles.hojaAtenuada]}
       testID="reporte-hoja"
     >
-      <Text variant="label" color="primary" style={styles.marca}>
+      <Text variant="labelStrong" color="primary" style={styles.marca}>
         Crecemos
       </Text>
       <Text variant="bodyStrong">Reporte de actividad del negocio</Text>
@@ -347,8 +338,7 @@ const Barras = ({ meses }: { meses: MesCompleto[] }) => {
       {meses.map(m => (
         <View key={m.mes} style={styles.columna}>
           <Text
-            variant="caption"
-            style={styles.monto}
+            variant="captionStrong"
             align="center"
             testID={`reporte-monto-${m.mes}`}
           >
@@ -372,14 +362,6 @@ const Barras = ({ meses }: { meses: MesCompleto[] }) => {
 const styles = StyleSheet.create({
   pantalla: { flex: 1, backgroundColor: colors.background },
   contenido: { padding: spacing.lg, gap: spacing.lg, paddingBottom: spacing.xl },
-  atras: {
-    alignSelf: 'flex-start',
-    minHeight: 48,
-    minWidth: 48,
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginLeft: -spacing.xs,
-  },
   construccion: {
     gap: spacing.md,
     backgroundColor: colors.accentSoft,
@@ -419,7 +401,7 @@ const styles = StyleSheet.create({
     elevation: 1,
   },
   hojaAtenuada: { opacity: OPACIDAD_EN_CONSTRUCCION },
-  marca: { fontWeight: '700', letterSpacing: 0.5 },
+  marca: { letterSpacing: 0.5 },
   identidad: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   quien: { flex: 1 },
   linea: { height: 1, backgroundColor: colors.border, marginVertical: spacing.sm },
@@ -439,7 +421,6 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
   },
   columna: { flex: 1, alignItems: 'center', gap: spacing.xs },
-  monto: { fontWeight: '600' },
   zonaBarra: { height: ALTO_BARRAS, width: 40, justifyContent: 'flex-end' },
   barra: {
     width: '100%',
