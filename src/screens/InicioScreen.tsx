@@ -41,6 +41,7 @@ import { EmptyState } from '@components/molecules/EmptyState';
 import { ListRow } from '@components/molecules/ListRow';
 import { gananciaPorProducto, insight } from '@analisis/metricas';
 import { preguntaDeRegla } from '@analisis/preguntasRegla';
+import { planificarManana, textoPorciones, type PlanManana } from '@analisis/planificador';
 import { evaluarReglas } from '@analisis/reglas';
 import { calcularCierre } from '@dominio/cierre';
 import {
@@ -99,6 +100,7 @@ export const InicioScreen = () => {
     () => evaluarReglas({ cierres, productos, hoy }),
     [cierres, productos, hoy],
   );
+  const plan = useMemo(() => planificarManana(cierres, productos, hoy), [cierres, productos, hoy]);
   const nombre = perfil.nombre.trim();
   const cerradoHoy = cierres.some(c => c.fecha === hoy);
   const irACerrarDia = () => navigation.navigate('CerrarDia');
@@ -147,6 +149,7 @@ export const InicioScreen = () => {
               ciclos={ciclos.length}
               alPreguntar={preguntarAlAsistente}
             />
+            <TarjetaManana plan={plan} />
             {frase ? (
               <TarjetaInsight frase={frase} alVer={() => navigation.navigate('QueMeDeja')} />
             ) : null}
@@ -388,6 +391,47 @@ const Recomendaciones = ({
   );
 };
 
+/**
+ * "Para mañana": cuántas porciones preparar de cada producto para sacar todo sin quedarte corto,
+ * con lo que pondrías de mercadería. Sin datos suficientes lo dice, no inventa.
+ */
+const TarjetaManana = ({ plan }: { plan: PlanManana }) => {
+  const titulo = `Para mañana · ${plan.dia.charAt(0).toUpperCase()}${plan.dia.slice(1)}`;
+  return (
+    <Card variant="bordered" testID="inicio-manana">
+      <Text variant="h3" accessibilityRole="header">
+        {titulo}
+      </Text>
+      {plan.sugerencias.map(s => (
+        <View key={s.productoId} style={styles.mananaFila} testID={`inicio-manana-${s.productoId}`}>
+          <View style={styles.filaSpace}>
+            <Text variant="bodyStrong" style={styles.recomendacionTexto}>
+              {s.nombre}
+            </Text>
+            {s.porciones !== null ? (
+              <Text variant="bodyStrong" testID={`inicio-manana-${s.productoId}-porciones`}>
+                {textoPorciones(s.porciones, s.unidad)}
+              </Text>
+            ) : null}
+          </View>
+          <Text
+            variant="caption"
+            color="textMuted"
+            testID={`inicio-manana-${s.productoId}-texto`}
+          >
+            {s.texto}
+          </Text>
+        </View>
+      ))}
+      {plan.datosInsuficientes ? null : (
+        <Text variant="label" style={styles.separado} testID="inicio-manana-capital">
+          {`Pondrías ${formatoSoles(plan.capital)} de mercadería`}
+        </Text>
+      )}
+    </Card>
+  );
+};
+
 /** Un acceso secundario: tarjeta con ícono Y texto (UX, regla 1), de al menos 48 dp. */
 const AccionRapida = ({
   icono,
@@ -555,6 +599,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  mananaFila: { marginTop: spacing.md, gap: spacing.xxs },
   preguntarPorQue: { alignSelf: 'flex-start', marginTop: spacing.sm },
   accionesRapidas: { flexDirection: 'row', gap: spacing.md },
   accion: {
