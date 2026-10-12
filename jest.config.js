@@ -10,6 +10,7 @@ module.exports = {
   // La primera corrida en frío transforma @rneui (ESM) y supera los 5 s por defecto.
   testTimeout: 30000,
   setupFiles: ['<rootDir>/jest.setup.js'],
+  setupFilesAfterEnv: ['<rootDir>/jest.setup-after.js'],
   // El preset solo transforma react-native y @react-native(-community). Tambien hay
   // que transformar lo que se publica como ESM o fuente: el mock de AsyncStorage 3
   // (lib/module/jest), React Navigation 7 (lib/module) y las librerias nativas

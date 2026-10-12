@@ -61,6 +61,8 @@ interface Mensaje {
   semaforo?: Semaforo;
   /** Es un aviso de falla (sin internet, muchas preguntas…), no una respuesta. */
   error?: boolean;
+  /** Se respondió sin red, con la clasificación del teléfono. */
+  sinInternet?: boolean;
 }
 
 export const PreguntarScreen = () => {
@@ -131,11 +133,20 @@ export const PreguntarScreen = () => {
       ).catch(() => null);
       if (respuesta === null || respuesta.tipo === 'noEntendi') {
         agregar({ autor: 'jev', texto: TEXTO_NO_ENTENDI });
-      } else if (respuesta.tipo === 'sinInternet' || respuesta.tipo === 'error') {
+      } else if (respuesta.tipo === 'sinInternet') {
+        // Sin red y sin entender: el aviso trae tres preguntas que sí se pueden responder sin internet.
+        const sugeridas = (respuesta.sugeridas ?? []).map(p => `• ${p}`);
+        agregar({ autor: 'jev', texto: [respuesta.texto, ...sugeridas].join('\n'), error: true });
+      } else if (respuesta.tipo === 'error') {
         agregar({ autor: 'jev', texto: respuesta.texto, error: true });
       } else {
         previa.current = respuesta.consulta;
-        agregar({ autor: 'jev', texto: respuesta.texto, semaforo: respuesta.semaforo });
+        agregar({
+          autor: 'jev',
+          texto: respuesta.texto,
+          semaforo: respuesta.semaforo,
+          sinInternet: respuesta.sinInternet,
+        });
       }
     } finally {
       ocupado.current = false;
@@ -245,6 +256,7 @@ export const PreguntarScreen = () => {
                 texto={m.texto}
                 semaforo={m.semaforo}
                 error={m.error}
+                sinInternet={m.sinInternet}
                 testID={`chat-burbuja-${i}`}
               />
             </View>

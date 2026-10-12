@@ -300,9 +300,9 @@ describe('Chat "Preguntarle a mis datos": lo que se envía y cuándo', () => {
     await p.tocar('preguntar-enviar');
 
     expect(p.valorDe('preguntar-campo')).toBe('');
-    expect(p.textoDe('chat-burbuja-1-texto')).toBe(
-      'Necesitas internet para preguntarle al asistente.',
-    );
+    // Sin red igual se responde: la pregunta se entiende en el teléfono, con la nota visible.
+    expect(p.textoDe('chat-burbuja-1-texto')).toBe('Ayer no cerraste tu día.');
+    expect(p.textoDe('chat-burbuja-1-sin-internet')).toBe('Respondí sin internet');
   });
 
   it('el historial es solo de la sesión: nada de la conversación se guarda en el teléfono', async () => {
@@ -676,7 +676,7 @@ describe('Chat "Preguntarle a mis datos": encabezado compacto, aviso plegado y s
     const p = await montarApp();
 
     await p.abrirDesdeInicio();
-    await p.preguntar('¿cuánto vendí ayer?');
+    await p.preguntar('cuéntame un chiste');
 
     expect(p.textoDe('chat-burbuja-1-texto')).toBe('Hay muchas preguntas ahora. Prueba en un minuto.');
     expect(p.existe('chat-burbuja-1-aviso')).toBe(true);
@@ -690,23 +690,38 @@ describe('Chat "Preguntarle a mis datos": encabezado compacto, aviso plegado y s
     const p = await montarApp();
 
     await p.abrirDesdeInicio();
-    await p.preguntar('¿cuánto vendí ayer?');
+    await p.preguntar('cuéntame un chiste');
 
     expect(p.textoDe('chat-burbuja-1-texto')).toBe('El asistente no está disponible ahora.');
     expect(p.existe('chat-burbuja-1-aviso')).toBe(true);
   });
 
-  it('sin red dice que necesita internet para preguntarle al asistente, también como aviso', async () => {
+  it('sin red y sin entender la pregunta, avisa y ofrece tres preguntas, como aviso', async () => {
     ponerRed({});
     const p = await montarApp();
 
     await p.abrirDesdeInicio();
-    await p.preguntar('¿cuánto vendí ayer?');
+    await p.preguntar('cuéntame un chiste');
 
-    expect(p.textoDe('chat-burbuja-1-texto')).toBe(
-      'Necesitas internet para preguntarle al asistente.',
-    );
+    const texto = p.textoDe('chat-burbuja-1-texto');
+    expect(texto).toContain('Sin internet no pude entender tu pregunta. Prueba con una de estas:');
+    for (const q of PREGUNTAS_SUGERIDAS.slice(0, 3)) expect(texto).toContain(q);
     expect(p.existe('chat-burbuja-1-aviso')).toBe(true);
+  });
+
+  it('sin red, una pregunta del negocio se responde en el teléfono con la nota "Respondí sin internet" y sin semáforo', async () => {
+    const red = ponerRed({});
+    const p = await montarApp();
+
+    await p.abrirDesdeInicio();
+    await p.preguntar('¿cuánto me deben?');
+
+    expect(p.textoDe('chat-burbuja-1-texto')).toMatch(/por cobrar/);
+    expect(p.textoDe('chat-burbuja-1-sin-internet')).toBe('Respondí sin internet');
+    expect(p.existe('chat-burbuja-1-semaforo')).toBe(false);
+    expect(p.existe('chat-burbuja-1-aviso')).toBe(false);
+    // Solo el intento que falló: nada más sale del teléfono.
+    expect(red.tipos()).toEqual(['interpretar']);
   });
 
   it('el aviso de falla tiene otro tono que una respuesta normal; la respuesta no lleva "Aviso"', async () => {

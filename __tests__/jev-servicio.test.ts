@@ -13,10 +13,14 @@ import type {
   HechoJuicio,
   LineaCierre,
 } from '@dominio/tipos';
+import { INTENCIONES, PREGUNTAS_SUGERIDAS, responderConsulta } from '@analisis/intenciones';
 import { extraerCifras } from '@analisis/validarRedaccion';
 import {
   consultar,
   juzgarRespuesta,
+  reiniciarEstadoDeRed,
+  TIEMPO_TRAS_FALLA_MS,
+  VENTANA_FALLA_MS,
   MAX_CARACTERES_PREGUNTA,
   preguntarAJev,
   redactarRespuesta,
@@ -475,23 +479,25 @@ describe('consultar', () => {
     expect(g).toHaveBeenCalledTimes(1);
   });
 
-  it('sin internet (e6) dice que necesita internet, en una sola petición', async () => {
+  it('sin internet (e6) y sin poder clasificar la pregunta: avisa y ofrece 3 preguntas, en una sola petición', async () => {
     const f = jest.fn(() => Promise.reject(new TypeError('Network request failed')));
 
-    const r = await consultar(comoFetch(f), URL_PRUEBA, '¿cuánto vendí ayer?', CTX);
+    const r = await consultar(comoFetch(f), URL_PRUEBA, 'cuéntame un chiste', CTX);
 
-    expect(r).toEqual({ tipo: 'sinInternet', texto: TEXTO_SIN_INTERNET });
-    expect(TEXTO_SIN_INTERNET).toBe(
-      'Necesitas internet para preguntarle al asistente.',
-    );
+    expect(r).toEqual({
+      tipo: 'sinInternet',
+      texto: 'Sin internet no pude entender tu pregunta. Prueba con una de estas:',
+      sugeridas: PREGUNTAS_SUGERIDAS.slice(0, 3),
+    });
+    expect(TEXTO_SIN_INTERNET).toBe('Necesitas internet para preguntarle al asistente.');
     expect(f).toHaveBeenCalledTimes(1);
   });
 
-  it('un 429 dice que hay muchas preguntas y un 5xx que el asistente no está disponible, cada uno con su causa', async () => {
+  it('un 429 o un 5xx con una pregunta que no se entiende sin red conserva su aviso y su causa', async () => {
     const con = (status: number) => jest.fn(async () => json({ error: 'X' }, false, status));
 
-    const limite = await consultar(comoFetch(con(429)), URL_PRUEBA, '¿cuánto vendí ayer?', CTX);
-    const caido = await consultar(comoFetch(con(502)), URL_PRUEBA, '¿cuánto vendí ayer?', CTX);
+    const limite = await consultar(comoFetch(con(429)), URL_PRUEBA, 'cuéntame un chiste', CTX);
+    const caido = await consultar(comoFetch(con(502)), URL_PRUEBA, 'cuéntame un chiste', CTX);
 
     expect(limite).toEqual({
       tipo: 'error',
@@ -506,18 +512,18 @@ describe('consultar', () => {
     expect(JSON.stringify([limite, caido])).not.toMatch(/429|502|500/);
   });
 
-  it('si el servidor no contesta en 8 segundos también es "necesitas internet"', async () => {
+  it('si el servidor no contesta en 8 segundos, una pregunta que no se entiende es "sin internet"', async () => {
     jest.useFakeTimers();
     const f = colgado();
     let resultado: unknown;
-    const pendiente = consultar(comoFetch(f), URL_PRUEBA, '¿cuánto vendí ayer?', CTX).then(r => {
+    const pendiente = consultar(comoFetch(f), URL_PRUEBA, 'cuéntame un chiste', CTX).then(r => {
       resultado = r;
     });
 
     await jest.advanceTimersByTimeAsync(8000);
     await pendiente;
 
-    expect(resultado).toEqual({ tipo: 'sinInternet', texto: TEXTO_SIN_INTERNET });
+    expect(resultado).toMatchObject({ tipo: 'sinInternet' });
     expect(f).toHaveBeenCalledTimes(1);
   });
 
@@ -582,10 +588,12 @@ describe('consultar', () => {
       throw new Error('boom');
     });
 
-    await expect(consultar(comoFetch(f), URL_PRUEBA, 'hola', CTX)).resolves.toEqual({
+    await expect(consultar(comoFetch(f), URL_PRUEBA, 'hola', CTX)).resolves.toMatchObject({
       tipo: 'sinInternet',
-      texto: TEXTO_SIN_INTERNET,
     });
+    await expect(
+      consultar(comoFetch(f), URL_PRUEBA, '¿cuánto vendí ayer?', CTX),
+    ).resolves.toMatchObject({ tipo: 'respuesta', texto: FRASE_AYER, sinInternet: true });
   });
 
   it('cada consulta es independiente: una caída no contamina la siguiente', async () => {

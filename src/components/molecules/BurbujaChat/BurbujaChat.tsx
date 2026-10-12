@@ -42,11 +42,22 @@ export interface BurbujaChatProps {
   semaforo?: Semaforo;
   /** Un aviso de falla (sin internet, muchas preguntas…): otro tono, un ícono y la palabra "Aviso". */
   error?: boolean;
+  /** Se respondió con la clasificación del teléfono, sin red: lleva una notita visible. */
+  sinInternet?: boolean;
   /** El de la burbuja; el texto, la palabra y el símbolo llevan este mismo con un sufijo. */
   testID: string;
 }
 
-export const BurbujaChat = ({ autor, texto, semaforo, error, testID }: BurbujaChatProps) => {
+export const TEXTO_SIN_INTERNET_NOTA = 'Respondí sin internet';
+
+export const BurbujaChat = ({
+  autor,
+  texto,
+  semaforo,
+  error,
+  sinInternet,
+  testID,
+}: BurbujaChatProps) => {
   const esPregunta = autor === 'freddy';
   const estilo = semaforo ? ESTILO_SEMAFORO[semaforo] : null;
   const palabra = semaforo ? ETIQUETA_SEMAFORO[semaforo] : null;
@@ -56,6 +67,8 @@ export const BurbujaChat = ({ autor, texto, semaforo, error, testID }: BurbujaCh
     ? `Aviso: ${texto}`
     : palabra
     ? `Respuesta, ${palabra}: ${texto}`
+    : sinInternet
+    ? `Respuesta, ${TEXTO_SIN_INTERNET_NOTA.toLowerCase()}: ${texto}`
     : `Respuesta: ${texto}`;
 
   return (
@@ -92,6 +105,11 @@ export const BurbujaChat = ({ autor, texto, semaforo, error, testID }: BurbujaCh
         </View>
       ) : null}
       <Text testID={`${testID}-texto`}>{texto}</Text>
+      {sinInternet && !esPregunta ? (
+        <Text variant="caption" color="textMuted" testID={`${testID}-sin-internet`}>
+          {TEXTO_SIN_INTERNET_NOTA}
+        </Text>
+      ) : null}
     </View>
   );
 };

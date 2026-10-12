@@ -7,6 +7,8 @@
 // ayer" no: esa es una pregunta y sigue su camino). Las frases nunca llevan una cifra ni prometen
 // algo que el chat no sepa hacer.
 
+import { normalizarTexto } from './texto';
+
 export type CategoriaCharla = 'saludo' | 'agradecimiento' | 'despedida' | 'ayuda';
 
 export interface RespuestaCharla {
@@ -76,16 +78,6 @@ const FRASES: Record<CategoriaCharla, readonly string[]> = {
   ],
 };
 
-/** Minúsculas, sin tildes ni signos, letras repetidas 3 o más veces reducidas a una, y sin espacios de sobra. */
-const normalizar = (texto: string): string =>
-  texto
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/[^a-z0-9ñ]+/g, ' ')
-    .replace(/(.)\1{2,}/g, '$1')
-    .trim();
-
 /** Una cuenta simple y estable del texto: la misma entrada siempre elige la misma frase. */
 const hashDe = (texto: string): number => {
   let h = 0;
@@ -132,7 +124,7 @@ const categoriasDe = (normal: string): Set<CategoriaCharla> | null => {
  */
 export const responderCharla = (texto: string, nombre?: string): RespuestaCharla | null => {
   if (typeof texto !== 'string' || texto.length > MAX_CARACTERES) return null;
-  const normal = normalizar(texto);
+  const normal = normalizarTexto(texto);
   const halladas = categoriasDe(normal);
   if (halladas === null) return null;
   const categoria = PRIORIDAD.find(c => halladas.has(c));

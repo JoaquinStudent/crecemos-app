@@ -572,11 +572,12 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
       const caida = redDeLaApp(null);
       await conApp(caida, async () => {
         await abrirElChat();
-        await preguntar('¿cuánto vendí ayer?');
+        await preguntar('cuéntame un chiste');
 
         const pantalla = textosEn('preguntar-pantalla');
-        expect(pantalla).toContain(
-          'Necesitas internet para preguntarle al asistente.',
+        // Sin red y sin poder entender la pregunta en el teléfono: avisa y ofrece tres preguntas.
+        expect(pantalla.join(' | ')).toContain(
+          'Sin internet no pude entender tu pregunta. Prueba con una de estas:',
         );
         // Ningún código ni mensaje técnico, en ninguna parte de la pantalla.
         expect(pantalla.join(' | ')).not.toMatch(CODIGOS_TECNICOS);
