@@ -12,6 +12,7 @@ import { Bot, ChartColumn, Check, ClipboardCheck, History, House } from 'lucide-
 import type { LucideIcon } from 'lucide-react-native';
 import { border, colors, elevation, size, spacing } from '@theme';
 import { Text } from '@components/atoms/Text';
+import { PASOS, PasoGuia } from '@components/molecules/PasoGuia';
 import { Icon } from '@components/atoms/Icon';
 import { fechaLocal } from '@dominio/fecha';
 import { useCrecemos } from '@context/CrecemosProvider';
@@ -64,7 +65,7 @@ export const BarraNavegacion = ({ state, navigation }: BottomTabBarProps) => {
     const ranura = RANURAS[ruta.name];
     if (!ranura) return null;
     const seleccionada = state.routes[state.index]?.key === clave;
-    return (
+    const tab = (
       <Pressable
         key={clave}
         accessibilityRole="tab"
@@ -90,6 +91,14 @@ export const BarraNavegacion = ({ state, navigation }: BottomTabBarProps) => {
         </Text>
       </Pressable>
     );
+    // La pestaña del Asistente es un paso del recorrido (el resto de pestañas no se señalan).
+    return ruta.name === 'Asistente' ? (
+      <PasoGuia key={clave} {...PASOS.asistente} style={styles.guia}>
+        {tab}
+      </PasoGuia>
+    ) : (
+      tab
+    );
   };
 
   const [inicio, historial, resumen, asistente] = state.routes.map(r => r.key);
@@ -100,6 +109,7 @@ export const BarraNavegacion = ({ state, navigation }: BottomTabBarProps) => {
       <View style={styles.fondo} pointerEvents="none" />
       {pestana(inicio)}
       {pestana(historial)}
+      <PasoGuia {...PASOS.cerrarDia} style={styles.guia}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={hoyCerrado ? 'Hoy ya cerraste. Toca para editar tu día' : 'Cerrar día'}
@@ -124,6 +134,7 @@ export const BarraNavegacion = ({ state, navigation }: BottomTabBarProps) => {
           </>
         )}
       </Pressable>
+      </PasoGuia>
       {pestana(resumen)}
       {pestana(asistente)}
     </View>
@@ -143,6 +154,8 @@ const styles = StyleSheet.create({
     borderTopWidth: border.thin,
     borderTopColor: colors.border,
   },
+  // El envoltorio del recorrido reparte el ancho igual que la ranura que envuelve.
+  guia: { flex: 1 },
   ranura: {
     flex: 1,
     height: ALTO_RANURA,

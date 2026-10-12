@@ -5,9 +5,9 @@
 // El chat ya no es un botón flotante: es la pestaña "Asistente" de la barra inferior, y cada
 // recomendación tiene su "Preguntar por qué" que lo abre con la pregunta lista.
 import React, { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { CompositeNavigationProp, useNavigation } from '@react-navigation/native';
+import { CompositeNavigationProp, useIsFocused, useNavigation } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import {
@@ -42,6 +42,7 @@ import { CargandoBloques } from '@components/molecules/CargandoBloques';
 import { AnotarYapeSheet } from '@components/organisms/AnotarYapeSheet';
 import { EmptyState } from '@components/molecules/EmptyState';
 import { ListRow } from '@components/molecules/ListRow';
+import { PASOS, PasoGuia, ScrollGuiado } from '@components/molecules/PasoGuia';
 import { gananciaPorProducto, insight } from '@analisis/metricas';
 import { preguntaDeRegla } from '@analisis/preguntasRegla';
 import { planificarManana, textoPorciones, type PlanManana } from '@analisis/planificador';
@@ -68,6 +69,7 @@ import { useAhora } from '@hooks/useAhora';
 import { useConteo } from '@hooks/useConteo';
 import { useRecordatorio } from '@hooks/useRecordatorio';
 import { useCrecemos, type EstadoSemilla } from '@context/CrecemosProvider';
+import { useRecorridoAutomatico } from '@context/RecorridoProvider';
 import type { Ciclo, Recomendacion, ResumenCiclo } from '@dominio/tipos';
 import type { RootStackParamList } from '@navigation/RootStack';
 import type { TabsParamList } from '@navigation/Tabs';
@@ -91,7 +93,7 @@ const ICONO_DE_REGLA: Record<Recomendacion['reglaId'], LucideIcon> = {
 };
 
 export const InicioScreen = () => {
-  const { cierres, productos, perfil, meta, cargando, semilla, cargarDatosDeEjemplo, marcarCobrado } =
+  const { cierres, productos, perfil, meta, cargando, error, semilla, cargarDatosDeEjemplo, marcarCobrado } =
     useCrecemos();
   const navigation = useNavigation<InicioNavigation>();
   const ahora = useAhora();
@@ -122,12 +124,15 @@ export const InicioScreen = () => {
   const nombre = perfil.nombre.trim();
   const cerradoHoy = cierres.some(c => c.fecha === hoy);
   const recordatorio = useRecordatorio(perfil, cierres, cargando, ahora);
+  // El recorrido guiado: solo con Inicio a la vista y los datos listos (ni cargando ni con error).
+  const enfocada = useIsFocused();
+  useRecorridoAutomatico(enfocada && !cargando && !error);
   const irACerrarDia = () => navigation.navigate('CerrarDia');
   const preguntarAlAsistente = (pregunta: string) => navigation.navigate('Asistente', { pregunta });
 
   return (
     <SafeAreaView style={styles.pantalla} edges={['top']}>
-      <ScrollView contentContainerStyle={styles.contenido}>
+      <ScrollGuiado contentContainerStyle={styles.contenido}>
         <View style={styles.encabezado}>
           <View style={styles.saludo}>
             <Text variant="h2" testID="inicio-saludo">
@@ -165,18 +170,24 @@ export const InicioScreen = () => {
           <CargandoBloques bloques={3} alto={140} testID="inicio-cargando" />
         ) : ultimo && cicloActual && resumenActual ? (
           <>
-            <TarjetaCiclo ciclo={cicloActual} resumen={resumenActual} />
+            <PasoGuia {...PASOS.teQueda}>
+              <TarjetaCiclo ciclo={cicloActual} resumen={resumenActual} />
+            </PasoGuia>
             <UltimoDia fecha={ultimo.fecha} teQueda={calcularCierre(ultimo).teQueda} />
             {semana ? (
               <TarjetaSemana semana={semana} alPreguntar={() => preguntarAlAsistente(PREGUNTA_SEMANA)} />
             ) : null}
-            <TarjetaMeta meta={meta} hoy={hoy} alAbrir={() => navigation.navigate('MiMeta')} />
+            <PasoGuia {...PASOS.cuota} activo={meta !== null}>
+              <TarjetaMeta meta={meta} hoy={hoy} alAbrir={() => navigation.navigate('MiMeta')} />
+            </PasoGuia>
             <Recomendaciones
               recomendaciones={recomendaciones}
               ciclos={ciclos.length}
               alPreguntar={preguntarAlAsistente}
             />
-            <TarjetaManana plan={plan} />
+            <PasoGuia {...PASOS.decidir} activo={recomendaciones.length === 0}>
+              <TarjetaManana plan={plan} />
+            </PasoGuia>
             {frase ? (
               <TarjetaInsight frase={frase} alVer={() => navigation.navigate('QueMeDeja')} />
             ) : null}
@@ -200,12 +211,14 @@ export const InicioScreen = () => {
                 alTocar={() => navigation.navigate('MiReporte')}
                 testID="inicio-accion-mi-reporte"
               />
-              <AccionRapida
-                icono={Smartphone}
-                titulo="Anotar un yape"
-                alTocar={anotarYape}
-                testID="inicio-accion-anotar-yape"
-              />
+              <PasoGuia {...PASOS.cuota} activo={meta === null} style={styles.accionGuia}>
+                <AccionRapida
+                  icono={Smartphone}
+                  titulo="Anotar un yape"
+                  alTocar={anotarYape}
+                  testID="inicio-accion-anotar-yape"
+                />
+              </PasoGuia>
             </View>
             {/* La única acción principal de la pantalla (UX, regla 2). Si hoy ya está cerrado,
                 no insiste: ofrece editar con calma. */}
@@ -241,16 +254,18 @@ export const InicioScreen = () => {
               <DatosDeEjemplo estado={semilla} alCargar={cargarDatosDeEjemplo} />
             ) : null}
             <View style={styles.accionesRapidas}>
-              <AccionRapida
-                icono={Smartphone}
-                titulo="Anotar un yape"
-                alTocar={anotarYape}
-                testID="inicio-accion-anotar-yape"
-              />
+              <PasoGuia {...PASOS.cuota} style={styles.accionGuia}>
+                <AccionRapida
+                  icono={Smartphone}
+                  titulo="Anotar un yape"
+                  alTocar={anotarYape}
+                  testID="inicio-accion-anotar-yape"
+                />
+              </PasoGuia>
             </View>
           </>
         )}
-      </ScrollView>
+      </ScrollGuiado>
       <AnotarYapeSheet visible={anotandoYape} onClose={() => setAnotandoYape(false)} />
     </SafeAreaView>
   );
@@ -524,31 +539,33 @@ const Recomendaciones = ({
     ) : null;
   }
   return (
-    <View style={styles.recomendaciones} testID="inicio-recomendaciones">
-      <Text variant="h3" accessibilityRole="header">
-        Para decidir hoy
-      </Text>
-      {recomendaciones.map(r => (
-        <Card key={r.reglaId} variant="bordered" testID={`inicio-recomendacion-${r.reglaId}`}>
-          <View style={styles.recomendacionFila}>
-            <View style={styles.circuloIcono}>
-              <Icon icon={ICONO_DE_REGLA[r.reglaId]} color="primary" size="md" />
+    <PasoGuia {...PASOS.decidir}>
+      <View style={styles.recomendaciones} testID="inicio-recomendaciones">
+        <Text variant="h3" accessibilityRole="header">
+          Para decidir hoy
+        </Text>
+        {recomendaciones.map(r => (
+          <Card key={r.reglaId} variant="bordered" testID={`inicio-recomendacion-${r.reglaId}`}>
+            <View style={styles.recomendacionFila}>
+              <View style={styles.circuloIcono}>
+                <Icon icon={ICONO_DE_REGLA[r.reglaId]} color="primary" size="md" />
+              </View>
+              <Text style={styles.recomendacionTexto} testID={`inicio-recomendacion-${r.reglaId}-texto`}>
+                {r.mensaje}
+              </Text>
             </View>
-            <Text style={styles.recomendacionTexto} testID={`inicio-recomendacion-${r.reglaId}-texto`}>
-              {r.mensaje}
-            </Text>
-          </View>
-          <Button
-            title="Preguntar por qué"
-            variant="ghost"
-            leftIcon={MessageCircle}
-            style={styles.preguntarPorQue}
-            testID={`inicio-porque-${r.reglaId}`}
-            onPress={() => alPreguntar(preguntaDeRegla(r.reglaId))}
-          />
-        </Card>
-      ))}
-    </View>
+            <Button
+              title="Preguntar por qué"
+              variant="ghost"
+              leftIcon={MessageCircle}
+              style={styles.preguntarPorQue}
+              testID={`inicio-porque-${r.reglaId}`}
+              onPress={() => alPreguntar(preguntaDeRegla(r.reglaId))}
+            />
+          </Card>
+        ))}
+      </View>
+    </PasoGuia>
   );
 };
 
@@ -763,6 +780,7 @@ const styles = StyleSheet.create({
   mananaFila: { marginTop: spacing.md, gap: spacing.xxs },
   preguntarPorQue: { alignSelf: 'flex-start', marginTop: spacing.sm },
   accionesRapidas: { flexDirection: 'row', gap: spacing.md },
+  accionGuia: { flex: 1 },
   accion: {
     flex: 1,
     minHeight: 88,
