@@ -5,7 +5,7 @@
 import { avatarDe } from '@dominio/foto';
 import { formatoFecha, formatoFechaCorta, formatoSoles, nombreMes } from '@dominio/formato';
 import type { FechaNegocio, MesCompleto, Perfil, Senales } from '@dominio/tipos';
-import { diasRegistradosTexto, textoFaltan, VENTANA_DIAS } from './senales';
+import { AVISO_EJEMPLO, diasRegistradosTexto, textoFaltan, VENTANA_DIAS } from './senales';
 
 /** Alto de la barra del mes mayor, en pt; las demás son proporcionales. */
 const ALTO_BARRA_PT = 170;
@@ -260,6 +260,9 @@ export const htmlReporte = (s: Senales, perfil: Perfil | null, hoy: FechaNegocio
     identidad(perfil) +
     '<h1>Reporte de actividad del negocio</h1>' +
     `<div class="periodo">${periodo(s)}</div>` +
+    (s.soloEjemplo
+      ? `<div class="aviso"><strong>Datos de ejemplo.</strong> ${escaparHtml(AVISO_EJEMPLO)}</div>`
+      : '') +
     (s.enConstruccion
       ? `<div class="aviso"><strong>${textoFaltan(s.diasFaltantes)}</strong></div>`
       : '') +

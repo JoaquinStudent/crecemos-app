@@ -142,6 +142,7 @@ describe('materializarSemilla', () => {
         costoUnitario: 8,
         actualizadoEn: '2026-09-27',
         activo: true,
+        origen: 'ejemplo',
       },
     ]);
   });

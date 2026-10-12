@@ -20,6 +20,7 @@ import { htmlReporte, NOMBRE_ARCHIVO_PDF } from '@analisis/htmlReporte';
 import {
   DIAS_CONVINCENTE,
   diasRegistradosTexto,
+  AVISO_EJEMPLO,
   senalesBanco,
   textoFaltan,
   textoReporte,
@@ -149,6 +150,13 @@ export const MiReporteScreen = () => {
             Para mostrarle a tu banco
           </Text>
         </View>
+
+        {senales.soloEjemplo ? (
+          <View style={styles.construccion} testID="reporte-aviso-ejemplo">
+            <Text variant="bodyStrong">Datos de ejemplo</Text>
+            <Text variant="bodySmall">{AVISO_EJEMPLO}</Text>
+          </View>
+        ) : null}
 
         {senales.enConstruccion ? <EnConstruccion senales={senales} /> : null}
 

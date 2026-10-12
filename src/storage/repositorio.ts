@@ -4,6 +4,7 @@
 import { createAsyncStorage } from '@react-native-async-storage/async-storage';
 import { PRODUCTOS_POR_DEFECTO } from '@dominio/productosPorDefecto';
 import { marcarCobrados } from '@dominio/cobro';
+import { contarDatosDeEjemplo, DatosDeEjemplo, sinDatosDeEjemplo } from '@dominio/origen';
 import type {
   Cierre,
   FechaNegocio,
@@ -122,4 +123,22 @@ export const semillaCargada = async (): Promise<boolean> =>
 /** Escribe solo la marca: se usa cuando ya había datos y no se descarga nada. */
 export const marcarSemillaResuelta = async (ahora: Instante): Promise<void> => {
   await base().setItem(CLAVE_SEED, JSON.stringify({ cargadoEn: ahora }));
+};
+
+/**
+ * Borra solo lo marcado 'ejemplo': los días de ejemplo y los productos de ejemplo que ningún día
+ * propio usa (los que sí usa pasan a ser propios). También suelta la marca de la semilla, así la
+ * demostración se puede volver a cargar. Devuelve lo que quitó y lo que quedó.
+ */
+export const borrarDatosDeEjemplo = async (): Promise<
+  DatosDeEjemplo & { cierresRestantes: Cierre[]; productosRestantes: Producto[] }
+> => {
+  const cierres = await listarCierres();
+  const productos = await listarProductos();
+  const quitado = contarDatosDeEjemplo(cierres, productos);
+  const resto = sinDatosDeEjemplo(cierres, productos);
+  await base().setItem(CLAVE_CIERRES, JSON.stringify(resto.cierres));
+  await base().setItem(CLAVE_PRODUCTOS, JSON.stringify(resto.productos));
+  await base().removeItem(CLAVE_SEED);
+  return { ...quitado, cierresRestantes: resto.cierres, productosRestantes: resto.productos };
 };

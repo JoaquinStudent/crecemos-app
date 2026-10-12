@@ -19,6 +19,12 @@ export interface Perfil {
   actualizadoEn: Instante;
 }
 
+/**
+ * De dónde salió un dato. Sin el campo (los datos viejos) vale 'propio'. Lo de la demostración
+ * se marca 'ejemplo' para poder borrarlo y dejarlo fuera del reporte al banco.
+ */
+export type Origen = 'ejemplo' | 'propio';
+
 export interface Producto {
   id: string;
   nombre: string;
@@ -27,6 +33,8 @@ export interface Producto {
   costoUnitario: number;
   actualizadoEn: FechaNegocio;
   activo: boolean;
+  /** Ausente = 'propio'. */
+  origen?: Origen;
 }
 
 export interface LineaCierre {
@@ -56,6 +64,8 @@ export interface Cierre {
   abreCiclo: boolean;
   creadoEn: Instante;
   actualizadoEn: Instante;
+  /** Ausente = 'propio'. */
+  origen?: Origen;
 }
 
 /** Lo que entrega el formulario de cierre, antes de copiar precios y costos. */
@@ -303,4 +313,6 @@ export interface Senales {
   enConstruccion: boolean;
   /** Cuántos días más hacen falta para llegar a 30; nunca negativo. */
   diasFaltantes: number;
+  /** Solo hay datos de ejemplo: el reporte sirve para la demostración, no es del negocio real. */
+  soloEjemplo?: boolean;
 }

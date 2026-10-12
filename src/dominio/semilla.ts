@@ -81,6 +81,7 @@ export const materializarSemilla = (s: SemillaJSON, ahora: Date): SemillaMateria
     costoUnitario: p.costoUnitario,
     actualizadoEn: fechaDe(p.actualizadoDiasAtras),
     activo: true,
+    origen: 'ejemplo',
   }));
 
   const cierres: Cierre[] = s.cierres.map(c => {
@@ -101,6 +102,7 @@ export const materializarSemilla = (s: SemillaJSON, ahora: Date): SemillaMateria
       abreCiclo: c.abreCiclo,
       creadoEn: instante,
       actualizadoEn: instante,
+      origen: 'ejemplo',
     };
     if (c.cobradoDiasAtras !== undefined) cierre.cobradoEn = fechaDe(c.cobradoDiasAtras);
     return cierre;

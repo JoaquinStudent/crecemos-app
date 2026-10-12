@@ -17,12 +17,14 @@ import { redondearSoles } from '@dominio/formato';
 import { quitarFoto as quitarFotoDelPerfil, validarFoto } from '@dominio/foto';
 import { normalizarPerfil, PERFIL_POR_DEFECTO } from '@dominio/perfil';
 import { cambiarPrecio } from '@dominio/producto';
+import { contarDatosDeEjemplo, DatosDeEjemplo } from '@dominio/origen';
 import { materializarSemilla } from '@dominio/semilla';
 import type { Cierre, DatosCierre, Perfil, Producto } from '@dominio/tipos';
 import { DatosProducto, ResultadoValidacion, validarCierre, validarDatosProducto, validarProducto } from '@dominio/validacion';
 import { SEED_URL } from '../config';
 import { cargarSemilla } from '@services/seed';
 import {
+  borrarDatosDeEjemplo as borrarDatosDeEjemploRepo,
   eliminarCierre,
   guardarCierre,
   guardarPerfil as guardarPerfilRepo,
@@ -55,6 +57,7 @@ type Accion =
   | { tipo: 'reintentando' }
   | { tipo: 'semilla'; estado: EstadoSemilla }
   | { tipo: 'semillaLista'; cierres: Cierre[]; productos: Producto[] }
+  | { tipo: 'ejemploBorrado'; cierres: Cierre[]; productos: Producto[] }
   | { tipo: 'cobrado'; ids: string[]; fecha: string }
   | { tipo: 'perfilGuardado'; perfil: Perfil }
   | { tipo: 'productoGuardado'; producto: Producto }
@@ -94,6 +97,8 @@ const reducer = (estado: Estado, accion: Accion): Estado => {
         productos: accion.productos,
         semilla: 'lista',
       };
+    case 'ejemploBorrado':
+      return { ...estado, cierres: accion.cierres, productos: accion.productos, semilla: 'ninguna' };
     case 'cobrado':
       return { ...estado, cierres: marcarCobrados(estado.cierres, accion.ids, accion.fecha) };
     case 'perfilGuardado':
@@ -138,6 +143,10 @@ interface ContextoCrecemos extends Estado {
   establecerProductoActivo: (id: string, activo: boolean) => Promise<void>;
   /** Pide la semilla de ejemplo. Si ya hay días guardados no hace nada (nunca los pisa). */
   cargarDatosDeEjemplo: () => Promise<void>;
+  /** Cuántos días y productos de ejemplo hay ahora (todo en cero si no hay). */
+  datosDeEjemplo: DatosDeEjemplo;
+  /** Borra solo lo marcado como ejemplo; lo propio no se toca. Devuelve lo que quitó. */
+  borrarDatosDeEjemplo: () => Promise<DatosDeEjemplo>;
   /** Marca como cobrado, con la fecha de hoy, todo el Yape que estaba por cobrar. */
   marcarCobrado: () => Promise<void>;
 }
@@ -356,6 +365,17 @@ export const CrecemosProvider = ({ children }: { children: React.ReactNode }) =>
     await descargarSemilla();
   }, [descargarSemilla]);
 
+  const borrarDatosDeEjemplo = useCallback(async (): Promise<DatosDeEjemplo> => {
+    const { cierresRestantes, productosRestantes, ...quitado } = await borrarDatosDeEjemploRepo();
+    dispatch({ tipo: 'ejemploBorrado', cierres: cierresRestantes, productos: productosRestantes });
+    return quitado;
+  }, []);
+
+  const datosDeEjemplo = useMemo(
+    () => contarDatosDeEjemplo(estado.cierres, estado.productos),
+    [estado.cierres, estado.productos],
+  );
+
   const marcarCobrado = useCallback(async (): Promise<void> => {
     const ids = estado.cierres.filter(c => c.yapePendiente && !c.cobradoEn).map(c => c.id);
     if (ids.length === 0) return;
@@ -378,6 +398,8 @@ export const CrecemosProvider = ({ children }: { children: React.ReactNode }) =>
       editarProducto,
       establecerProductoActivo,
       cargarDatosDeEjemplo,
+      datosDeEjemplo,
+      borrarDatosDeEjemplo,
       marcarCobrado,
     }),
     [
@@ -393,6 +415,8 @@ export const CrecemosProvider = ({ children }: { children: React.ReactNode }) =>
       editarProducto,
       establecerProductoActivo,
       cargarDatosDeEjemplo,
+      datosDeEjemplo,
+      borrarDatosDeEjemplo,
       marcarCobrado,
     ],
   );

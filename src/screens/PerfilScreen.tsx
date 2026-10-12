@@ -9,6 +9,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { ChevronLeft, Clock, TriangleAlert } from 'lucide-react-native';
 import { colors, radius, spacing } from '@theme';
 import { Text } from '@components/atoms/Text';
+import { mensajeBorrarEjemplo } from '@dominio/origen';
 import { MensajeError } from '@components/atoms/MensajeError';
 import { useAccionSegura } from '@hooks/useAccionSegura';
 import { Button } from '@components/atoms/Button';
@@ -64,7 +65,7 @@ const YAPE_PARENTESCO: DatoEditable = {
 };
 
 export const PerfilScreen = () => {
-  const { perfil, productos, guardarPerfil, guardarFoto, quitarFoto, crearProducto, editarProducto, establecerProductoActivo, cargarDatosDeEjemplo, semilla } = useCrecemos();
+  const { perfil, productos, guardarPerfil, guardarFoto, quitarFoto, crearProducto, editarProducto, establecerProductoActivo, cargarDatosDeEjemplo, semilla, datosDeEjemplo, borrarDatosDeEjemplo } = useCrecemos();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList, 'Perfil'>>();
   const [editando, setEditando] = useState<CampoDato | null>(null);
   const [borrador, setBorrador] = useState('');
@@ -96,6 +97,13 @@ export const PerfilScreen = () => {
   }, 'No pudimos quitar tu foto. Inténtalo otra vez.');
   // Guardar o editar un producto y activarlo o desactivarlo comparten el aviso de la sección.
   const productoSeguro = useAccionSegura((tarea: () => Promise<void>) => tarea());
+  // Borrar lo de ejemplo pide confirmar diciendo cuántos días se van (UX, regla 8).
+  const [confirmandoBorrarEjemplo, setConfirmandoBorrarEjemplo] = useState(false);
+  const borrarEjemploSeguro = useAccionSegura(async () => {
+    await borrarDatosDeEjemplo();
+    setConfirmandoBorrarEjemplo(false);
+  }, 'No pudimos borrar los datos de ejemplo. Inténtalo otra vez.');
+  const hayEjemplo = datosDeEjemplo.dias > 0 || datosDeEjemplo.productos > 0;
   const ejemploSeguro = useAccionSegura(
     () => cargarDatosDeEjemplo(),
     'No pudimos cargar los datos de ejemplo. Inténtalo otra vez.',
@@ -502,6 +510,52 @@ export const PerfilScreen = () => {
                 />
               ))}
           </View>
+
+          {hayEjemplo ? (
+            <View style={styles.seccion} testID="perfil-datos-ejemplo">
+              <View>
+                <Text variant="h3">Datos de ejemplo</Text>
+                <Text variant="caption" color="textMuted">
+                  Vinieron con la demostración. No cuentan en el reporte para tu banco cuando ya tienes
+                  tus propios días.
+                </Text>
+              </View>
+              {confirmandoBorrarEjemplo ? (
+                <View style={styles.tarjetaProducto}>
+                  <Text variant="bodyStrong" accessibilityLiveRegion="polite" testID="borrar-ejemplo-mensaje">
+                    {mensajeBorrarEjemplo(datosDeEjemplo)}
+                  </Text>
+                  <MensajeError mensaje={borrarEjemploSeguro.mensajeError} testID="error-borrar-ejemplo" />
+                  <Button
+                    title="Sí, borrar los de ejemplo"
+                    variant="danger"
+                    fullWidth
+                    loading={borrarEjemploSeguro.ejecutando}
+                    onPress={() => borrarEjemploSeguro.ejecutar()}
+                    testID="borrar-ejemplo-si"
+                  />
+                  <Button
+                    title="No, dejarlos"
+                    variant="outline"
+                    fullWidth
+                    onPress={() => setConfirmandoBorrarEjemplo(false)}
+                    testID="borrar-ejemplo-no"
+                  />
+                </View>
+              ) : (
+                <Button
+                  title="Borrar datos de ejemplo"
+                  variant="outline"
+                  fullWidth
+                  onPress={() => {
+                    borrarEjemploSeguro.limpiarError();
+                    setConfirmandoBorrarEjemplo(true);
+                  }}
+                  testID="borrar-ejemplo"
+                />
+              )}
+            </View>
+          ) : null}
         </View>
       </ScrollView>
 

@@ -1,6 +1,7 @@
 // src/analisis/senales.ts
 // Señales para el banco y texto del reporte. Puro: sin React, sin reloj (AGENTS.md, regla 3).
 import { calcularCierre } from '@dominio/cierre';
+import { esEjemplo } from '@dominio/origen';
 import { diasEntre, restarDias } from '@dominio/fecha';
 import { formatoFechaCorta, formatoSoles, nombreMes, redondearSoles } from '@dominio/formato';
 import type { Cierre, FechaNegocio, MesCompleto, Perfil, Senales } from '@dominio/tipos';
@@ -15,6 +16,10 @@ export const DIAS_PRIMER_MES = 7;
 export const DIAS_CONVINCENTE = 30;
 /** Tope del texto compartido (~2 KB, manejo-de-datos.md). */
 export const MAX_CARACTERES_REPORTE = 2000;
+
+/** Lo que dice el reporte cuando solo hay datos de la demostración. */
+export const AVISO_EJEMPLO =
+  'Datos de ejemplo: este reporte es una demostración, no son registros reales del negocio.';
 
 /** Largo máximo de cada parte de la identificación: así el texto nunca pasa del tope. */
 const MAX_ROTULO = 60;
@@ -68,7 +73,12 @@ const mesesCompletos = (
  * Las señales para el banco con la fecha de hoy como parámetro. Los cierres posteriores a `hoy` no
  * cuentan. No muta la entrada.
  */
-export const senalesBanco = (cierres: Cierre[], hoy: FechaNegocio): Senales => {
+export const senalesBanco = (todos: Cierre[], hoy: FechaNegocio): Senales => {
+  // Lo de ejemplo no es del negocio: queda fuera del reporte. Salvo que sea lo único que hay,
+  // así la demostración sigue funcionando (con el aviso `soloEjemplo`).
+  const propios = todos.filter(c => !esEjemplo(c));
+  const soloEjemplo = propios.length === 0 && todos.length > 0;
+  const cierres = soloEjemplo ? todos : propios;
   const hasta = cierres.filter(c => c.fecha <= hoy);
   const fechas = [...new Set(hasta.map(c => c.fecha))].sort();
   const registraDesde = fechas[0];
@@ -106,6 +116,7 @@ export const senalesBanco = (cierres: Cierre[], hoy: FechaNegocio): Senales => {
     antiguedadDias: diasEntre(registraDesde, hoy),
     enConstruccion: diasRegistrados < DIAS_CONVINCENTE,
     diasFaltantes: Math.max(0, DIAS_CONVINCENTE - diasRegistrados),
+    ...(soloEjemplo ? { soloEjemplo } : {}),
   };
 };
 
@@ -151,6 +162,7 @@ export const textoReporte = (s: Senales, perfil: Perfil | null): string => {
 
   const lineas = [
     'Reporte de actividad del negocio',
+    ...(s.soloEjemplo ? [AVISO_EJEMPLO] : []),
     ...(quien === '' ? [] : [quien]),
     periodo,
     `Venta promedio mensual: ${hayMeses ? formatoSoles(s.ventaPromedioMensual) : sinMes}`,
