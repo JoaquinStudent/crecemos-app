@@ -7,13 +7,15 @@ module.exports = {
   // Sin watchman: Jest no lo necesita para un repo de este tamano, y si macOS
   // no le dio permiso a watchman, la suite (y la compuerta) se cuelga.
   watchman: false,
+  // La primera corrida en frío transforma @rneui (ESM) y supera los 5 s por defecto.
+  testTimeout: 30000,
   setupFiles: ['<rootDir>/jest.setup.js'],
   // El preset solo transforma react-native y @react-native(-community). Tambien hay
   // que transformar lo que se publica como ESM o fuente: el mock de AsyncStorage 3
   // (lib/module/jest), React Navigation 7 (lib/module) y las librerias nativas
   // react-native-* (screens, safe-area-context, svg), que Jest resuelve a su fuente.
   transformIgnorePatterns: [
-    'node_modules/(?!((jest-)?react-native(-[a-z-]+)?|@react-native(-community|-async-storage)?|@react-navigation/[a-z-]+)/)',
+    'node_modules/(?!((jest-)?react-native(-[a-z-]+)?|@react-native(-community|-async-storage)?|@react-navigation/[a-z-]+|@rneui/[a-z]+)/)',
   ],
   moduleNameMapper: {
     // lucide publica ESM (.mjs) para React Native; en Jest se usa su build CommonJS.
