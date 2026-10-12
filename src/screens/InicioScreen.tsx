@@ -45,6 +45,15 @@ import { gananciaPorProducto, insight } from '@analisis/metricas';
 import { preguntaDeRegla } from '@analisis/preguntasRegla';
 import { planificarManana, textoPorciones, type PlanManana } from '@analisis/planificador';
 import { evaluarReglas } from '@analisis/reglas';
+import {
+  mostrarTuSemana,
+  PREGUNTA_SEMANA,
+  resumenSemanaPasada,
+  textoMejorDia,
+  textoPeorDia,
+  textoTeQuedoSemana,
+  type ResumenSemana,
+} from '@analisis/semanal';
 import { calcularCierre } from '@dominio/cierre';
 import {
   agruparCiclos,
@@ -54,7 +63,7 @@ import {
 } from '@dominio/ciclo';
 import { totalPorCobrar } from '@dominio/cobro';
 import { fechaLocal, restarDias } from '@dominio/fecha';
-import { formatoFecha, formatoSoles } from '@dominio/formato';
+import { formatoFecha, formatoFechaCorta, formatoSoles } from '@dominio/formato';
 import { progreso, textoPlazo, totalAportado, type Meta } from '@dominio/meta';
 import { useAccionSegura } from '@hooks/useAccionSegura';
 import { useConteo } from '@hooks/useConteo';
@@ -106,6 +115,10 @@ export const InicioScreen = () => {
     [cierres, productos, hoy],
   );
   const plan = useMemo(() => planificarManana(cierres, productos, hoy), [cierres, productos, hoy]);
+  const semana = useMemo(
+    () => (mostrarTuSemana(hoy) ? resumenSemanaPasada(cierres, hoy) : null),
+    [cierres, hoy],
+  );
   const nombre = perfil.nombre.trim();
   const cerradoHoy = cierres.some(c => c.fecha === hoy);
   const irACerrarDia = () => navigation.navigate('CerrarDia');
@@ -149,6 +162,9 @@ export const InicioScreen = () => {
           <>
             <TarjetaCiclo ciclo={cicloActual} />
             <UltimoDia fecha={ultimo.fecha} teQueda={calcularCierre(ultimo).teQueda} />
+            {semana ? (
+              <TarjetaSemana semana={semana} alPreguntar={() => preguntarAlAsistente(PREGUNTA_SEMANA)} />
+            ) : null}
             <TarjetaMeta meta={meta} hoy={hoy} alAbrir={() => navigation.navigate('MiMeta')} />
             <Recomendaciones
               recomendaciones={recomendaciones}
@@ -333,6 +349,62 @@ const UltimoDia = ({ fecha, teQueda }: { fecha: string; teQueda: number }) => (
           {formatoSoles(teQueda)}
         </Text>
       }
+    />
+  </Card>
+);
+
+/**
+ * "Tu semana": cómo cerró la última semana completa (lunes a domingo). Solo lunes a miércoles y
+ * solo si tiene 3 días registrados o más; no se oculta sola, la decide el calendario. Con datos de
+ * ejemplo lo dice, para que no pasen por cifras reales.
+ */
+const TarjetaSemana = ({
+  semana,
+  alPreguntar,
+}: {
+  semana: ResumenSemana;
+  alPreguntar: () => void;
+}) => (
+  <Card variant="bordered" testID="inicio-semana">
+    <Text variant="h3" accessibilityRole="header">
+      Tu semana
+    </Text>
+    <Text variant="caption" color="textMuted" testID="inicio-semana-rango">
+      {`${formatoFechaCorta(semana.desde)} al ${formatoFechaCorta(semana.hasta)} · ${semana.diasRegistrados} de 7 días registrados`}
+    </Text>
+    {semana.soloEjemplo ? (
+      <Text variant="caption" color="textMuted" testID="inicio-semana-ejemplo">
+        Datos de ejemplo
+      </Text>
+    ) : null}
+    <Text variant="h3" style={styles.separadoChico} testID="inicio-semana-te-queda">
+      {textoTeQuedoSemana(semana.teQueda)}
+    </Text>
+    <Text variant="bodySmall" color="textMuted" testID="inicio-semana-ventas-gastos">
+      {`Vendiste ${formatoSoles(semana.vendido)} y gastaste ${formatoSoles(semana.gastado)}`}
+    </Text>
+    {semana.comparacion ? (
+      <Text variant="bodyStrong" style={styles.separadoChico} testID="inicio-semana-comparacion">
+        {semana.comparacion.texto}
+      </Text>
+    ) : null}
+    {semana.mejorDia ? (
+      <Text style={styles.separadoChico} testID="inicio-semana-mejor">
+        {textoMejorDia(semana.mejorDia)}
+      </Text>
+    ) : null}
+    {semana.peorDia ? (
+      <Text color="textMuted" testID="inicio-semana-peor">
+        {textoPeorDia(semana.peorDia)}
+      </Text>
+    ) : null}
+    <Button
+      title="Preguntar por qué"
+      variant="ghost"
+      leftIcon={MessageCircle}
+      style={styles.preguntarPorQue}
+      testID="inicio-semana-preguntar"
+      onPress={alPreguntar}
     />
   </Card>
 );
