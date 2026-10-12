@@ -77,7 +77,7 @@ const textoDiferencia = (diferencia: number, dia: string): string => {
   if (diferencia === 0) return `Igual que el último ${dia}`;
   return diferencia > 0
     ? `+${diferencia} más que el último ${dia}`
-    : `${diferencia} menos que el último ${dia}`;
+    : `${Math.abs(diferencia)} menos que el último ${dia}`;
 };
 
 interface Muestra {

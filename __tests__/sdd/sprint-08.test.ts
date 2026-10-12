@@ -42,6 +42,7 @@ import {
   SIMBOLO_SEMAFORO,
 } from '@analisis/semaforo';
 import { extraerCifras, validarRedaccion } from '@analisis/validarRedaccion';
+import { planificarManana } from '@analisis/planificador';
 import { consultar, redactarRespuesta } from '@services/jev';
 import { PERFIL_POR_DEFECTO } from '@dominio/perfil';
 import { PRODUCTOS_POR_DEFECTO } from '@dominio/productosPorDefecto';
@@ -1245,21 +1246,17 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
 
   // @spec08_e22 — "Qué comprar mañana" sin producto responde para todos los productos
   it('spec08_e22 que comprar manana sin producto responde para todos', () => {
-    // Given: dos ciclos cerrados donde, en cada uno, sobraron 6 y 4 porciones de anticucho y nada de pancita, y que Jev interpreta "recomiéndame qué comprar más mañana" como la intención "cuánto preparar" sin producto
+    // Given: tres jueves de historial donde sobraron 4 porciones de anticucho y nada de pancita, y que Jev interpreta "recomiéndame qué comprar más mañana" como la intención "cuánto preparar" sin producto
     // When: se calcula la respuesta
-    // Then: la respuesta es "Para mañana, según lo que te sobró: anticucho, prepara 4 porciones menos; pancita, te alcanza lo que preparas." con las mismas cifras y reglas que para un solo producto, y las cifras van a la redacción como siempre; con menos de dos ciclos sale la frase fija de siempre
+    // Then: la respuesta sale del mismo planificador que la tarjeta "Para mañana" (mismas cifras y palabras), y las cifras van a la redacción como siempre; con pocas muestras lo dice
     return (async () => {
       const dosProductos = PRODUCTOS_POR_DEFECTO.slice(0, 2);
-      const cierres = [
-        cierreDe('2026-09-14', {
-          abreCiclo: true,
-          lineas: [linea('Anticucho', 20, 6, 10, 8.2), linea('Pancita', 30, 0, 9, 8)],
-        }),
-        cierreDe('2026-09-28', {
-          abreCiclo: true,
+      const jueves = ['2026-09-17', '2026-09-24', '2026-10-01'];
+      const cierres = jueves.map(f =>
+        cierreDe(f, {
           lineas: [linea('Anticucho', 20, 4, 10, 8.2), linea('Pancita', 30, 0, 9, 8)],
         }),
-      ];
+      );
       const ctx = ctxDe(cierres, dosProductos);
       const consulta = jevInterpreta({
         intencion: 'cuantoPreparar',
@@ -1268,17 +1265,14 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
         confianza: 0.72,
       });
       const hecho = responderConsulta(consulta, ctx);
-      expect(hecho.frase).toBe(
-        'Para mañana, según lo que te sobró: anticucho, prepara 4 porciones menos; pancita, te alcanza lo que preparas.',
-      );
-      // Las mismas cifras que para un solo producto: la del anticucho es la que sale de cuantoPreparar.
-      const solo = responderConsulta(
-        jevInterpreta({ intencion: 'cuantoPreparar', producto: 'anticucho', dia: 'ninguno', confianza: 0.9 }),
-        ctx,
-      );
-      expect(solo.frase).toContain('Prepara 4 porciones menos');
-      // Las cifras van a la redacción como siempre.
-      expect(hecho.cifras).toEqual(['4']);
+      const plan = planificarManana(cierres, dosProductos, HOY);
+      expect(hecho.frase).toMatch(/^Mañana es jueves: prepara /);
+      for (const s of plan.sugerencias) {
+        expect(hecho.frase.toLowerCase()).toContain(s.texto.toLowerCase());
+      }
+      expect(hecho.frase).toContain('18 porciones de anticucho (2 menos que el último jueves)');
+      expect(hecho.frase).toContain('33 porciones de pancita (+3 más que el último jueves)');
+      expect(hecho.cifras).toEqual(extraerCifras(hecho.frase));
       const servidor = servidorSimulado({
         interpretar: responde({ ...interpretacion('cuantoPreparar'), confianza: 0.72 }),
         redactar: responde({ texto: 'Para mañana, anticucho: prepara 4 porciones menos. De pancita, igual.' }),
@@ -1292,9 +1286,9 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
       );
       expect(r).toMatchObject({ tipo: 'respuesta', redactada: false });
       expect(servidor.tipos()).not.toContain('redactar');
-      // Con menos de dos ciclos, la frase fija de siempre.
+      // Con pocas muestras, lo dice con las palabras de la tarjeta.
       expect(responderConsulta(consulta, ctxDe([cierres[0]], dosProductos)).frase).toBe(
-        'Todavía no cierras un ciclo completo. Cuando compres mercadería otra vez, te lo calculo.',
+        'Mañana es jueves. Aún no tengo suficientes jueves para sugerirte.',
       );
     })();
   });
@@ -1358,7 +1352,7 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
         jevInterpreta({ intencion: 'cuantoPreparar', producto: 'anticucho', dia: 'ninguno', confianza: 0.9 }),
         ctx,
       );
-      expect(paraTodos.frase).toMatch(/^Para mañana/);
+      expect(paraTodos.frase).toMatch(/^Mañana es /);
       expect(paraTodos.frase).not.toBe(soloAnticucho.frase);
       const red = redDeLaApp(texto, {
         interpretar: cuerpo =>

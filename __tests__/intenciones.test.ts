@@ -36,6 +36,8 @@ import {
   peorDiaDeLaSemana,
   REGLAS,
 } from '@analisis/reglas';
+import { planificarManana, textoPorciones } from '@analisis/planificador';
+import { formatoSoles } from '@dominio/formato';
 import { extraerCifras } from '@analisis/validarRedaccion';
 
 const ahora = new Date('2026-10-07T12:00:00-05:00');
@@ -671,94 +673,94 @@ describe('cuantoSacarParaLaCasa', () => {
   });
 });
 
-describe('cuantoPreparar', () => {
-  const rachi = (fecha: FechaNegocio, sobrantes: number, abreCiclo = false) =>
-    cierreDe(fecha, { abreCiclo, lineas: [linea('Rachi', 30, sobrantes, 9, 7.6)] });
+describe('cuantoPreparar (el mismo planificador que la tarjeta "Para mañana")', () => {
+  // HOY es miércoles 7 de octubre: mañana es jueves 8; los jueves anteriores son 1/10, 24/9 y 17/9.
+  const jueves = (fecha: FechaNegocio, nombre: string, preparadas: number, sobrantes: number, costo = 7.6) =>
+    cierreDe(fecha, { lineas: [linea(nombre, preparadas, sobrantes, 9, costo)] });
+  const tresJuevesDe = (nombre: string, preparadas: number, sobrantes = 0, costo = 7.6) => [
+    jueves('2026-09-17', nombre, preparadas, sobrantes, costo),
+    jueves('2026-09-24', nombre, preparadas, sobrantes, costo),
+    jueves('2026-10-01', nombre, preparadas, sobrantes, costo),
+  ];
 
-  it('le sobró en los dos últimos ciclos: baja la menor cifra', () => {
-    // Penúltimo ciclo 2 + 3 = 5 sobrantes, último 4 + 2 = 6
-    const cierres = [
-      rachi('2026-09-14', 2, true),
-      rachi('2026-09-15', 3),
-      rachi('2026-09-28', 4, true),
-      rachi('2026-09-29', 2),
-    ];
-    const h = responderConsulta(
-      consultaDe('cuantoPreparar', { producto: 'p-rachi' }),
-      ctxDe(cierres),
-    );
+  it('dice el día de mañana, cuántas porciones y la diferencia con el último', () => {
+    const ctx = ctxDe(tresJuevesDe('Rachi', 30), [producto('Rachi', 9, 7.6)]);
+    const h = responderConsulta(consultaDe('cuantoPreparar', { producto: 'p-rachi' }), ctx);
     expect(h.frase).toBe(
-      'Registraste sobrantes de Rachi en dos ciclos seguidos. Prepara 5 porciones menos.',
+      'Mañana es jueves: prepara 33 porciones de rachi (+3 más que el último jueves). Pondrías S/ 250.80 de mercadería.',
     );
-    expect(h.cifras).toEqual(['5']);
+    expect(h.cifras).toEqual(extraerCifras(h.frase));
   });
 
-  it('es la misma frase que la recomendación de la regla', () => {
-    const cierres = [
-      rachi('2026-09-14', 2, true),
-      rachi('2026-09-15', 3),
-      rachi('2026-09-28', 4, true),
-      rachi('2026-09-29', 2),
-    ];
+  it('chat === tarjeta: las mismas cifras y el mismo texto que planificarManana', () => {
+    const productos = [producto('Rachi', 9, 7.6), producto('Pancita', 10, 8)];
+    const cierres = [...tresJuevesDe('Rachi', 30, 2), ...tresJuevesDe('Pancita', 20, 0, 8)];
+    const ctx = ctxDe(cierres, productos);
+    const plan = planificarManana(cierres, productos, HOY);
+    const f = frase(consultaDe('cuantoPreparar'), ctx);
+    for (const s of plan.sugerencias) {
+      expect(s.porciones).not.toBeNull();
+      expect(f).toContain(`${textoPorciones(s.porciones ?? 0, s.unidad)} de ${s.nombre.toLowerCase()}`);
+      expect(f.toLowerCase()).toContain(s.texto.toLowerCase());
+    }
+    expect(f).toContain(`Mañana es ${plan.dia}`);
+    expect(f).toContain(`Pondrías ${formatoSoles(plan.capital)} de mercadería`);
+  });
+
+  it('con un producto, habla solo de ese producto', () => {
+    const productos = [producto('Rachi', 9, 7.6), producto('Pancita', 10, 8)];
+    const cierres = [...tresJuevesDe('Rachi', 30), ...tresJuevesDe('Pancita', 20, 0, 8)];
+    const f = frase(consultaDe('cuantoPreparar', { producto: 'p-pancita' }), ctxDe(cierres, productos));
+    expect(f).toContain('de pancita');
+    expect(f).not.toContain('rachi');
+  });
+
+  it('un producto que la app no tiene responde para todos', () => {
+    const cierres = tresJuevesDe('Rachi', 30);
     const ctx = ctxDe(cierres, [producto('Rachi', 9, 7.6)]);
-    const regla = evaluarReglas(ctx).find(r => r.reglaId === 'preparar');
-    expect(frase(consultaDe('cuantoPreparar', { producto: 'p-rachi' }), ctx)).toBe(regla?.mensaje);
-  });
-
-  it('un sobrante chico igual se dice, y en singular', () => {
-    const cierres = [rachi('2026-09-14', 1, true), rachi('2026-09-28', 2, true)];
-    expect(frase(consultaDe('cuantoPreparar', { producto: 'p-rachi' }), ctxDe(cierres))).toBe(
-      'Registraste sobrantes de Rachi en dos ciclos seguidos. Prepara 1 porción menos.',
+    expect(frase(consultaDe('cuantoPreparar', { producto: 'p-otro' }), ctx)).toBe(
+      frase(consultaDe('cuantoPreparar'), ctx),
     );
   });
 
   it('el vaso dice vasos', () => {
-    const chicha = (fecha: FechaNegocio, sobrantes: number, abreCiclo = false) =>
-      cierreDe(fecha, { abreCiclo, lineas: [linea('Chicha', 40, sobrantes, 2, 1.6)] });
-    const ctx = ctxDe(
-      [chicha('2026-09-14', 8, true), chicha('2026-09-28', 6, true)],
-      [producto('Chicha', 2, 1.6, { unidad: 'vaso' })],
-    );
-    expect(frase(consultaDe('cuantoPreparar', { producto: 'p-chicha' }), ctx)).toBe(
-      'Registraste sobrantes de Chicha en dos ciclos seguidos. Prepara 6 vasos menos.',
+    const ctx = ctxDe(tresJuevesDe('Chicha', 40, 0, 1.6), [
+      producto('Chicha', 2, 1.6, { unidad: 'vaso' }),
+    ]);
+    expect(frase(consultaDe('cuantoPreparar', { producto: 'p-chicha' }), ctx)).toContain(
+      '44 vasos de chicha',
     );
   });
 
-  it('si no sobra en alguno de los dos ciclos, le alcanza', () => {
-    const cierres = [rachi('2026-09-14', 0, true), rachi('2026-09-28', 6, true)];
-    const h = responderConsulta(
-      consultaDe('cuantoPreparar', { producto: 'p-rachi' }),
-      ctxDe(cierres),
-    );
-    expect(h.frase).toBe(
-      'Con lo que preparas de rachi te alcanza: en los últimos dos ciclos no registraste sobrantes.',
-    );
-    expect(h.cifras).toEqual([]);
+  it('con pocas muestras lo dice con el mismo texto de la tarjeta', () => {
+    const productos = [producto('Rachi', 9, 7.6)];
+    const cierres = [jueves('2026-10-01', 'Rachi', 30, 0)];
+    const plan = planificarManana(cierres, productos, HOY);
+    const f = frase(consultaDe('cuantoPreparar'), ctxDe(cierres, productos));
+    expect(f).toBe(`Mañana es jueves. ${plan.sugerencias[0].texto}.`);
+    expect(f).toBe('Mañana es jueves. Aún no tengo suficientes jueves para sugerirte.');
   });
 
-  it('un producto que no se preparó en esos ciclos también le alcanza', () => {
-    const cierres = [rachi('2026-09-14', 4, true), rachi('2026-09-28', 4, true)];
-    expect(frase(consultaDe('cuantoPreparar', { producto: 'p-pancita' }), ctxDe(cierres))).toBe(
-      'Con lo que preparas de pancita te alcanza: en los últimos dos ciclos no registraste sobrantes.',
+  it('sin cierres tampoco inventa', () => {
+    expect(frase(consultaDe('cuantoPreparar'), ctxDe([], [producto('Rachi', 9, 7.6)]))).toBe(
+      'Mañana es jueves. Aún no tengo suficientes jueves para sugerirte.',
     );
   });
 
-  it('sin producto, responde para todos los que tienen datos (spec08_e22)', () => {
-    const cierres = [rachi('2026-09-14', 4, true), rachi('2026-09-28', 4, true)];
-    const h = responderConsulta(consultaDe('cuantoPreparar'), ctxDe(cierres));
-    expect(h.frase).toBe('Para mañana, según lo que te sobró: rachi, prepara 4 porciones menos.');
-    expect(h.cifras).toEqual(['4']);
+  it('sin productos activos lo dice', () => {
+    expect(frase(consultaDe('cuantoPreparar'), ctxDe([], []))).toBe(
+      'Mañana es jueves. Todavía no tengo productos para sugerirte.',
+    );
   });
 
-  it('con menos de dos ciclos', () => {
-    expect(
-      frase(
-        consultaDe('cuantoPreparar', { producto: 'p-rachi' }),
-        ctxDe([rachi('2026-09-14', 4, true)]),
-      ),
-    ).toBe(
-      'Todavía no cierras un ciclo completo. Cuando compres mercadería otra vez, te lo calculo.',
+  it('mezcla: sugiere los que tienen datos y avisa de los que no', () => {
+    const productos = [producto('Rachi', 9, 7.6), producto('Pancita', 10, 8)];
+    const f = frase(
+      consultaDe('cuantoPreparar'),
+      ctxDe(tresJuevesDe('Rachi', 30), productos),
     );
+    expect(f).toContain('33 porciones de rachi');
+    expect(f).toContain('De pancita: aún no tengo suficientes jueves para sugerirte.');
   });
 });
 
@@ -1146,7 +1148,7 @@ describe('recorrido con la semilla real', () => {
       'El resultado registrado del ciclo fue S/ 269.00. Antes de retirar dinero, revisa los cobros pendientes.',
     );
     expect(dice(consultaDe('cuantoPreparar', { producto: 'p-rachi' }))).toBe(
-      'Registraste sobrantes de Rachi en dos ciclos seguidos. Prepara 10 porciones menos.',
+      'Mañana es miércoles: prepara 3 porciones de rachi (1 menos que el último miércoles). Pondrías S/ 22.80 de mercadería.',
     );
     expect(dice(consultaDe('peorDia'))).toBe(
       'Los miércoles son tu día más flojo: ganas S/ 18.13 menos que tu promedio.',

@@ -96,7 +96,7 @@ describe('planificarManana', () => {
   it('dice "menos" cuando prepararía menos que la última vez', () => {
     const menos = [cierre(sabadoHace(1), 30, 20), cierre(sabadoHace(2), 12, 0), cierre(sabadoHace(3), 12, 0)];
     expect(planificarManana(menos, [producto()], HOY).sugerencias[0].texto).toMatch(
-      /^-\d+ menos que el último sábado$/,
+      /^\d+ menos que el último sábado$/,
     );
   });
 

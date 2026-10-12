@@ -7,7 +7,7 @@ import { calcularCierre } from '@dominio/cierre';
 import { agruparCiclos, resumirCiclo, textoCapital } from '@dominio/ciclo';
 import { totalPorCobrar } from '@dominio/cobro';
 import { diaSemana, restarDias } from '@dominio/fecha';
-import { formatoFecha, formatoSoles } from '@dominio/formato';
+import { formatoFecha, formatoSoles, redondearSoles } from '@dominio/formato';
 import { teDeja } from '@dominio/producto';
 import type {
   Cierre,
@@ -20,9 +20,9 @@ import type {
   Producto,
 } from '@dominio/tipos';
 import { articulo, extremosDeVentas, gananciaPorProducto } from './metricas';
+import { planificarManana, textoPorciones } from './planificador';
 import {
   caidaDePrecio,
-  cicloCerradoYActual,
   CICLOS_MINIMOS,
   cobroMensaje,
   comparacionMensaje,
@@ -30,7 +30,6 @@ import {
   mejorDiaDeLaSemana,
   peorDiaDeLaSemana,
   retiroMensaje,
-  sobranteDeDosCiclos,
 } from './reglas';
 import { extraerCifras } from './validarRedaccion';
 
@@ -239,9 +238,6 @@ export const productoDe = (consulta: Consulta, ctx: ContextoAnalisis): Producto 
 const pedirProducto = (intencion: IntencionId): Hecho =>
   hecho(intencion, '¿De cuál producto? Escribe su nombre como aparece en tu catálogo.');
 
-/** 'rachi' de 'p-rachi' cuando el producto no aparece en la lista de la app. */
-const nombreDeId = (id: string): string => id.replace(/^p-/, '');
-
 /** El último cierre con fecha de hoy o anterior que cumple el filtro; los posteriores a hoy no cuentan. */
 const ultimoCierre = (
   ctx: ContextoAnalisis,
@@ -335,59 +331,36 @@ const cuantoSacarParaLaCasa = (ctx: ContextoAnalisis): Hecho =>
     agruparCiclos(ctx.cierres).length < CICLOS_MINIMOS ? SIN_CICLO_CERRADO : retiroMensaje(ctx),
   );
 
-/** Los productos con datos en los dos últimos ciclos: primero los de la app, en su orden; luego los demás. */
-const productosConDatos = (ctx: ContextoAnalisis): string[] => {
-  const ciclos = cicloCerradoYActual(ctx);
-  if (ciclos === null) return [];
-  const vistos = new Set<string>();
-  for (const ciclo of [ciclos.cerrado, ciclos.actual]) {
-    for (const c of ciclo.cierres) for (const l of c.lineas) vistos.add(l.productoId);
-  }
-  const conocidos = ctx.productos.map(p => p.id);
-  const activos = ctx.productos.filter(p => p.activo && vistos.has(p.id)).map(p => p.id);
-  const otros = [...vistos].filter(id => !conocidos.includes(id)).sort();
-  return [...activos, ...otros];
-};
-
-/** "Qué compro mañana" sin producto: la misma cuenta de un producto, para todos los que tienen datos. */
-const cuantoPrepararTodos = (ctx: ContextoAnalisis): Hecho => {
-  const conDatos = productosConDatos(ctx);
-  if (agruparCiclos(ctx.cierres).length < CICLOS_MINIMOS) {
-    return hecho('cuantoPreparar', SIN_CICLO_CERRADO);
-  }
-  const partes: string[] = [];
-  for (const id of conDatos) {
-    const sobrante = sobranteDeDosCiclos(ctx, id);
-    if (sobrante === null) continue;
-    const producto = ctx.productos.find(p => p.id === id);
-    const nombre = (producto?.nombre ?? sobrante.nombre ?? nombreDeId(id)).toLowerCase();
-    partes.push(
-      sobrante.cantidad === 0
-        ? `${nombre}, te alcanza lo que preparas`
-        : `${nombre}, prepara ${cantidad(sobrante.cantidad, producto?.unidad ?? 'porcion')} menos`,
-    );
-  }
-  if (partes.length === 0) return hecho('cuantoPreparar', POCAS_VENTAS);
-  return hecho('cuantoPreparar', `Para mañana, según lo que te sobró: ${partes.join('; ')}.`);
-};
+/**
+ * "¿Cuánto preparo mañana?": la MISMA cuenta y las MISMAS palabras que la tarjeta "Para mañana" de
+ * Inicio (`planificarManana`). Con `consulta.producto` responde solo de ese producto; sin él, o si la
+ * app no lo tiene, de todos los activos. Sin muestras suficientes lo dice, no inventa.
+ */
+/** "Igual que…" → "igual que…" para ir entre paréntesis; "+8 más…" queda igual. */
+const enMinuscula = (texto: string): string => `${texto.charAt(0).toLowerCase()}${texto.slice(1)}`;
 
 const cuantoPreparar = (consulta: Consulta, ctx: ContextoAnalisis): Hecho => {
-  if (consulta.producto === undefined) return cuantoPrepararTodos(ctx);
-  const sobrante = sobranteDeDosCiclos(ctx, consulta.producto);
-  if (sobrante === null) return hecho('cuantoPreparar', SIN_CICLO_CERRADO);
-  const producto = ctx.productos.find(p => p.id === consulta.producto);
-  const nombre = producto?.nombre ?? sobrante.nombre ?? nombreDeId(consulta.producto);
-  if (sobrante.cantidad === 0) {
-    return hecho(
-      'cuantoPreparar',
-      `Con lo que preparas de ${nombre.toLowerCase()} te alcanza: en los últimos dos ciclos no registraste sobrantes.`,
-    );
+  const plan = planificarManana(ctx.cierres, ctx.productos, ctx.hoy);
+  const propia = plan.sugerencias.filter(s => s.productoId === consulta.producto);
+  const sugerencias = propia.length > 0 ? propia : plan.sugerencias;
+  if (sugerencias.length === 0) {
+    return hecho('cuantoPreparar', `Mañana es ${plan.dia}. Todavía no tengo productos para sugerirte.`);
   }
-  const menos = cantidad(sobrante.cantidad, producto?.unidad ?? 'porcion');
-  return hecho(
-    'cuantoPreparar',
-    `Registraste sobrantes de ${nombre} en dos ciclos seguidos. Prepara ${menos} menos.`,
+  const conDatos = sugerencias.filter(s => !s.datosInsuficientes && s.porciones !== null);
+  const sinDatos = sugerencias.filter(s => s.datosInsuficientes);
+  if (conDatos.length === 0) {
+    return hecho('cuantoPreparar', `Mañana es ${plan.dia}. ${sinDatos[0].texto}.`);
+  }
+  const partes = conDatos.map(
+    s => `${textoPorciones(s.porciones ?? 0, s.unidad)} de ${s.nombre.toLowerCase()} (${enMinuscula(s.texto)})`,
   );
+  let frase = `Mañana es ${plan.dia}: prepara ${partes.join('; ')}.`;
+  if (sinDatos.length > 0) {
+    const nombres = sinDatos.map(s => s.nombre.toLowerCase()).join(' y ');
+    frase += ` De ${nombres}: ${enMinuscula(sinDatos[0].texto)}.`;
+  }
+  const capital = redondearSoles(conDatos.reduce((total, s) => total + s.capital, 0));
+  return hecho('cuantoPreparar', `${frase} Pondrías ${formatoSoles(capital)} de mercadería.`);
 };
 
 const compararCiclo = (ctx: ContextoAnalisis): Hecho => {
