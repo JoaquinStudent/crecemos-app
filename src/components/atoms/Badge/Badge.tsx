@@ -40,7 +40,7 @@ export const Badge = ({ label, tone = 'neutral', icon, style, testID }: BadgePro
         value={
           <>
             {icon ? <Icon icon={icon} size="xs" color={t.fg} style={styles.icono} /> : null}
-            <Text variant="caption" color={t.fg} style={styles.texto} numberOfLines={1}>
+            <Text variant="captionStrong" color={t.fg} numberOfLines={1}>
               {label}
             </Text>
           </>
@@ -64,5 +64,4 @@ const styles = StyleSheet.create({
     borderWidth: 0,
   },
   icono: { marginRight: spacing.xs },
-  texto: { fontWeight: '600' },
 });

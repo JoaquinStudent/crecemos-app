@@ -65,7 +65,7 @@ export const Chip = ({
       ]}
     >
       {icon ? <Icon icon={icon} size="sm" color={colorIcono} style={styles.icono} /> : null}
-      <Text variant="label" color={colorTexto} style={selected && styles.textoSeleccionado}>
+      <Text variant={selected ? 'labelStrong' : 'label'} color={colorTexto}>
         {label}
       </Text>
     </Pressable>
@@ -89,5 +89,4 @@ const styles = StyleSheet.create({
   presionado: { backgroundColor: colors.surfacePressed },
   apagado: { backgroundColor: colors.disabledSoft },
   icono: { marginRight: spacing.xs },
-  textoSeleccionado: { fontWeight: '600' },
 });
