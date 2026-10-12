@@ -5,7 +5,7 @@
  */
 
 import { createElement } from 'react';
-import { StyleSheet } from 'react-native';
+import { AccessibilityInfo, StyleSheet } from 'react-native';
 import ReactTestRenderer, { act, ReactTestInstance } from 'react-test-renderer';
 import { clearAllMockStorages } from '@react-native-async-storage/async-storage/jest';
 import App from '../App';
@@ -14,6 +14,7 @@ import { nuevoCierre } from '@dominio/cierre';
 import { fechaLocal, restarDias } from '@dominio/fecha';
 import { formatoFecha } from '@dominio/formato';
 import { PERFIL_POR_DEFECTO } from '@dominio/perfil';
+import { PREGUNTA_POR_REGLA, preguntaDeRegla } from '@analisis/preguntasRegla';
 import { PRODUCTOS_POR_DEFECTO } from '@dominio/productosPorDefecto';
 import type { Cierre, DatosCierre, Producto } from '@dominio/tipos';
 import * as reglas from '@analisis/reglas';
@@ -27,6 +28,11 @@ import {
 
 const textoCompleto = (n: ReactTestInstance | string): string =>
   typeof n === 'string' ? n : n.children.map(textoCompleto).join('');
+
+// Sin movimiento: el monto grande y la barra aparecen en su valor final, sin esperar la animación.
+beforeEach(() => {
+  (AccessibilityInfo.isReduceMotionEnabled as jest.Mock).mockResolvedValue(true);
+});
 
 type Evento = 'onPress';
 
@@ -74,6 +80,14 @@ const montarApp = async () => {
     app.root.findAll(n => n.props.testID === testID && n.props.accessibilityState)[0]?.props
       .accessibilityState.selected === true;
   const tamanoDe = (testID: string) => StyleSheet.flatten(textoNodo(testID).props.style).fontSize;
+  // El avance (0 a 100) que anuncia una barra de progreso.
+  const avanceDe = (testID: string) => {
+    const barra = app.root.findAll(
+      n => n.props.testID === testID && n.props.accessibilityValue !== undefined,
+    )[0];
+    if (!barra) throw new Error(`No hay ninguna barra con testID "${testID}"`);
+    return barra.props.accessibilityValue.now as number;
+  };
   // Los testID pedidos, en el orden en que están en pantalla (de arriba hacia abajo), sin repetir.
   const enOrden = (ids: string[]) => {
     const vistos: string[] = [];
@@ -99,6 +113,7 @@ const montarApp = async () => {
     estiloDe,
     pestanaActiva,
     tamanoDe,
+    avanceDe,
     enOrden,
     vistasCon,
   };
@@ -272,9 +287,10 @@ describe('Inicio: tarjeta del ciclo de compra', () => {
 
     const { textoDe, colorDe, textos } = await montarApp();
 
-    expect(textoDe('inicio-ciclo-titulo')).toBe('Ciclo de compra · día 3');
+    expect(textoDe('inicio-ciclo-titulo')).toBe('Te queda en este ciclo');
+    expect(textoDe('inicio-ciclo-dia')).toBe('Ciclo de compra · día 3');
     expect(textoDe('inicio-ciclo-compra')).toBe('Compraste el domingo 4 de octubre');
-    expect(textoDe('inicio-ciclo-te-queda')).toBe('S/ 394.00');
+    expect(textoDe('inicio-ciclo-te-queda')).toBe('+ S/ 394.00');
     expect(colorDe('inicio-ciclo-te-queda')).toBe(colors.success);
     expect(textoDe('inicio-ciclo-vendiste')).toBe('+ S/ 712.00');
     expect(colorDe('inicio-ciclo-vendiste')).toBe(colors.success);
@@ -297,13 +313,30 @@ describe('Inicio: tarjeta del ciclo de compra', () => {
   it('con el capital recuperado, la barra va llena y verde, con el texto en letra oscura', async () => {
     await sembrarTresDias();
 
-    const { textoDe, colorDe, estiloDe } = await montarApp();
+    const { textoDe, colorDe, avanceDe } = await montarApp();
 
     expect(textoDe('inicio-ciclo-capital')).toBe('Recuperaste tu capital el martes 6 de octubre');
     expect(colorDe('inicio-ciclo-capital')).toBe(colors.text);
-    const relleno = estiloDe('inicio-ciclo-barra-relleno');
-    expect(relleno.width).toBe('100%');
-    expect(relleno.backgroundColor).toBe(colors.success);
+    expect(avanceDe('inicio-ciclo-barra')).toBe(100);
+  });
+
+  it('"Gastaste" es el gasto real del ciclo (mercadería, carbón…) y cuadra con ventas − gastos', async () => {
+    // Vendió S/ 100.00 y gastó S/ 70.00 en mercadería + S/ 12.50 en gas + S/ 5.00 de movilidad.
+    await sembrar('2026-10-06', {
+      abreCiclo: true,
+      lineas: [{ productoId: 'p-anticucho', preparadas: 10, sobrantes: 0 }],
+      gastos: [
+        { categoria: 'mercaderia', monto: 70 },
+        { categoria: 'gas', monto: 12.5 },
+        { categoria: 'movilidad', monto: 5 },
+      ],
+    });
+
+    const { textoDe } = await montarApp();
+
+    expect(textoDe('inicio-ciclo-vendiste')).toBe('+ S/ 100.00');
+    expect(textoDe('inicio-ciclo-gastaste')).toBe('− S/ 87.50');
+    expect(textoDe('inicio-ciclo-te-queda')).toBe('+ S/ 12.50');
   });
 
   it('sin recuperar el capital, la barra se llena en proporción y el relleno es el acento', async () => {
@@ -314,16 +347,14 @@ describe('Inicio: tarjeta del ciclo de compra', () => {
       gastos: [{ categoria: 'mercaderia', monto: 160 }],
     });
 
-    const { textoDe, colorDe, estiloDe } = await montarApp();
+    const { textoDe, colorDe, avanceDe } = await montarApp();
 
     expect(textoDe('inicio-ciclo-capital')).toBe('Te falta S/ 60.00 para recuperar tu capital');
     // El naranja es solo relleno: el texto siempre va en letra oscura.
     expect(colorDe('inicio-ciclo-capital')).toBe(colors.text);
     expect(colorDe('inicio-ciclo-capital')).not.toBe(colors.accent);
-    const relleno = estiloDe('inicio-ciclo-barra-relleno');
-    expect(relleno.width).toBe('62%');
-    expect(relleno.backgroundColor).toBe(colors.accent);
-    expect(textoDe('inicio-ciclo-te-queda')).toBe('-S/ 60.00');
+    expect(avanceDe('inicio-ciclo-barra')).toBe(62);
+    expect(textoDe('inicio-ciclo-te-queda')).toBe('− S/ 60.00');
     expect(colorDe('inicio-ciclo-te-queda')).toBe(colors.danger);
   });
 
@@ -334,9 +365,8 @@ describe('Inicio: tarjeta del ciclo de compra', () => {
 
     const { existe, textoDe } = await montarApp();
 
-    expect(textoDe('inicio-ciclo-te-queda')).toBe('S/ 100.00');
+    expect(textoDe('inicio-ciclo-te-queda')).toBe('+ S/ 100.00');
     expect(existe('inicio-ciclo-barra')).toBe(false);
-    expect(existe('inicio-ciclo-barra-relleno')).toBe(false);
     expect(existe('inicio-ciclo-capital')).toBe(false);
   });
 
@@ -348,7 +378,7 @@ describe('Inicio: tarjeta del ciclo de compra', () => {
 
     const { existe, textoDe } = await montarApp();
 
-    expect(textoDe('inicio-ciclo-titulo')).toBe('Ciclo de compra · día 1');
+    expect(textoDe('inicio-ciclo-dia')).toBe('Ciclo de compra · día 1');
     expect(existe('inicio-ciclo-compra')).toBe(false);
   });
 
@@ -363,9 +393,9 @@ describe('Inicio: tarjeta del ciclo de compra', () => {
 
     const { textoDe } = await montarApp();
 
-    expect(textoDe('inicio-ciclo-titulo')).toBe('Ciclo de compra · día 1');
+    expect(textoDe('inicio-ciclo-dia')).toBe('Ciclo de compra · día 1');
     expect(textoDe('inicio-ciclo-compra')).toBe('Compraste el miércoles 7 de octubre');
-    expect(textoDe('inicio-ciclo-te-queda')).toBe('S/ 30.00');
+    expect(textoDe('inicio-ciclo-te-queda')).toBe('+ S/ 30.00');
     expect(textoDe('inicio-ciclo-vendiste')).toBe('+ S/ 100.00');
     expect(textoDe('inicio-ciclo-gastaste')).toBe('− S/ 70.00');
   });
@@ -500,6 +530,44 @@ describe('Inicio: acceso rápido', () => {
     await tocar('inicio-cerrar-dia-rapido');
 
     expect(existe('guardar-dia')).toBe(true);
+  });
+
+  it('si hoy ya está cerrado, no insiste con "Cerrar mi día": ofrece "Editar" con calma', async () => {
+    await sembrarTresDias();
+    await sembrar(hoy(), {
+      lineas: [{ productoId: 'p-anticucho', preparadas: 10, sobrantes: 0 }],
+    });
+    const { tocar, textos, existe } = await montarApp();
+
+    expect(existe('inicio-cerrar-dia-rapido')).toBe(false);
+    expect(existe('inicio-editar-hoy')).toBe(true);
+    expect(textos()).toContain('Hoy ya cerraste ✓ · Editar');
+
+    await tocar('inicio-editar-hoy');
+
+    expect(existe('guardar-dia')).toBe(true);
+  });
+
+  it('si hoy no está cerrado, el único botón principal es "Cerrar mi día"', async () => {
+    await sembrarTresDias();
+
+    const { existe } = await montarApp();
+
+    expect(existe('inicio-cerrar-dia-rapido')).toBe(true);
+    expect(existe('inicio-editar-hoy')).toBe(false);
+  });
+
+  it('ofrece "Qué me deja cada uno" y "Mi reporte", cada uno con su texto', async () => {
+    await sembrarTresDias();
+    const { tocar, textos, existe } = await montarApp();
+
+    expect(textos()).toContain('Qué me deja cada uno');
+    expect(textos()).toContain('Mi reporte');
+    expect(existe('inicio-anotar-yape')).toBe(false);
+
+    await tocar('inicio-accion-mi-reporte');
+
+    expect(existe('reporte-pantalla')).toBe(true);
   });
 
   it('con cierres no muestra el estado vacío', async () => {
@@ -719,30 +787,34 @@ describe('Inicio: el orden de las tarjetas', () => {
     global.fetch = fetchPorDefecto;
   });
 
-  it('saludo, ciclo, insight, recomendaciones, Yape por cobrar, tu último día y el botón', async () => {
+  it('saludo, ciclo, tu último día, recomendaciones, insight, Yape por cobrar, accesos y el botón', async () => {
     await sembrarTodasLasReglas();
 
     const { enOrden } = await montarApp();
 
-    expect(
-      enOrden([
-        'inicio-saludo',
-        'inicio-ciclo-titulo',
-        'inicio-insight',
-        'inicio-recomendaciones',
-        'inicio-por-cobrar-total',
-        'inicio-te-queda',
-        'inicio-cerrar-dia-rapido',
-      ]),
-    ).toEqual([
+    const esperado = [
       'inicio-saludo',
       'inicio-ciclo-titulo',
-      'inicio-insight',
-      'inicio-recomendaciones',
-      'inicio-por-cobrar-total',
       'inicio-te-queda',
+      'inicio-recomendaciones',
+      'inicio-insight',
+      'inicio-por-cobrar-total',
+      'inicio-acciones-rapidas',
       'inicio-cerrar-dia-rapido',
-    ]);
+    ];
+    expect(enOrden(esperado)).toEqual(esperado);
+  });
+
+  it('las tarjetas duplicadas ya no existen: hay un solo "Te queda" grande y una fila chica del último día', async () => {
+    await sembrarTodasLasReglas();
+
+    const { textos, tamanoDe, existe } = await montarApp();
+
+    expect(textos().filter(t => t === 'Te queda en este ciclo')).toHaveLength(1);
+    expect(textos().filter(t => t === 'Resultado registrado')).toHaveLength(1);
+    expect(tamanoDe('inicio-ciclo-te-queda')).toBeGreaterThanOrEqual(44);
+    expect(tamanoDe('inicio-te-queda')).toBeLessThan(tamanoDe('inicio-ciclo-te-queda'));
+    expect(existe('inicio-ultimo-dia')).toBe(true);
   });
 
   it('"Tu último día" conserva su testID y su valor aunque cambie de lugar', async () => {
@@ -837,7 +909,8 @@ describe('Inicio: el insight', () => {
 
     expect(existe('inicio-insight')).toBe(false);
     expect(existe('inicio-ver-que-me-deja')).toBe(false);
-    expect(textos()).not.toContain('Qué me deja cada uno');
+    // El acceso rápido de abajo sigue ahí, pero el insight (y su enlace) no.
+    expect(textos().filter(t => t === 'Qué me deja cada uno')).toHaveLength(1);
   });
 
   it('no aparece con un solo producto vendido', async () => {
@@ -959,6 +1032,43 @@ describe('Inicio: las recomendaciones', () => {
     expect(textoDe('inicio-recomendacion-precio-texto')).toMatch(
       /^La diferencia estimada por unidad de Anticucho bajó S\/ 1\.40 desde \w+ \(precio menos costo estimado\)\. Revisa el precio\.$/,
     );
+  });
+
+  it('cada recomendación trae "Preguntar por qué", con texto visible', async () => {
+    await sembrarTodasLasReglas();
+
+    const { textos, existe } = await montarApp();
+
+    expect(textos().filter(t => t === 'Preguntar por qué')).toHaveLength(2);
+    expect(existe('inicio-porque-cobro')).toBe(true);
+    expect(existe('inicio-porque-precio')).toBe(true);
+  });
+
+  it('"Preguntar por qué" abre el Asistente y hace la pregunta de esa regla', async () => {
+    await sembrarTodasLasReglas();
+    const { tocar, existe, textoDe } = await montarApp();
+    expect(existe('preguntar-pantalla')).toBe(false);
+
+    await tocar('inicio-porque-cobro');
+
+    expect(existe('preguntar-pantalla')).toBe(true);
+    expect(textoDe('chat-burbuja-0-texto')).toBe('¿Cuánto tengo por cobrar?');
+  });
+
+  it('cada regla del motor tiene su pregunta, escrita como la diría Freddy', () => {
+    const reglas: (keyof typeof PREGUNTA_POR_REGLA)[] = [
+      'cobro',
+      'precio',
+      'preparar',
+      'retiro',
+      'diaFlojo',
+      'comparacion',
+    ];
+    expect(Object.keys(PREGUNTA_POR_REGLA).sort()).toEqual([...reglas].sort());
+    for (const id of reglas) {
+      expect(preguntaDeRegla(id)).toMatch(/^¿.+\?$/);
+    }
+    expect(preguntaDeRegla('cobro')).toBe('¿Cuánto tengo por cobrar?');
   });
 
   it('sin cobro ni precio, las que siguen: retiro y comparación, con sus montos', async () => {

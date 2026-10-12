@@ -264,8 +264,8 @@ describe('SPEC-02: Perfil y productos con precio vigente', () => {
     // El modal muestra "Tu día quedó cuadrado": "Listo" lo cierra y deja ver Inicio.
     await tocar('cierre-listo');
 
-    // Inicio muestra la venta de hoy.
-    expect(textos()).toContain('+ S/ 110.00');
+    // Inicio muestra el resultado de hoy en la fila "Tu último día" (sin gastos, es la venta de hoy).
+    expect(textos()).toContain('S/ 110.00');
 
     // Ayer se verifica en los datos: el Historial llega en el Sprint-03.
     const cierres = await listarCierres();

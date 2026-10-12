@@ -1,22 +1,46 @@
 // src/screens/InicioScreen.tsx
-// Responde "¿cómo me fue?" y "¿qué decido hoy?". De arriba hacia abajo: saludo, ciclo de compra,
-// el insight, las recomendaciones, el Yape por cobrar, el último día y el botón "Cerrar mi día".
-// El chat ya no es un botón flotante: es la pestaña "Asistente" de la barra inferior.
+// Responde "¿cómo me fue?" y "¿qué decido hoy?". De arriba hacia abajo: saludo, UNA tarjeta
+// con lo que te queda en el ciclo (vendiste, gastaste y el capital recuperado), tu último día,
+// "Para decidir hoy", el insight, el Yape por cobrar, dos accesos y el botón "Cerrar mi día".
+// El chat ya no es un botón flotante: es la pestaña "Asistente" de la barra inferior, y cada
+// recomendación tiene su "Preguntar por qué" que lo abre con la pregunta lista.
 import React, { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { CompositeNavigationProp, useNavigation } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { ArrowRight, Lightbulb } from 'lucide-react-native';
+import {
+  ArrowDown,
+  ArrowRight,
+  ArrowUp,
+  CalendarDays,
+  FileText,
+  HandCoins,
+  Lightbulb,
+  MessageCircle,
+  PiggyBank,
+  Scale,
+  ShoppingBasket,
+  Tag,
+  TrendingDown,
+  type LucideIcon,
+} from 'lucide-react-native';
 import { colors, radius, spacing } from '@theme';
 import { Text } from '@components/atoms/Text';
 import { Button } from '@components/atoms/Button';
 import { Icon } from '@components/atoms/Icon';
 import { MensajeError } from '@components/atoms/MensajeError';
+import { MoneyText } from '@components/atoms/MoneyText';
+import { ProgressBar } from '@components/atoms/ProgressBar';
 import { AvatarPerfil } from '@components/molecules/AvatarPerfil';
+import { Callout } from '@components/molecules/Callout';
+import { Card } from '@components/molecules/Card';
 import { CargandoBloques } from '@components/molecules/CargandoBloques';
+import { EmptyState } from '@components/molecules/EmptyState';
+import { ListRow } from '@components/molecules/ListRow';
 import { gananciaPorProducto, insight } from '@analisis/metricas';
+import { preguntaDeRegla } from '@analisis/preguntasRegla';
 import { evaluarReglas } from '@analisis/reglas';
 import { calcularCierre } from '@dominio/cierre';
 import {
@@ -29,6 +53,7 @@ import { totalPorCobrar } from '@dominio/cobro';
 import { fechaLocal, restarDias } from '@dominio/fecha';
 import { formatoFecha, formatoSoles } from '@dominio/formato';
 import { useAccionSegura } from '@hooks/useAccionSegura';
+import { useConteo } from '@hooks/useConteo';
 import { useCrecemos, type EstadoSemilla } from '@context/CrecemosProvider';
 import type { Ciclo, Recomendacion } from '@dominio/tipos';
 import type { RootStackParamList } from '@navigation/RootStack';
@@ -41,6 +66,16 @@ type InicioNavigation = CompositeNavigationProp<
 
 /** El mismo periodo que mira "Qué me deja cada uno": los últimos 30 días, contando el día 30. */
 const DIAS_DEL_INSIGHT = 30;
+
+/** El ícono de cada recomendación. Es decorativo: el mensaje y el botón llevan el texto. */
+const ICONO_DE_REGLA: Record<Recomendacion['reglaId'], LucideIcon> = {
+  cobro: HandCoins,
+  precio: Tag,
+  preparar: ShoppingBasket,
+  retiro: PiggyBank,
+  diaFlojo: TrendingDown,
+  comparacion: Scale,
+};
 
 export const InicioScreen = () => {
   const { cierres, productos, perfil, cargando, semilla, cargarDatosDeEjemplo, marcarCobrado } =
@@ -65,7 +100,9 @@ export const InicioScreen = () => {
     [cierres, productos, hoy],
   );
   const nombre = perfil.nombre.trim();
+  const cerradoHoy = cierres.some(c => c.fecha === hoy);
   const irACerrarDia = () => navigation.navigate('CerrarDia');
+  const preguntarAlAsistente = (pregunta: string) => navigation.navigate('Asistente', { pregunta });
 
   return (
     <SafeAreaView style={styles.pantalla} edges={['top']}>
@@ -104,10 +141,15 @@ export const InicioScreen = () => {
         ) : ultimo && cicloActual ? (
           <>
             <TarjetaCiclo ciclo={cicloActual} />
+            <UltimoDia fecha={ultimo.fecha} teQueda={calcularCierre(ultimo).teQueda} />
+            <Recomendaciones
+              recomendaciones={recomendaciones}
+              ciclos={ciclos.length}
+              alPreguntar={preguntarAlAsistente}
+            />
             {frase ? (
               <TarjetaInsight frase={frase} alVer={() => navigation.navigate('QueMeDeja')} />
             ) : null}
-            <Recomendaciones recomendaciones={recomendaciones} ciclos={ciclos.length} />
             {porCobrar.pagos > 0 ? (
               <TarjetaPorCobrar
                 pagos={porCobrar.pagos}
@@ -115,98 +157,78 @@ export const InicioScreen = () => {
                 alCobrar={marcarCobrado}
               />
             ) : null}
-            <ResumenDelDia fecha={ultimo.fecha} resumen={calcularCierre(ultimo)} />
-            {/* La única acción principal de la pantalla (UX, regla 2). */}
-            <Button
-              title="Cerrar mi día"
-              size="lg"
-              fullWidth
-              testID="inicio-cerrar-dia-rapido"
-              onPress={irACerrarDia}
-            />
-          </>
-        ) : (
-          <>
-            <View style={styles.tarjeta}>
-              <Text variant="h3">Aún no cierras ningún día</Text>
-              <Text color="textMuted" style={styles.separado}>
-                Cuando cierres tu día, aquí verás el resultado registrado: ventas menos gastos.
-              </Text>
+            <View style={styles.accionesRapidas} testID="inicio-acciones-rapidas">
+              <AccionRapida
+                icono={Scale}
+                titulo="Qué me deja cada uno"
+                alTocar={() => navigation.navigate('QueMeDeja')}
+                testID="inicio-accion-que-me-deja"
+              />
+              <AccionRapida
+                icono={FileText}
+                titulo="Mi reporte"
+                alTocar={() => navigation.navigate('MiReporte')}
+                testID="inicio-accion-mi-reporte"
+              />
+            </View>
+            {/* La única acción principal de la pantalla (UX, regla 2). Si hoy ya está cerrado,
+                no insiste: ofrece editar con calma. */}
+            {cerradoHoy ? (
+              <Button
+                title="Hoy ya cerraste ✓ · Editar"
+                variant="outline"
+                size="lg"
+                fullWidth
+                testID="inicio-editar-hoy"
+                onPress={irACerrarDia}
+              />
+            ) : (
               <Button
                 title="Cerrar mi día"
                 size="lg"
                 fullWidth
-                style={styles.separado}
-                testID="inicio-cerrar-dia"
+                testID="inicio-cerrar-dia-rapido"
                 onPress={irACerrarDia}
               />
-            </View>
+            )}
+          </>
+        ) : (
+          <>
+            <EmptyState
+              title="Aún no cierras ningún día"
+              text="Cuando cierres tu día, aquí verás el resultado registrado: ventas menos gastos."
+              actionLabel="Cerrar mi día"
+              onAction={irACerrarDia}
+              actionTestID="inicio-cerrar-dia"
+            />
             {productos.length === 0 ? (
               <DatosDeEjemplo estado={semilla} alCargar={cargarDatosDeEjemplo} />
             ) : null}
           </>
         )}
       </ScrollView>
-
     </SafeAreaView>
   );
 };
 
-const ResumenDelDia = ({
-  fecha,
-  resumen,
-}: {
-  fecha: string;
-  resumen: ReturnType<typeof calcularCierre>;
-}) => (
-  <View style={styles.tarjeta}>
-    <Text variant="label" color="textMuted">
-      Tu último día · {formatoFecha(fecha)}
-    </Text>
-    <Text variant="bodyStrong" style={styles.separado}>
-      Resultado registrado
-    </Text>
-    <Text
-      variant="hero"
-      color={resumen.teQueda < 0 ? 'danger' : 'success'}
-      testID="inicio-te-queda"
-      adjustsFontSizeToFit
-      numberOfLines={1}
-    >
-      {formatoSoles(resumen.teQueda)}
-    </Text>
-    <Text variant="caption" color="textMuted">
-      Ventas menos gastos registrados. Incluye pagos pendientes de recibir.
-    </Text>
-    <View style={[styles.fila, styles.separado]}>
-      <View style={styles.columna}>
-        <Text variant="label" color="textMuted">
-          Vendiste
-        </Text>
-        <Text variant="h3" color="success">
-          + {formatoSoles(resumen.venta)}
-        </Text>
-      </View>
-      <View style={styles.columna}>
-        <Text variant="label" color="textMuted">
-          Gastaste
-        </Text>
-        <Text variant="h3" color="danger">
-          − {formatoSoles(resumen.gastoTotal)}
-        </Text>
-      </View>
-    </View>
-  </View>
-);
-
-/** El ciclo de compra actual: cuánto te queda desde que compraste y cuánto falta del capital. */
+/**
+ * La tarjeta de lo que te queda en el ciclo de compra actual: el monto grande (cuenta hasta su
+ * valor), cuánto vendiste, cuánto gastaste de verdad (mercadería incluida) y la barra del capital.
+ */
 const TarjetaCiclo = ({ ciclo }: { ciclo: Ciclo }) => {
   const resumen = resumirCiclo(ciclo);
   const recuperado = resumen.capitalRecuperadoEn !== undefined;
   const porcentaje = porcentajeCapitalRecuperado(resumen);
+  // `capital` es la suma de TODOS los gastos del ciclo (mercadería, carbón, gas…): ventas − gastos.
+  const gastado = resumen.capital;
+  const mostrado = useConteo(resumen.teQueda);
+
   return (
-    <View style={styles.tarjeta}>
+    <Card testID="inicio-ciclo">
       <Text variant="label" color="textMuted" testID="inicio-ciclo-titulo">
+        Te queda en este ciclo
+      </Text>
+      <Text variant="caption" color="textMuted" testID="inicio-ciclo-dia">
         {`Ciclo de compra · día ${ciclo.cierres.length}`}
       </Text>
       {ciclo.cierres[0].abreCiclo ? (
@@ -214,81 +236,92 @@ const TarjetaCiclo = ({ ciclo }: { ciclo: Ciclo }) => {
           {`Compraste el ${formatoFecha(ciclo.inicio).toLowerCase()}`}
         </Text>
       ) : null}
-      <Text variant="bodyStrong" style={styles.separado}>
-        Resultado registrado
-      </Text>
-      <Text
-        variant="display"
-        color={resumen.teQueda < 0 ? 'danger' : 'success'}
-        testID="inicio-ciclo-te-queda"
-        adjustsFontSizeToFit
-        numberOfLines={1}
+      {/* El lector de pantalla oye el valor final, no los números que van pasando. */}
+      <View
+        accessible
+        accessibilityLabel={`Te queda en este ciclo: ${formatoSoles(resumen.teQueda)}`}
+        style={styles.montoHero}
       >
-        {formatoSoles(resumen.teQueda)}
-      </Text>
+        <MoneyText monto={mostrado} variant="hero" testID="inicio-ciclo-te-queda" />
+      </View>
       <Text variant="caption" color="textMuted">
         Ventas menos gastos del ciclo. Incluye pagos pendientes de recibir.
       </Text>
-      <View style={[styles.fila, styles.separado]}>
+      <View style={styles.fila}>
         <View style={styles.columna}>
-          <Text variant="label" color="textMuted">
-            Vendiste
-          </Text>
-          <Text variant="h3" color="success" testID="inicio-ciclo-vendiste">
-            {`+ ${formatoSoles(resumen.venta)}`}
-          </Text>
+          <View style={styles.etiquetaFila}>
+            <Icon icon={ArrowUp} color="success" size="sm" />
+            <Text variant="label" color="textMuted">
+              Vendiste
+            </Text>
+          </View>
+          <MoneyText
+            monto={resumen.venta}
+            tone="ingreso"
+            variant="h3"
+            testID="inicio-ciclo-vendiste"
+          />
         </View>
         <View style={styles.columna}>
-          <Text variant="label" color="textMuted">
-            Gastaste
-          </Text>
-          <Text variant="h3" color="danger" testID="inicio-ciclo-gastaste">
-            {`− ${formatoSoles(resumen.capital)}`}
-          </Text>
+          <View style={styles.etiquetaFila}>
+            <Icon icon={ArrowDown} color="danger" size="sm" />
+            <Text variant="label" color="textMuted">
+              Gastaste
+            </Text>
+          </View>
+          <MoneyText monto={gastado} tone="gasto" variant="h3" testID="inicio-ciclo-gastaste" />
         </View>
       </View>
       {resumen.capital > 0 ? (
-        <View style={styles.separado}>
+        <View style={styles.capital}>
           {/* El naranja es solo relleno; el texto va siempre en letra oscura (UX, regla 5). */}
-          <View
-            style={styles.barra}
-            accessibilityRole="progressbar"
+          <ProgressBar
+            value={porcentaje / 100}
             accessibilityLabel="Capital recuperado"
-            accessibilityValue={{ min: 0, max: 100, now: porcentaje }}
+            tone={recuperado ? 'success' : 'accent'}
+            height={10}
             testID="inicio-ciclo-barra"
-          >
-            <View
-              style={[
-                styles.barraRelleno,
-                {
-                  width: `${porcentaje}%`,
-                  backgroundColor: recuperado ? colors.success : colors.accent,
-                },
-              ]}
-              testID="inicio-ciclo-barra-relleno"
-            />
-          </View>
-          <Text variant="caption" style={styles.textoBarra} testID="inicio-ciclo-capital">
+          />
+          <Text variant="caption" testID="inicio-ciclo-capital">
             {textoCapital(resumen)}
           </Text>
         </View>
       ) : null}
-    </View>
+    </Card>
   );
 };
+
+/** Una fila chica con el resultado del último día cerrado (antes era una tarjeta duplicada). */
+const UltimoDia = ({ fecha, teQueda }: { fecha: string; teQueda: number }) => (
+  <Card variant="bordered" flush testID="inicio-ultimo-dia">
+    <ListRow
+      icon={CalendarDays}
+      title={`Tu último día · ${formatoFecha(fecha)}`}
+      subtitle="Resultado registrado"
+      divider={false}
+      trailing={
+        <Text
+          variant="h3"
+          color={teQueda < 0 ? 'danger' : 'success'}
+          testID="inicio-te-queda"
+          numberOfLines={1}
+        >
+          {formatoSoles(teQueda)}
+        </Text>
+      }
+    />
+  </Card>
+);
 
 /**
  * La frase que contrasta lo que se vende con lo que deja. El naranja es solo fondo, borde e ícono
  * (UX, regla 5): el texto va en letra oscura y el enlace, en el color de marca.
  */
 const TarjetaInsight = ({ frase, alVer }: { frase: string; alVer: () => void }) => (
-  <View style={styles.insight} testID="inicio-insight">
-    <View style={styles.insightFrase}>
-      <Icon icon={Lightbulb} color="accent" size="lg" />
-      <Text variant="bodyStrong" style={styles.insightTexto} testID="inicio-insight-texto">
-        {frase}
-      </Text>
-    </View>
+  <Callout icon={Lightbulb} testID="inicio-insight">
+    <Text variant="bodyStrong" testID="inicio-insight-texto">
+      {frase}
+    </Text>
     <Pressable
       accessibilityRole="button"
       accessibilityLabel="Qué me deja cada uno"
@@ -301,7 +334,7 @@ const TarjetaInsight = ({ frase, alVer }: { frase: string; alVer: () => void }) 
       </Text>
       <Icon icon={ArrowRight} color="primary" size="md" />
     </Pressable>
-  </View>
+  </Callout>
 );
 
 /**
@@ -311,17 +344,19 @@ const TarjetaInsight = ({ frase, alVer }: { frase: string; alVer: () => void }) 
 const Recomendaciones = ({
   recomendaciones,
   ciclos,
+  alPreguntar,
 }: {
   recomendaciones: Recomendacion[];
   ciclos: number;
+  alPreguntar: (pregunta: string) => void;
 }) => {
   if (recomendaciones.length === 0) {
     return ciclos < 2 ? (
-      <View style={styles.tarjeta}>
+      <Card>
         <Text color="textMuted" testID="inicio-sin-recomendaciones">
           Cierra 2 ciclos para ver recomendaciones
         </Text>
-      </View>
+      </Card>
     ) : null;
   }
   return (
@@ -330,17 +365,54 @@ const Recomendaciones = ({
         Para decidir hoy
       </Text>
       {recomendaciones.map(r => (
-        <View
-          key={r.reglaId}
-          style={styles.tarjetaBorde}
-          testID={`inicio-recomendacion-${r.reglaId}`}
-        >
-          <Text testID={`inicio-recomendacion-${r.reglaId}-texto`}>{r.mensaje}</Text>
-        </View>
+        <Card key={r.reglaId} variant="bordered" testID={`inicio-recomendacion-${r.reglaId}`}>
+          <View style={styles.recomendacionFila}>
+            <View style={styles.circuloIcono}>
+              <Icon icon={ICONO_DE_REGLA[r.reglaId]} color="primary" size="md" />
+            </View>
+            <Text style={styles.recomendacionTexto} testID={`inicio-recomendacion-${r.reglaId}-texto`}>
+              {r.mensaje}
+            </Text>
+          </View>
+          <Button
+            title="Preguntar por qué"
+            variant="ghost"
+            leftIcon={MessageCircle}
+            style={styles.preguntarPorQue}
+            testID={`inicio-porque-${r.reglaId}`}
+            onPress={() => alPreguntar(preguntaDeRegla(r.reglaId))}
+          />
+        </Card>
       ))}
     </View>
   );
 };
+
+/** Un acceso secundario: tarjeta con ícono Y texto (UX, regla 1), de al menos 48 dp. */
+const AccionRapida = ({
+  icono,
+  titulo,
+  alTocar,
+  testID,
+}: {
+  icono: LucideIcon;
+  titulo: string;
+  alTocar: () => void;
+  testID: string;
+}) => (
+  <Pressable
+    accessibilityRole="button"
+    accessibilityLabel={titulo}
+    onPress={alTocar}
+    style={({ pressed }) => [styles.accion, pressed && styles.accionPresionada]}
+    testID={testID}
+  >
+    <Icon icon={icono} color="primary" size="lg" />
+    <Text variant="labelStrong" align="center">
+      {titulo}
+    </Text>
+  </Pressable>
+);
 
 /** El Yape que entró a una cuenta ajena y todavía no recibe. Confirma diciendo cuánto, en la misma tarjeta. */
 const TarjetaPorCobrar = ({
@@ -363,7 +435,7 @@ const TarjetaPorCobrar = ({
   );
 
   return (
-    <View style={styles.tarjetaBorde}>
+    <Card variant="bordered">
       <View style={styles.filaSpace}>
         <View style={styles.columna}>
           <Text variant="label">Yape por cobrar</Text>
@@ -410,7 +482,7 @@ const TarjetaPorCobrar = ({
           onPress={() => setConfirmando(true)}
         />
       )}
-    </View>
+    </Card>
   );
 };
 
@@ -436,7 +508,7 @@ const DatosDeEjemplo = ({
       ? 'No pudimos cargar los datos de ejemplo. Revisa tu conexión e inténtalo otra vez.'
       : 'Puedes probar la app con datos de ejemplo. Se cargarán solo si tocas este botón.';
   return (
-    <View style={styles.tarjeta}>
+    <Card>
       <Text color="textMuted" testID="inicio-semilla-mensaje">
         {mensaje}
       </Text>
@@ -452,7 +524,7 @@ const DatosDeEjemplo = ({
           }}
         />
       )}
-    </View>
+    </Card>
   );
 };
 
@@ -462,43 +534,45 @@ const styles = StyleSheet.create({
   encabezado: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   saludo: { flex: 1, paddingRight: spacing.md },
   perfil: { minWidth: 48, minHeight: 48, alignItems: 'center', gap: spacing.xxs },
-  tarjeta: { backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.lg },
-  tarjetaBorde: {
-    backgroundColor: colors.background,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.lg,
-  },
-  insight: {
-    backgroundColor: colors.accentSoft,
-    borderLeftWidth: 4,
-    borderLeftColor: colors.accent,
-    borderRadius: radius.lg,
-    padding: spacing.lg,
-  },
-  insightFrase: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md },
-  insightTexto: { flex: 1 },
+  montoHero: { marginTop: spacing.sm },
+  etiquetaFila: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  capital: { marginTop: spacing.md, gap: spacing.sm },
   enlace: {
     alignSelf: 'flex-start',
     minHeight: 48,
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
-    marginTop: spacing.sm,
   },
   recomendaciones: { gap: spacing.md },
+  recomendacionFila: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md },
+  recomendacionTexto: { flex: 1 },
+  circuloIcono: {
+    width: 40,
+    height: 40,
+    borderRadius: radius.full,
+    backgroundColor: colors.primarySoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  preguntarPorQue: { alignSelf: 'flex-start', marginTop: spacing.sm },
+  accionesRapidas: { flexDirection: 'row', gap: spacing.md },
+  accion: {
+    flex: 1,
+    minHeight: 88,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    padding: spacing.md,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.background,
+  },
+  accionPresionada: { backgroundColor: colors.surfacePressed },
   separado: { marginTop: spacing.md },
   separadoChico: { marginTop: spacing.sm },
   filaSpace: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  barra: {
-    height: 10,
-    borderRadius: radius.full,
-    backgroundColor: colors.border,
-    overflow: 'hidden',
-  },
-  barraRelleno: { height: 10, borderRadius: radius.full },
-  textoBarra: { marginTop: spacing.sm },
-  fila: { flexDirection: 'row', gap: spacing.lg },
+  fila: { flexDirection: 'row', gap: spacing.lg, marginTop: spacing.md },
   columna: { flex: 1 },
 });
