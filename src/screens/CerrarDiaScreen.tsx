@@ -46,12 +46,16 @@ export const CerrarDiaScreen = () => {
 
   // Modo edición: llega la fecha de un día ya cerrado desde Historial.
   const fecha = route.params?.fecha;
-  const original = fecha === undefined ? undefined : cierres.find(c => c.fecha === fecha);
+  // Sin `fecha` el objetivo es hoy: si hoy ya está cerrado se edita ese cierre, nunca se crea uno en blanco.
+  const hoy = fechaLocal(new Date());
+  const original = cierres.find(c => c.fecha === (fecha ?? hoy));
+  const editandoHoy = fecha === undefined && original !== undefined;
   // Al editar un cierre antiguo se puede conservar una línea de un producto hoy inactivo.
   const activos = productos.filter(p => p.activo || original?.lineas.some(l => l.productoId === p.id));
   const hayOriginal = original !== undefined;
   const cierresRef = useRef(cierres);
   cierresRef.current = cierres;
+  const ultimoObjetivo = useRef<string | null>(null);
   const scrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
 
   const vaciar = useCallback(() => {
@@ -82,11 +86,13 @@ export const CerrarDiaScreen = () => {
   }, []);
 
   // Las pestañas siguen montadas: el formulario tiene que reaccionar al cambio del parámetro.
-  // Con `fecha` carga ese día; sin ella (o si el día ya no existe) queda vacío, nunca con restos
-  // de una edición anterior. Solo depende de la fecha y de que el día exista: guardar la edición
-  // no la vuelve a disparar.
-  useEffect(() => {
-    const c = fecha === undefined ? undefined : cierresRef.current.find(x => x.fecha === fecha);
+  // Con `fecha` carga ese día; sin ella carga el cierre de hoy si ya existe. Si no hay nada que
+  // cargar queda vacío, nunca con restos de una edición anterior. Solo depende de la fecha y de
+  // que el día exista: guardar la edición no la vuelve a disparar.
+  const sincronizar = useCallback(() => {
+    const objetivo = fecha ?? fechaLocal(new Date());
+    ultimoObjetivo.current = objetivo;
+    const c = cierresRef.current.find(x => x.fecha === objetivo);
     if (c) {
       precargar(c);
       scrollRef.current?.scrollTo?.({ y: 0, animated: false });
@@ -94,7 +100,22 @@ export const CerrarDiaScreen = () => {
     }
     vaciar();
     if (fecha !== undefined) navigation.setParams({ fecha: undefined });
-  }, [fecha, hayOriginal, navigation, precargar, vaciar]);
+  }, [fecha, navigation, precargar, vaciar]);
+
+  useEffect(() => {
+    sincronizar();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fecha, hayOriginal]);
+
+  // Si la app quedó abierta pasada la medianoche, "hoy" ya es otro día: al volver a la pestaña
+  // se carga el de hoy (o queda vacío) en vez de seguir con el cierre de ayer.
+  useEffect(
+    () =>
+      navigation.addListener('focus', () => {
+        if (fecha === undefined && ultimoObjetivo.current !== fechaLocal(new Date())) sincronizar();
+      }),
+    [fecha, navigation, sincronizar],
+  );
 
   // Salir de la edición por la barra de pestañas la cancela: volver a "Cerrar mi día" no debe
   // retomar una edición vieja y dejar a Freddy cambiando, sin darse cuenta, un día que no es hoy.
@@ -161,7 +182,7 @@ export const CerrarDiaScreen = () => {
         return;
       }
       vaciar();
-      if (original) {
+      if (fecha !== undefined) {
         navigation.setParams({ fecha: undefined });
         navigation.navigate('Historial');
       } else {
@@ -175,7 +196,7 @@ export const CerrarDiaScreen = () => {
   const cancelarEdicion = () => {
     vaciar();
     navigation.setParams({ fecha: undefined });
-    navigation.navigate('Historial');
+    navigation.navigate(editandoHoy ? 'Inicio' : 'Historial');
   };
 
   return (
@@ -197,6 +218,12 @@ export const CerrarDiaScreen = () => {
                 : formatoFecha(fechaLocal(new Date()))}
             </Text>
           </View>
+
+          {editandoHoy ? (
+            <View style={styles.aviso} accessibilityLiveRegion="polite" testID="cerrar-ya-cerraste">
+              <Text variant="bodyStrong">Ya cerraste hoy. Estás editando ese cierre.</Text>
+            </View>
+          ) : null}
 
           <View style={styles.bloque}>
             <Text variant="h3">¿Cuánto preparaste y cuánto te sobró?</Text>
@@ -347,6 +374,13 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     padding: spacing.md,
     gap: spacing.sm,
+  },
+  aviso: {
+    backgroundColor: colors.warningSoft,
+    borderRadius: radius.lg,
+    borderLeftWidth: 4,
+    borderLeftColor: colors.warning,
+    padding: spacing.md,
   },
   fila: { flexDirection: 'row', gap: spacing.md },
   columna: { flex: 1 },

@@ -255,9 +255,9 @@ describe('Cerrar mi día: interruptor y categorías', () => {
     expect(guardados).toHaveLength(1);
     expect(guardados[0].abreCiclo).toBe(true);
 
-    // Al volver, el formulario está vacío y el interruptor, apagado.
+    // Al volver, hoy ya está cerrado: se muestra ese cierre para editarlo, no un formulario en blanco.
     await tocar('tab-cerrar-dia');
-    expect(interruptor('hoy-compre-mercaderia').props.value).toBe(false);
+    expect(interruptor('hoy-compre-mercaderia').props.value).toBe(true);
   });
 
   it('un cierre sin tocar el interruptor no abre ciclo', async () => {
