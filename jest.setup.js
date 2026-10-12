@@ -32,3 +32,15 @@ jest.mock('react-native-share', () => ({
   __esModule: true,
   default: { open: jest.fn(() => Promise.resolve({ success: true })) },
 }));
+
+// Recorrido guiado: por defecto, en Jest la persona "ya lo vio". Sin esto, cada prueba que monta la
+// app con almacenamiento vacío (primer arranque) toparía con el overlay. Las pruebas del recorrido
+// piden el repositorio de verdad con `usarRecorridoReal()` (testutils/recorrido.ts).
+jest.mock('./src/storage/repositorio', () => {
+  const real = jest.requireActual('./src/storage/repositorio');
+  return {
+    ...real,
+    recorridoVisto: (...args) =>
+      global.__RECORRIDO_REAL__ ? real.recorridoVisto(...args) : Promise.resolve(true),
+  };
+});

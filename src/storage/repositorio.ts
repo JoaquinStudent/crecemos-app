@@ -25,6 +25,7 @@ const CLAVE_SEED = '@crecemos/seed';
 const CLAVE_META = '@crecemos/meta';
 const CLAVE_YAPES = '@crecemos/yapes';
 const CLAVE_VERSION = '@crecemos/version';
+const CLAVE_RECORRIDO = '@crecemos/recorrido-visto';
 
 /** Versión actual del esquema guardado. Subirla exige agregar su paso en `MIGRACIONES`. */
 export const VERSION_ESQUEMA = 1;
@@ -179,6 +180,27 @@ export const listarYapes = async (): Promise<YapeAnotado[]> =>
 /** Reemplaza la lista completa de yapes anotados, en una sola escritura. */
 export const guardarYapes = (yapes: YapeAnotado[]): Promise<void> =>
   enCola(() => base().setItem(CLAVE_YAPES, JSON.stringify(yapes)));
+
+/**
+ * Si la persona ya vio (o saltó) el recorrido guiado. Solo da `false` cuando la lectura funciona y
+ * no hay nada guardado: si leer falla, responde `true` para NO mostrarlo (mejor callar que repetirlo
+ * en cada arranque). Nunca lanza.
+ */
+export const recorridoVisto = async (): Promise<boolean> => {
+  try {
+    return (await base().getItem(CLAVE_RECORRIDO)) !== null;
+  } catch {
+    return true;
+  }
+};
+
+/** Marca el recorrido como visto, para que no vuelva a salir solo. */
+export const marcarRecorridoVisto = (): Promise<void> =>
+  enCola(() => base().setItem(CLAVE_RECORRIDO, JSON.stringify(true)));
+
+/** Olvida que lo vio: lo usa "Ver el recorrido otra vez". */
+export const olvidarRecorridoVisto = (): Promise<void> =>
+  enCola(() => base().removeItem(CLAVE_RECORRIDO));
 
 // Pasos de migración: MIGRACIONES[n] lleva los datos de la versión n a la n + 1.
 // Hoy no hay ninguno que hacer (la versión 1 es la forma actual), pero el mecanismo ya corre.
