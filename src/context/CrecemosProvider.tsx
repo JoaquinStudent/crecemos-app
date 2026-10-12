@@ -36,6 +36,7 @@ import {
   guardarYapes as guardarYapesRepo,
   importarSemilla,
   listarCierres,
+  migrarEsquema,
   listarProductos,
   listarYapes,
   marcarCobrado as marcarCobradoRepo,
@@ -255,6 +256,8 @@ export const CrecemosProvider = ({ children }: { children: React.ReactNode }) =>
   // "Reintentar") en vez de dejar la pantalla en blanco para siempre.
   const cargar = useCallback(async (): Promise<void> => {
     try {
+      // Sella la versión del esquema; nunca lanza, y si algo falla la app abre igual.
+      await migrarEsquema().catch(() => 0);
       const [cierres, productos, perfil, meta, yapes] = await Promise.all([
         listarCierres(),
         listarProductos(),

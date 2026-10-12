@@ -52,7 +52,7 @@ describe('La app cuando el almacenamiento falla al abrir', () => {
   });
 
   it('Reintentar vuelve a leer y, si ahora anda, abre la app', async () => {
-    const getItem = jest.spyOn(base(), 'getItem').mockRejectedValueOnce(new Error('falla única'));
+    const getItem = jest.spyOn(base(), 'getItem').mockRejectedValue(new Error('falla única'));
 
     const { tocar, existe } = await montarApp();
     expect(existe('error-de-carga')).toBe(true);
