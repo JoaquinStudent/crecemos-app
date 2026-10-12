@@ -151,6 +151,9 @@ export const CrecemosProvider = ({ children }: { children: React.ReactNode }) =>
   const montado = useRef(true);
   // Una sola descarga a la vez, aunque el botón se toque dos veces.
   const descargando = useRef(false);
+  // El perfil más reciente, incluso el que aún se está guardando: dos cambios seguidos
+  // (dos switches) se apoyan uno en el otro en vez de pisarse con un `estado.perfil` viejo.
+  const perfilRef = useRef<Perfil>(PERFIL_POR_DEFECTO);
 
   /**
    * Pide la semilla en segundo plano y, si llega bien, la guarda y la deja en el estado.
@@ -201,7 +204,8 @@ export const CrecemosProvider = ({ children }: { children: React.ReactNode }) =>
         obtenerPerfil(),
       ]);
       if (!montado.current) return;
-      dispatch({ tipo: 'cargado', cierres, productos, perfil: perfil ?? PERFIL_POR_DEFECTO });
+      perfilRef.current = perfil ?? PERFIL_POR_DEFECTO;
+      dispatch({ tipo: 'cargado', cierres, productos, perfil: perfilRef.current });
       // La demostración es voluntaria: solo se descarga cuando se toca el botón.
     } catch {
       if (montado.current) dispatch({ tipo: 'falloLaCarga' });
@@ -244,17 +248,30 @@ export const CrecemosProvider = ({ children }: { children: React.ReactNode }) =>
     dispatch({ tipo: 'cierreEliminado', id });
   }, []);
 
+  /** Guarda `perfil` apoyado en `perfilRef`; si falla, deja el ref como estaba y relanza. */
+  const persistirPerfil = useCallback(async (perfil: Perfil): Promise<void> => {
+    const previo = perfilRef.current;
+    perfilRef.current = perfil;
+    try {
+      await guardarPerfilRepo(perfil);
+    } catch (error) {
+      if (perfilRef.current === perfil) perfilRef.current = previo;
+      throw error;
+    }
+    dispatch({ tipo: 'perfilGuardado', perfil });
+  }, []);
+
   const guardarPerfil = useCallback(
     async (parcial: Partial<Perfil>): Promise<void> => {
-      const perfil: Perfil = normalizarPerfil({
-        ...estado.perfil,
-        ...parcial,
-        actualizadoEn: new Date().toISOString(),
-      });
-      await guardarPerfilRepo(perfil);
-      dispatch({ tipo: 'perfilGuardado', perfil });
+      await persistirPerfil(
+        normalizarPerfil({
+          ...perfilRef.current,
+          ...parcial,
+          actualizadoEn: new Date().toISOString(),
+        }),
+      );
     },
-    [estado.perfil],
+    [persistirPerfil],
   );
 
   const guardarFoto = useCallback(
@@ -268,13 +285,11 @@ export const CrecemosProvider = ({ children }: { children: React.ReactNode }) =>
 
   const quitarFoto = useCallback(async (): Promise<void> => {
     // No pasa por `guardarPerfil`: mezclar `{ fotoUri: undefined }` dejaría el campo en el objeto.
-    const perfil: Perfil = {
-      ...quitarFotoDelPerfil(estado.perfil),
+    await persistirPerfil({
+      ...quitarFotoDelPerfil(perfilRef.current),
       actualizadoEn: new Date().toISOString(),
-    };
-    await guardarPerfilRepo(perfil);
-    dispatch({ tipo: 'perfilGuardado', perfil });
-  }, [estado.perfil]);
+    });
+  }, [persistirPerfil]);
 
   const cambiarPrecioProducto = useCallback(
     async (productoId: string, precio: number, costo: number): Promise<ResultadoValidacion> => {
