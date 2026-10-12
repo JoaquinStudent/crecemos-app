@@ -6,9 +6,11 @@
 // "Preguntar" o una pregunta sugerida, y una sola petición por toque.
 // Es la pestaña "Asistente" (sin "Atrás"). Con el parámetro `pregunta` la hace al abrirse.
 // El historial vive solo en el estado de esta pantalla: no se guarda en el teléfono y se va con ella.
-// Para dejarle sitio a la conversación, el aviso de privacidad y las preguntas sugeridas se pliegan
-// en cuanto hay una pregunta: el aviso queda en una línea con "Ver aviso" / "Ocultar", y las
-// sugeridas pasan a un panel que se abre con "Preguntas sugeridas", justo encima del campo.
+// Para dejarle sitio a la conversación: el encabezado es de una línea, el aviso de privacidad va
+// plegado ("Ver aviso" / "Ocultar") y las preguntas sugeridas son una fila de chips que se desliza,
+// siempre a la mano encima del campo. Mientras espera hay una burbuja de "pensando" (puntos que
+// laten); si algo falla, una burbuja de aviso con la causa (sin internet, muchas preguntas o el
+// asistente caído).
 // El campo y el botón van FIJOS al pie, fuera del scroll y dentro de un KeyboardAvoidingView: con el
 // teclado abierto se ven y se pueden tocar (lección del Sprint-01, memory.md D27, y del Sprint-02).
 import React, { useEffect, useRef, useState } from 'react';
@@ -23,15 +25,14 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
-import { ChevronDown, ChevronUp, Lock } from 'lucide-react-native';
+import { Lock } from 'lucide-react-native';
 import { colors, radius, spacing } from '@theme';
 import { Text } from '@components/atoms/Text';
 import { Button } from '@components/atoms/Button';
 import { Icon } from '@components/atoms/Icon';
 import { Chip } from '@components/molecules/Chip';
-import { ScreenHeader } from '@components/molecules/ScreenHeader';
 import { Input } from '@components/atoms/Input';
-import { BurbujaChat } from '@components/molecules/BurbujaChat';
+import { BurbujaChat, BurbujaPensando } from '@components/molecules/BurbujaChat';
 import { responderCharla } from '@analisis/charla';
 import { PREGUNTAS_SUGERIDAS } from '@analisis/intenciones';
 import { fechaLocal } from '@dominio/fecha';
@@ -46,20 +47,20 @@ const TEXTO_PRIVACIDAD =
 const TEXTO_AVISO_CORTO = 'Tu pregunta se envía a una IA';
 const TEXTO_INVITACION =
   'Pregúntame lo que quieras de tus ventas. Toca una pregunta o escribe la tuya:';
-/** Cuando no se entendió la pregunta: dice con qué sí puede ayudar y ofrece las sugeridas. */
+/** Cuando no se entendió la pregunta: dice con qué sí puede ayudar y manda a las sugeridas. */
 const TEXTO_NO_ENTENDI =
   'No entendí la pregunta. Puedo ayudarte con tus ventas, cobros pendientes y productos. Prueba con una de estas:';
-/** Alto máximo del panel de sugeridas: si no cabe, se desplaza por dentro y siempre se puede cerrar. */
-const ALTO_MAXIMO_PANEL = 200;
+/** Ancho fijo del botón: no salta cuando la etiqueta cambia entre "Preguntar" y "Pensando…". */
+const ANCHO_BOTON = 140;
 
-/** Una burbuja del historial. `noEntendi` lleva las preguntas sugeridas justo debajo. */
+/** Una burbuja del historial. */
 interface Mensaje {
   id: number;
   autor: 'freddy' | 'jev';
   texto: string;
   semaforo?: Semaforo;
-  /** La burbuja termina invitando a una pregunta sugerida, que sale justo debajo. */
-  noEntendi?: boolean;
+  /** Es un aviso de falla (sin internet, muchas preguntas…), no una respuesta. */
+  error?: boolean;
 }
 
 export const PreguntarScreen = () => {
@@ -70,9 +71,8 @@ export const PreguntarScreen = () => {
   const [mensajes, setMensajes] = useState<Mensaje[]>([]);
   const [texto, setTexto] = useState('');
   const [pensando, setPensando] = useState(false);
-  // Con la conversación empezada, el aviso y las sugeridas están plegados hasta que Freddy los abre.
+  // El aviso de privacidad va plegado hasta que Freddy lo abre.
   const [avisoAbierto, setAvisoAbierto] = useState(false);
-  const [panelAbierto, setPanelAbierto] = useState(false);
   // Un toque, una pregunta: mientras una espera, otro toque no hace nada (el estado llega tarde).
   const ocupado = useRef(false);
   const montado = useRef(true);
@@ -106,13 +106,12 @@ export const PreguntarScreen = () => {
     ocupado.current = true;
     setPensando(true);
     setTexto('');
-    setPanelAbierto(false);
     agregar({ autor: 'freddy', texto: limpia });
     // La charla corta (hola, gracias…) se contesta aquí, al instante y sin red. El nombre del perfil
     // solo arma la frase en el teléfono: nunca viaja.
     const charla = responderCharla(limpia, perfil.nombre);
     if (charla !== null) {
-      agregar({ autor: 'jev', texto: charla.texto, noEntendi: charla.conSugeridas });
+      agregar({ autor: 'jev', texto: charla.texto });
       ocupado.current = false;
       setPensando(false);
       return;
@@ -131,9 +130,9 @@ export const PreguntarScreen = () => {
         previa.current,
       ).catch(() => null);
       if (respuesta === null || respuesta.tipo === 'noEntendi') {
-        agregar({ autor: 'jev', texto: TEXTO_NO_ENTENDI, noEntendi: true });
-      } else if (respuesta.tipo === 'sinInternet') {
-        agregar({ autor: 'jev', texto: respuesta.texto });
+        agregar({ autor: 'jev', texto: TEXTO_NO_ENTENDI });
+      } else if (respuesta.tipo === 'sinInternet' || respuesta.tipo === 'error') {
+        agregar({ autor: 'jev', texto: respuesta.texto, error: true });
       } else {
         previa.current = respuesta.consulta;
         agregar({ autor: 'jev', texto: respuesta.texto, semaforo: respuesta.semaforo });
@@ -144,8 +143,8 @@ export const PreguntarScreen = () => {
     }
   };
 
-  // Otra pantalla puede abrir el chat con una pregunta lista (botones "¿Por qué?"): se hace una
-  // sola vez y se borra del parámetro para que volver a la pestaña no la repita.
+  // Otra pantalla puede abrir el chat con una pregunta lista (botones "Preguntar por qué"): se hace
+  // una sola vez y se borra del parámetro para que volver a la pestaña no la repita.
   const preguntarRef = useRef(preguntar);
   preguntarRef.current = preguntar;
   const preguntaDeRuta = route.params?.pregunta;
@@ -156,8 +155,6 @@ export const PreguntarScreen = () => {
   }, [preguntaDeRuta, navigation]);
 
   const ultimo = mensajes.length > 0 ? mensajes[mensajes.length - 1] : null;
-  // Esta bandera también la llevan las respuestas de charla que invitan a una sugerida ("ayuda").
-  const ultimoNoEntendi = ultimo?.noEntendi === true;
   const conversando = ultimo !== null;
 
   /**
@@ -182,30 +179,30 @@ export const PreguntarScreen = () => {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <View style={styles.cabecera}>
-          {/* Es una pestaña: no lleva "Atrás". */}
-          <ScreenHeader title="Preguntarle a mis datos" />
-          {/* Al abrir, completo y sin scroll. Ya con una pregunta, una línea con "Ver aviso". */}
-          {conversando ? (
-            <View style={styles.avisoCorto} testID="preguntar-aviso-compacto">
-              <Icon icon={Lock} color="primary" size="md" />
-              <Text variant="bodySmall" style={styles.avisoCortoTexto}>
-                {TEXTO_AVISO_CORTO}
+          {/* Es una pestaña: no lleva "Atrás". Una sola línea, para dejarle sitio al chat. */}
+          <Text variant="h2" accessibilityRole="header" numberOfLines={1} testID="preguntar-titulo">
+            Preguntarle a mis datos
+          </Text>
+          {/* El aviso va plegado en una línea; "Ver aviso" lo abre completo. */}
+          <View style={styles.avisoCorto} testID="preguntar-aviso-compacto">
+            <Icon icon={Lock} color="primary" size="md" />
+            <Text variant="bodySmall" style={styles.avisoCortoTexto}>
+              {TEXTO_AVISO_CORTO}
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={avisoAbierto ? 'Ocultar' : 'Ver aviso'}
+              accessibilityState={{ expanded: avisoAbierto }}
+              onPress={() => setAvisoAbierto(abierto => !abierto)}
+              style={styles.alternarAviso}
+              testID="preguntar-aviso-alternar"
+            >
+              <Text variant="bodyStrong" color="primary">
+                {avisoAbierto ? 'Ocultar' : 'Ver aviso'}
               </Text>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={avisoAbierto ? 'Ocultar' : 'Ver aviso'}
-                accessibilityState={{ expanded: avisoAbierto }}
-                onPress={() => setAvisoAbierto(abierto => !abierto)}
-                style={styles.alternarAviso}
-                testID="preguntar-aviso-alternar"
-              >
-                <Text variant="bodyStrong" color="primary">
-                  {avisoAbierto ? 'Ocultar' : 'Ver aviso'}
-                </Text>
-              </Pressable>
-            </View>
-          ) : null}
-          {!conversando || avisoAbierto ? (
+            </Pressable>
+          </View>
+          {avisoAbierto ? (
             <View style={styles.privacidad} testID="preguntar-aviso-privacidad">
               <Icon icon={Lock} color="primary" size="lg" />
               <Text
@@ -227,6 +224,11 @@ export const PreguntarScreen = () => {
           onContentSizeChange={acomodarScroll}
           testID="preguntar-chat"
         >
+          {conversando ? null : (
+            <Text variant="label" color="textMuted" testID="preguntar-invitacion">
+              {TEXTO_INVITACION}
+            </Text>
+          )}
           {mensajes.map((m, i) => (
             <View
               key={m.id}
@@ -242,74 +244,35 @@ export const PreguntarScreen = () => {
                 autor={m.autor}
                 texto={m.texto}
                 semaforo={m.semaforo}
+                error={m.error}
                 testID={`chat-burbuja-${i}`}
               />
             </View>
           ))}
-
-          {/* Al abrir: las sugeridas completas. Ya conversando se pliegan en el panel de abajo, salvo
-              después de un "No entendí", cuando la burbuja misma las ofrece debajo. */}
-          {!conversando || ultimoNoEntendi ? (
-            <>
-              {ultimoNoEntendi ? null : (
-                <Text variant="label" color="textMuted" testID="preguntar-invitacion">
-                  {TEXTO_INVITACION}
-                </Text>
-              )}
-              <View style={styles.sugeridas} testID="preguntar-sugeridas">
-                {PREGUNTAS_SUGERIDAS.map((pregunta, i) => (
-                  <Chip
-                    key={pregunta}
-                    label={pregunta}
-                    role="button"
-                    disabled={pensando}
-                    onPress={() => preguntar(pregunta)}
-                    testID={`preguntar-sugerida-${i}`}
-                  />
-                ))}
-              </View>
-            </>
-          ) : null}
+          {pensando ? <BurbujaPensando testID="chat-pensando" /> : null}
         </ScrollView>
 
-        {/* El campo y el botón viven FUERA del scroll, en un pie fijo: siempre a la mano. */}
+        {/* Las sugeridas, el campo y el botón viven FUERA del scroll, en un pie fijo: siempre a la mano. */}
         <View style={styles.pie}>
-          {conversando ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Preguntas sugeridas"
-              accessibilityState={{ expanded: panelAbierto }}
-              onPress={() => setPanelAbierto(abierto => !abierto)}
-              style={styles.alternarPanel}
-              testID="preguntar-panel-alternar"
-            >
-              <Text variant="bodyStrong" color="primary">
-                Preguntas sugeridas
-              </Text>
-              <Icon icon={panelAbierto ? ChevronDown : ChevronUp} color="primary" size="md" />
-            </Pressable>
-          ) : null}
-          {conversando && panelAbierto ? (
-            <ScrollView
-              style={styles.panel}
-              nestedScrollEnabled
-              keyboardShouldPersistTaps="handled"
-              testID="preguntar-panel"
-            >
-              <View style={styles.sugeridas}>
-                {PREGUNTAS_SUGERIDAS.map((pregunta, i) => (
-                  <Chip
-                    key={pregunta}
-                    label={pregunta}
-                    role="button"
-                    disabled={pensando}
-                    onPress={() => preguntar(pregunta)}
-                    testID={`preguntar-panel-sugerida-${i}`}
-                  />
-                ))}
-              </View>
-            </ScrollView>
-          ) : null}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            style={styles.sugeridasFila}
+            contentContainerStyle={styles.sugeridas}
+            testID="preguntar-sugeridas"
+          >
+            {PREGUNTAS_SUGERIDAS.map((pregunta, i) => (
+              <Chip
+                key={pregunta}
+                label={pregunta}
+                role="button"
+                disabled={pensando}
+                onPress={() => preguntar(pregunta)}
+                testID={`preguntar-sugerida-${i}`}
+              />
+            ))}
+          </ScrollView>
           <View style={styles.filaCampo}>
             <Input
               containerStyle={styles.campo}
@@ -324,6 +287,7 @@ export const PreguntarScreen = () => {
             <Button
               title={pensando ? 'Pensando…' : 'Preguntar'}
               size="md"
+              style={styles.enviar}
               disabled={pensando || texto.trim() === ''}
               onPress={() => preguntar(texto)}
               testID="preguntar-enviar"
@@ -337,7 +301,7 @@ export const PreguntarScreen = () => {
 
 const styles = StyleSheet.create({
   pantalla: { flex: 1, backgroundColor: colors.background },
-  cabecera: { paddingHorizontal: spacing.lg, paddingTop: spacing.xs, gap: spacing.sm },
+  cabecera: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm, gap: spacing.xs },
   privacidad: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -352,30 +316,19 @@ const styles = StyleSheet.create({
   alternarAviso: { minHeight: 48, minWidth: 48, justifyContent: 'center', alignItems: 'center' },
   chat: { flex: 1 },
   conversacion: { padding: spacing.lg, gap: spacing.md },
-  sugeridas: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  // Los chips llegan al borde del pie: el último asoma y avisa que hay más.
+  sugeridasFila: { marginHorizontal: -spacing.lg, flexGrow: 0 },
+  sugeridas: { paddingHorizontal: spacing.lg, gap: spacing.sm },
   pie: {
     gap: spacing.xs,
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.xs,
+    paddingTop: spacing.sm,
     paddingBottom: spacing.sm,
     borderTopWidth: 1,
     borderTopColor: colors.border,
     backgroundColor: colors.background,
   },
-  alternarPanel: {
-    alignSelf: 'flex-start',
-    minHeight: 48,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  panel: {
-    maxHeight: ALTO_MAXIMO_PANEL,
-    flexGrow: 0,
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    padding: spacing.sm,
-  },
   filaCampo: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   campo: { flex: 1 },
+  enviar: { width: ANCHO_BOTON },
 });

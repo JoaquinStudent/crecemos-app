@@ -28,7 +28,12 @@ import type {
 } from '@dominio/tipos';
 import { bytesUtf8 } from './seed';
 
-export type ErrorJev = 'SIN_RED' | 'TIEMPO_AGOTADO' | 'RESPUESTA_INVALIDA';
+/**
+ * Por qué no hubo respuesta. `LIMITE` (HTTP 429, demasiadas preguntas) y `SERVIDOR` (5xx, el
+ * asistente no está disponible) se distinguen de `SIN_RED` (sin señal o HTTP raro) para que Freddy
+ * lea el mensaje que de verdad corresponde.
+ */
+export type ErrorJev = 'SIN_RED' | 'TIEMPO_AGOTADO' | 'RESPUESTA_INVALIDA' | 'LIMITE' | 'SERVIDOR';
 
 export type ResultadoJev = { ok: true; consulta: Consulta } | { ok: false; error: ErrorJev };
 
@@ -50,7 +55,9 @@ export type RespuestaChat =
       semaforo?: Semaforo;
     }
   | { tipo: 'noEntendi'; texto: string }
-  | { tipo: 'sinInternet'; texto: string };
+  | { tipo: 'sinInternet'; texto: string }
+  /** El servidor contestó, pero no con una respuesta: `causa` dice por qué y `texto` ya viene escrito. */
+  | { tipo: 'error'; causa: 'limite' | 'servidor'; texto: string };
 
 /** Pasado este tiempo sin respuesta se corta y se trata como sin red. */
 export const TIEMPO_LIMITE_MS = 8000;
@@ -59,11 +66,16 @@ export const TAMANO_MAXIMO_BYTES = 4096;
 /** La pregunta más larga que sale del teléfono; el servidor pone el mismo tope. */
 export const MAX_CARACTERES_PREGUNTA = 200;
 
-export const TEXTO_SIN_INTERNET =
-  'Necesitas internet para esto. Revisa tu conexión e inténtalo otra vez.';
+export const TEXTO_SIN_INTERNET = 'Necesitas internet para preguntarle al asistente.';
+export const TEXTO_LIMITE = 'Hay muchas preguntas ahora. Prueba en un minuto.';
+export const TEXTO_SERVIDOR = 'El asistente no está disponible ahora.';
 export const TEXTO_NO_ENTENDI = 'No entendí tu pregunta. Prueba con una de estas:';
 
 type Publicacion = { ok: true; json: unknown } | { ok: false; error: ErrorJev };
+
+/** 429 es límite de preguntas, 5xx es servidor caído; cualquier otro código se trata como sin red. */
+const errorDeEstado = (status: number): ErrorJev =>
+  status === 429 ? 'LIMITE' : status >= 500 ? 'SERVIDOR' : 'SIN_RED';
 
 /** Un POST con un solo intento y 8 s de límite. Devuelve el JSON ya leído, o por qué no se pudo. */
 const publicar = async (
@@ -89,7 +101,7 @@ const publicar = async (
         body: JSON.stringify(cuerpo),
         signal: senal,
       });
-      if (!respuesta.ok) return { ok: false, error: 'SIN_RED' };
+      if (!respuesta.ok) return { ok: false, error: errorDeEstado(respuesta.status) };
       texto = await respuesta.text();
     } catch {
       return { ok: false, error: agotado ? 'TIEMPO_AGOTADO' : 'SIN_RED' };
@@ -188,9 +200,14 @@ export const consultar = async (
   try {
     const interpretada = await preguntarAJev(fetchFn, url, texto);
     if (!interpretada.ok) {
-      return interpretada.error === 'RESPUESTA_INVALIDA'
-        ? noEntendi()
-        : { tipo: 'sinInternet', texto: TEXTO_SIN_INTERNET };
+      if (interpretada.error === 'RESPUESTA_INVALIDA') return noEntendi();
+      if (interpretada.error === 'LIMITE') {
+        return { tipo: 'error', causa: 'limite', texto: TEXTO_LIMITE };
+      }
+      if (interpretada.error === 'SERVIDOR') {
+        return { tipo: 'error', causa: 'servidor', texto: TEXTO_SERVIDOR };
+      }
+      return { tipo: 'sinInternet', texto: TEXTO_SIN_INTERNET };
     }
     // El hilo se completa aquí, en el teléfono: a Jev solo viajó el texto de esta pregunta.
     const productoLocal = resolverProductoLocal(texto, ctx.productos);

@@ -213,10 +213,22 @@ describe('preguntarAJev', () => {
     });
   });
 
-  it('una respuesta HTTP que no es exitosa es SIN_RED', async () => {
-    const f = jest.fn(async () => json({ error: 'NO_DISPONIBLE' }, false, 502));
+  it('un 5xx es SERVIDOR, un 429 es LIMITE y otro HTTP no exitoso es SIN_RED', async () => {
+    const con = (status: number) => jest.fn(async () => json({ error: 'X' }, false, status));
 
-    await expect(preguntarAJev(comoFetch(f), URL_PRUEBA, 'hola')).resolves.toEqual({
+    await expect(preguntarAJev(comoFetch(con(502)), URL_PRUEBA, 'hola')).resolves.toEqual({
+      ok: false,
+      error: 'SERVIDOR',
+    });
+    await expect(preguntarAJev(comoFetch(con(500)), URL_PRUEBA, 'hola')).resolves.toEqual({
+      ok: false,
+      error: 'SERVIDOR',
+    });
+    await expect(preguntarAJev(comoFetch(con(429)), URL_PRUEBA, 'hola')).resolves.toEqual({
+      ok: false,
+      error: 'LIMITE',
+    });
+    await expect(preguntarAJev(comoFetch(con(404)), URL_PRUEBA, 'hola')).resolves.toEqual({
       ok: false,
       error: 'SIN_RED',
     });
@@ -364,7 +376,7 @@ describe('redactarRespuesta', () => {
     });
     await expect(
       redactarRespuesta(comoFetch(fallo), URL_PRUEBA, hechoDe(FRASE_AYER)),
-    ).resolves.toEqual({ ok: false, error: 'SIN_RED' });
+    ).resolves.toEqual({ ok: false, error: 'SERVIDOR' });
 
     jest.useFakeTimers();
     const f = colgado();
@@ -470,9 +482,28 @@ describe('consultar', () => {
 
     expect(r).toEqual({ tipo: 'sinInternet', texto: TEXTO_SIN_INTERNET });
     expect(TEXTO_SIN_INTERNET).toBe(
-      'Necesitas internet para esto. Revisa tu conexión e inténtalo otra vez.',
+      'Necesitas internet para preguntarle al asistente.',
     );
     expect(f).toHaveBeenCalledTimes(1);
+  });
+
+  it('un 429 dice que hay muchas preguntas y un 5xx que el asistente no está disponible, cada uno con su causa', async () => {
+    const con = (status: number) => jest.fn(async () => json({ error: 'X' }, false, status));
+
+    const limite = await consultar(comoFetch(con(429)), URL_PRUEBA, '¿cuánto vendí ayer?', CTX);
+    const caido = await consultar(comoFetch(con(502)), URL_PRUEBA, '¿cuánto vendí ayer?', CTX);
+
+    expect(limite).toEqual({
+      tipo: 'error',
+      causa: 'limite',
+      texto: 'Hay muchas preguntas ahora. Prueba en un minuto.',
+    });
+    expect(caido).toEqual({
+      tipo: 'error',
+      causa: 'servidor',
+      texto: 'El asistente no está disponible ahora.',
+    });
+    expect(JSON.stringify([limite, caido])).not.toMatch(/429|502|500/);
   });
 
   it('si el servidor no contesta en 8 segundos también es "necesitas internet"', async () => {

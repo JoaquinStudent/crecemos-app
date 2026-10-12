@@ -575,7 +575,7 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
 
         const pantalla = textosEn('preguntar-pantalla');
         expect(pantalla).toContain(
-          'Necesitas internet para esto. Revisa tu conexión e inténtalo otra vez.',
+          'Necesitas internet para preguntarle al asistente.',
         );
         // Ningún código ni mensaje técnico, en ninguna parte de la pantalla.
         expect(pantalla.join(' | ')).not.toMatch(CODIGOS_TECNICOS);
