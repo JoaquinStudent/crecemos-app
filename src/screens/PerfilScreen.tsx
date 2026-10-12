@@ -2,7 +2,7 @@
 // "Mi perfil" (mock 07, sin foto): quién es, cómo le pagan y qué vende.
 // Es la pantalla que hace posible el insight: sin precio y costo no hay "Te deja".
 import React, { useCallback, useRef, useState } from 'react';
-import { Pressable, ScrollView, StatusBar, StyleSheet, Switch, View } from 'react-native';
+import { Pressable, ScrollView, StatusBar, StyleSheet, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -16,6 +16,9 @@ import { Button } from '@components/atoms/Button';
 import { Icon } from '@components/atoms/Icon';
 import { Input } from '@components/atoms/Input';
 import { AvatarPerfil } from '@components/molecules/AvatarPerfil';
+import { Callout } from '@components/molecules/Callout';
+import { Card } from '@components/molecules/Card';
+import { SwitchRow } from '@components/molecules/SwitchRow';
 import { CambiarPrecioSheet } from '@components/organisms/CambiarPrecioSheet';
 import { fechaLocal } from '@dominio/fecha';
 import { formatoFechaCorta, formatoSoles } from '@dominio/formato';
@@ -430,35 +433,20 @@ export const PerfilScreen = () => {
           <View style={styles.seccion}>
             <Text variant="h3">Cómo me pagan</Text>
             <View style={styles.tarjeta}>
-              <View style={styles.filaInterruptor}>
-                <Text style={styles.etiquetaInterruptor}>Acepto Yape</Text>
-                <Switch
-                  value={perfil.aceptaYape}
-                  onValueChange={v => pagoSeguro.ejecutar({ aceptaYape: v })}
-                  trackColor={{ false: colors.disabled, true: colors.primary }}
-                  thumbColor={colors.background}
-                  accessibilityLabel="Acepto Yape"
-                  testID="switch-acepta-yape"
-                />
-              </View>
+              <SwitchRow
+                label="Acepto Yape"
+                value={perfil.aceptaYape}
+                onValueChange={v => pagoSeguro.ejecutar({ aceptaYape: v })}
+                testID="switch-acepta-yape"
+              />
               <View style={[styles.separador, styles.indentada]}>
-                <View style={styles.filaInterruptor}>
-                  <Text
-                    style={styles.etiquetaInterruptor}
-                    color={perfil.aceptaYape ? 'text' : 'disabled'}
-                  >
-                    El Yape no está a mi nombre
-                  </Text>
-                  <Switch
-                    value={perfil.yapeAjeno}
-                    disabled={!perfil.aceptaYape}
-                    onValueChange={v => pagoSeguro.ejecutar({ yapeAjeno: v })}
-                    trackColor={{ false: colors.disabled, true: colors.primary }}
-                    thumbColor={colors.background}
-                    accessibilityLabel="El Yape no está a mi nombre"
-                    testID="switch-yape-ajeno"
-                  />
-                </View>
+                <SwitchRow
+                  label="El Yape no está a mi nombre"
+                  value={perfil.yapeAjeno}
+                  disabled={!perfil.aceptaYape}
+                  onValueChange={v => pagoSeguro.ejecutar({ yapeAjeno: v })}
+                  testID="switch-yape-ajeno"
+                />
                 <Text variant="caption" color="textMuted" style={styles.ayudaInterruptor}>
                   Lo anotamos como pendiente por cobrar hasta que lo recibas.
                 </Text>
@@ -487,14 +475,14 @@ export const PerfilScreen = () => {
             </View>
             <Button title="Agregar producto" variant="outline" onPress={() => abrirFormularioProducto()} testID="agregar-producto" />
             {productos.length === 0 ? (
-              <View style={styles.tarjetaProducto}>
+              <Card variant="bordered" style={styles.tarjetaProducto}>
                 <Text>Agrega lo que vendes para registrar tu día.</Text>
                 <Button title="Cargar datos de ejemplo" variant="ghost" onPress={() => ejemploSeguro.ejecutar()} disabled={semilla === 'cargando' || ejemploSeguro.ejecutando} testID="cargar-ejemplo-perfil" />
                 <MensajeError mensaje={ejemploSeguro.mensajeError} testID="error-cargar-ejemplo" />
-              </View>
+              </Card>
             ) : null}
             {formularioProducto ? (
-              <View style={styles.tarjetaProducto} testID="formulario-producto">
+              <Card variant="bordered" style={styles.tarjetaProducto} testID="formulario-producto">
                 <Text variant="h3">{productoEditado ? 'Editar producto' : 'Nuevo producto'}</Text>
                 <Input label="Nombre" value={formularioProducto.nombre} onChangeText={nombre => setFormularioProducto({ ...formularioProducto, nombre })} error={erroresProducto.nombre} testID="producto-nombre" />
                 <Input label="Unidad de venta" value={formularioProducto.unidad} onChangeText={unidad => setFormularioProducto({ ...formularioProducto, unidad })} error={erroresProducto.unidad} testID="producto-unidad" />
@@ -503,7 +491,7 @@ export const PerfilScreen = () => {
                 <MensajeError mensaje={productoSeguro.mensajeError} testID="error-guardar-producto" />
                 <Button title="Guardar producto" onPress={() => productoSeguro.ejecutar(guardarFormularioProducto)} testID="guardar-producto" />
                 <Button title="Cancelar" variant="ghost" onPress={() => setFormularioProducto(null)} testID="cancelar-producto" />
-              </View>
+              </Card>
             ) : null}
             {formularioProducto ? null : (
               <MensajeError mensaje={productoSeguro.mensajeError} testID="error-producto-seccion" />
@@ -593,7 +581,7 @@ const TarjetaProducto = ({
   const deja = teDeja(producto);
   const revision = requiereRevision(producto, hoy);
   return (
-    <View style={styles.tarjetaProducto} testID={`producto-${producto.id}`}>
+    <Card variant="bordered" style={styles.tarjetaProducto} testID={`producto-${producto.id}`}>
       <View style={styles.filaProducto}>
         <Text
           variant="bodyStrong"
@@ -635,14 +623,11 @@ const TarjetaProducto = ({
         <Button title={producto.activo ? 'Desactivar' : 'Reactivar'} variant="ghost" onPress={onActivo} testID={`activo-producto-${producto.id}`} />
       </View>
       {revision.revisar ? (
-        <View style={styles.aviso} testID={`aviso-precio-${producto.id}`}>
-          <Icon icon={TriangleAlert} color="accent" />
-          <Text variant="bodySmall" style={styles.avisoTexto}>
-            {revision.mensaje}
-          </Text>
-        </View>
+        <Callout icon={TriangleAlert} style={styles.aviso} testID={`aviso-precio-${producto.id}`}>
+          {revision.mensaje}
+        </Callout>
       ) : null}
-    </View>
+    </Card>
   );
 };
 
@@ -694,24 +679,9 @@ const styles = StyleSheet.create({
   datoTexto: { flex: 1 },
   edicion: { gap: spacing.sm },
   acciones: { flexDirection: 'row', gap: spacing.sm },
-  filaInterruptor: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    minHeight: 56,
-    gap: spacing.md,
-  },
-  etiquetaInterruptor: { flex: 1 },
   indentada: { paddingLeft: spacing.lg },
   ayudaInterruptor: { paddingBottom: spacing.md },
-  tarjetaProducto: {
-    backgroundColor: colors.background,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.lg,
-    padding: spacing.lg,
-    gap: spacing.xs,
-  },
+  tarjetaProducto: { backgroundColor: colors.background, gap: spacing.xs },
   filaProducto: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -723,15 +693,5 @@ const styles = StyleSheet.create({
   accionesProducto: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   actualizado: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   actualizadoTexto: { flex: 1 },
-  aviso: {
-    flexDirection: 'row',
-    gap: spacing.md,
-    marginTop: spacing.sm,
-    backgroundColor: colors.accentSoft,
-    borderWidth: 1.5,
-    borderColor: colors.accent,
-    borderRadius: radius.md,
-    padding: spacing.md,
-  },
-  avisoTexto: { flex: 1 },
+  aviso: { marginTop: spacing.sm },
 });

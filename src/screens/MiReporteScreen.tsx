@@ -15,7 +15,9 @@ import { colors, radius, spacing } from '@theme';
 import { Text } from '@components/atoms/Text';
 import { Button } from '@components/atoms/Button';
 import { Icon } from '@components/atoms/Icon';
+import { ProgressBar } from '@components/atoms/ProgressBar';
 import { AvatarPerfil } from '@components/molecules/AvatarPerfil';
+import { Callout } from '@components/molecules/Callout';
 import { CargandoBloques } from '@components/molecules/CargandoBloques';
 import { ScreenHeader } from '@components/molecules/ScreenHeader';
 import { htmlReporte, NOMBRE_ARCHIVO_PDF } from '@analisis/htmlReporte';
@@ -143,10 +145,9 @@ export const MiReporteScreen = () => {
         ) : null}
 
         {cargando ? null : senales.soloEjemplo ? (
-          <View style={styles.construccion} testID="reporte-aviso-ejemplo">
-            <Text variant="bodyStrong">Datos de ejemplo</Text>
-            <Text variant="bodySmall">{AVISO_EJEMPLO}</Text>
-          </View>
+          <Callout title="Datos de ejemplo" testID="reporte-aviso-ejemplo">
+            {AVISO_EJEMPLO}
+          </Callout>
         ) : null}
 
         {cargando ? null : senales.enConstruccion ? <EnConstruccion senales={senales} /> : null}
@@ -212,24 +213,20 @@ export const MiReporteScreen = () => {
 /** Aviso de que aún faltan días, con una barra de progreso: el naranja es solo el relleno. */
 const EnConstruccion = ({ senales }: { senales: Senales }) => {
   const registrados = DIAS_CONVINCENTE - senales.diasFaltantes;
-  const progreso = Math.min(100, Math.max(0, Math.round((registrados / DIAS_CONVINCENTE) * 100)));
   return (
-    <View style={styles.construccion} testID="reporte-en-construccion">
+    <Callout testID="reporte-en-construccion">
       <Text variant="bodyStrong" testID="reporte-faltan">
         {textoFaltan(senales.diasFaltantes)}
       </Text>
-      <View
-        style={styles.pista}
-        accessibilityRole="progressbar"
-        accessibilityValue={{ min: 0, max: DIAS_CONVINCENTE, now: registrados }}
+      <ProgressBar
+        value={registrados / DIAS_CONVINCENTE}
+        accessibilityLabel="Días registrados"
+        tone="accent"
+        height={12}
+        style={styles.progreso}
         testID="reporte-progreso"
-      >
-        <View
-          style={[styles.relleno, { width: `${progreso}%` }]}
-          testID="reporte-progreso-relleno"
-        />
-      </View>
-    </View>
+      />
+    </Callout>
   );
 };
 
@@ -362,22 +359,8 @@ const Barras = ({ meses }: { meses: MesCompleto[] }) => {
 const styles = StyleSheet.create({
   pantalla: { flex: 1, backgroundColor: colors.background },
   contenido: { padding: spacing.lg, gap: spacing.lg, paddingBottom: spacing.xl },
-  construccion: {
-    gap: spacing.md,
-    backgroundColor: colors.accentSoft,
-    borderLeftWidth: 4,
-    borderLeftColor: colors.accent,
-    borderRadius: radius.lg,
-    padding: spacing.lg,
-  },
-  pista: {
-    height: 12,
-    borderRadius: radius.full,
-    overflow: 'hidden',
-    backgroundColor: colors.border,
-  },
-  // El naranja es solo relleno: las letras del aviso van en oscuro.
-  relleno: { height: '100%', borderRadius: radius.full, backgroundColor: colors.accent },
+  // El naranja es solo relleno de la barra: las letras del aviso van en oscuro.
+  progreso: { marginTop: spacing.sm },
   privacidad: {
     flexDirection: 'row',
     alignItems: 'center',

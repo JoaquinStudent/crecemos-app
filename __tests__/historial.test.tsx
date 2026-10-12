@@ -74,6 +74,16 @@ const montarApp = async () => {
     if (!encontrado) throw new Error(`No hay ningún interruptor con testID "${testID}"`);
     return encontrado;
   };
+  // El avance (0 a 100) y el color de relleno de una barra de progreso.
+  const barra = (testID: string) => {
+    const encontrada = app.root.findAll(
+      n => n.props.testID === testID && n.props.accessibilityValue !== undefined,
+    )[0];
+    if (!encontrada) throw new Error(`No hay ninguna barra con testID "${testID}"`);
+    return encontrada;
+  };
+  const avanceDe = (testID: string) => barra(testID).props.accessibilityValue.now as number;
+  const colorDeBarra = (testID: string) => barra(testID).props.color as string;
   const estiloDe = (testID: string) => {
     const vista = app.root.findAll(n => esHost(n, 'View') && n.props.testID === testID)[0];
     if (!vista) throw new Error(`No hay ninguna vista con testID "${testID}"`);
@@ -119,6 +129,8 @@ const montarApp = async () => {
     valorDe,
     interruptor,
     estiloDe,
+    avanceDe,
+    colorDeBarra,
     cuantos,
     pestanaActiva,
     titulosDeDia,
@@ -239,9 +251,12 @@ describe('Cerrar mi día: interruptor y categorías', () => {
 
     expect(textos()).toContain('Hoy compré mercadería');
     expect(interruptor('hoy-compre-mercaderia').props.value).toBe(false);
-    expect(interruptor('hoy-compre-mercaderia').props.accessibilityLabel).toBe(
-      'Hoy compré mercadería',
+    // La fila entera se anuncia como UN interruptor, con su etiqueta de texto.
+    const fila = montada!.root.findAll(
+      n => n.props.accessibilityRole === 'switch' && n.props.accessibilityLabel === 'Hoy compré mercadería',
     );
+    expect(fila.length).toBeGreaterThan(0);
+    expect(fila[0].props.accessibilityState.checked).toBe(false);
   });
 
   it('encendido, el cierre guardado abre ciclo; apagado, no', async () => {
@@ -836,7 +851,7 @@ describe('Resumen', () => {
 
   it('"Tu mercadería": lo vendido de lo preparado, con su barra y su porcentaje', async () => {
     await sembrarCicloActual();
-    const { tocar, textos, textoDe, colorDe, estiloDe, existe } = await montarApp();
+    const { tocar, textos, textoDe, colorDe, avanceDe, colorDeBarra, existe } = await montarApp();
     await tocar('tab-resumen');
 
     expect(textos()).toContain('Tu mercadería');
@@ -845,12 +860,12 @@ describe('Resumen', () => {
     expect(textoDe('mercaderia-p-rachi-texto')).toBe('Rachi — vendiste 11 de 16 porciones');
     expect(textoDe('mercaderia-p-anticucho-porcentaje')).toBe('95%');
     expect(textoDe('mercaderia-p-rachi-porcentaje')).toBe('69%');
-    expect(estiloDe('mercaderia-p-anticucho-barra').width).toBe('95%');
-    expect(estiloDe('mercaderia-p-rachi-barra').width).toBe('69%');
+    expect(avanceDe('mercaderia-p-anticucho-barra')).toBe(95);
+    expect(avanceDe('mercaderia-p-rachi-barra')).toBe(69);
     expect(existe('mercaderia-p-pancita')).toBe(false); // no se preparó pancita
     // Verde si vendió el 70 % o más; naranja de relleno por debajo, jamás de texto.
-    expect(estiloDe('mercaderia-p-anticucho-barra').backgroundColor).toBe(colors.success);
-    expect(estiloDe('mercaderia-p-rachi-barra').backgroundColor).toBe(colors.accent);
+    expect(colorDeBarra('mercaderia-p-anticucho-barra')).toBe(colors.success);
+    expect(colorDeBarra('mercaderia-p-rachi-barra')).toBe(colors.accent);
     expect(colorDe('mercaderia-p-anticucho-porcentaje')).toBe(colors.success);
     expect(colorDe('mercaderia-p-rachi-porcentaje')).not.toBe(colors.accent);
   });
@@ -892,6 +907,21 @@ describe('Resumen', () => {
     expect(textoDe('resumen-ganancia')).toBe('Resultado positivo S/ 0.00');
     expect(estiloDe('resumen-barra-capital').width).toBe('100%');
     expect(estiloDe('resumen-barra-ganancia').width).toBe('0%');
+  });
+
+  it('la barra capital/ganancia se anuncia como barra de progreso con su valor, y las de mercadería también', async () => {
+    await sembrarCicloActual();
+    const { tocar } = await montarApp();
+    await tocar('tab-resumen');
+
+    const barras = montada!.root.findAll(
+      n => n.props.accessibilityRole === 'progressbar' && n.props.accessibilityValue !== undefined,
+    );
+    const porId = (id: string) => barras.find(b => b.props.testID === id)?.props;
+    expect(porId('resumen-barra')?.accessibilityLabel).toBe('Capital contra resultado positivo');
+    expect(porId('resumen-barra')?.accessibilityValue.now).toBe(51);
+    expect(porId('mercaderia-p-anticucho-barra')?.accessibilityValue.now).toBe(95);
+    expect(porId('mercaderia-p-anticucho-barra')?.accessibilityLabel).toBe('Vendido de Anticucho');
   });
 
   it('sin gastos no hay capital: ni línea de capital ni segmento rojo', async () => {
@@ -1021,7 +1051,7 @@ describe('Resumen: comparación con el ciclo anterior', () => {
     expect(colorDe('resumen-comparacion-anterior')).not.toBe(colors.accent);
   });
 
-  it('igual: dice que ganó lo mismo, y el ícono va en verde', async () => {
+  it('igual: dice que ganó lo mismo, y el ícono va en un tono neutro (ni verde ni rojo)', async () => {
     await sembrarAnterior();
     await sembrarActual(30, 86); // S/ 300.00 − S/ 86.00 = S/ 214.00, igual que el anterior
     const { tocar, textoDe, colorDelIcono } = await montarApp();
@@ -1031,7 +1061,7 @@ describe('Resumen: comparación con el ciclo anterior', () => {
     expect(textoDe('resumen-comparacion-anterior')).toBe(
       'Resultado registrado anterior: S/ 214.00',
     );
-    expect(colorDelIcono('resumen-comparacion-icono')).toBe(colors.success);
+    expect(colorDelIcono('resumen-comparacion-icono')).toBe(colors.textMuted);
   });
 
   it('si el ciclo anterior cerró en pérdida, el monto lleva su signo menos', async () => {

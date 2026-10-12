@@ -12,8 +12,11 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Lightbulb } from 'lucide-react-native';
 import { colors, radius, spacing } from '@theme';
 import { Text } from '@components/atoms/Text';
-import { Button } from '@components/atoms/Button';
-import { Icon } from '@components/atoms/Icon';
+import { ProgressBar } from '@components/atoms/ProgressBar';
+import type { ProgressBarTone } from '@components/atoms/ProgressBar';
+import { Callout } from '@components/molecules/Callout';
+import { Card } from '@components/molecules/Card';
+import { EmptyState } from '@components/molecules/EmptyState';
 import { CargandoBloques } from '@components/molecules/CargandoBloques';
 import { ScreenHeader } from '@components/molecules/ScreenHeader';
 import { gananciaPorProducto, insight } from '@analisis/metricas';
@@ -27,9 +30,9 @@ import type { RootStackParamList } from '@navigation/RootStack';
 /** El periodo que mira la pantalla: los últimos 30 días, contando el día 30. */
 const DIAS_DEL_PERIODO = 30;
 
-// Ancho de una barra respecto de la mayor de su tipo: la mayor llega al 100 %.
-const ancho = (valor: number, mayor: number): `${number}%` =>
-  `${mayor > 0 ? Math.max(0, Math.round((valor / mayor) * 100)) : 0}%`;
+// Avance de una barra respecto de la mayor de su tipo (0 a 1): la mayor llega al 100 %.
+const avance = (valor: number, mayor: number): number =>
+  mayor > 0 ? Math.max(0, Math.round((valor / mayor) * 100)) / 100 : 0;
 
 const unidadDe = (productos: Producto[], productoId: string): Producto['unidad'] =>
   productos.find(p => p.id === productoId)?.unidad ?? 'unidad';
@@ -75,30 +78,22 @@ export const QueMeDejaScreen = () => {
         {cargando ? (
           <CargandoBloques bloques={3} alto={140} testID="queme-cargando" />
         ) : ganancias.length === 0 ? (
-          <View style={styles.vacio} testID="queme-vacio">
-            <Text variant="h3">Todavía no hay días cerrados</Text>
-            <Text color="textMuted" style={styles.separado}>
-              Cierra tu día y aquí verás las unidades vendidas y la diferencia estimada por unidad
-              de cada producto.
-            </Text>
-            <Button
-              title="Cerrar mi día"
-              size="lg"
-              fullWidth
-              style={styles.separado}
-              testID="queme-cerrar-dia"
-              onPress={() => navigation.navigate('CerrarDia')}
-            />
-          </View>
+          <EmptyState
+            title="Todavía no hay días cerrados"
+            text="Cierra tu día y aquí verás las unidades vendidas y la diferencia estimada por unidad de cada producto."
+            actionLabel="Cerrar mi día"
+            onAction={() => navigation.navigate('CerrarDia')}
+            testID="queme-vacio"
+            actionTestID="queme-cerrar-dia"
+          />
         ) : (
           <>
             {frase ? (
-              <View style={styles.insight} testID="queme-insight">
-                <Icon icon={Lightbulb} color="accent" size="lg" />
-                <Text variant="bodyStrong" style={styles.insightTexto} testID="queme-insight-texto">
+              <Callout icon={Lightbulb} testID="queme-insight">
+                <Text variant="bodyStrong" testID="queme-insight-texto">
                   {frase}
                 </Text>
-              </View>
+              </Callout>
             ) : null}
 
             <Tarjetas ganancias={ganancias} productos={productos} />
@@ -140,7 +135,12 @@ const Tarjetas = ({
         const vendes = g.productoId === masVendido?.productoId;
         const deja = g.productoId === masDeja?.productoId;
         return (
-          <View key={g.productoId} style={styles.tarjeta} testID={`queme-tarjeta-${g.productoId}`}>
+          <Card
+            key={g.productoId}
+            variant="bordered"
+            style={styles.tarjeta}
+            testID={`queme-tarjeta-${g.productoId}`}
+          >
             {vendes || deja ? (
               <View style={styles.etiquetas}>
                 {vendes ? (
@@ -180,9 +180,8 @@ const Tarjetas = ({
             <FilaBarra
               etiqueta="Se vende"
               cifra={cantidadEnPalabras(g.seVende, unidad)}
-              ancho={ancho(g.seVende, mayorVende)}
-              relleno={colors.primary}
-              fondo={colors.primarySoft}
+              avance={avance(g.seVende, mayorVende)}
+              tono="primary"
               idBarra={`queme-barra-vende-${g.productoId}`}
               idCifra={`queme-cifra-vende-${g.productoId}`}
               idEtiqueta={`queme-etiqueta-barra-vende-${g.productoId}`}
@@ -190,9 +189,8 @@ const Tarjetas = ({
             <FilaBarra
               etiqueta="Diferencia estimada total"
               cifra={formatoSoles(g.ganancia)}
-              ancho={ancho(g.ganancia, mayorGanancia)}
-              relleno={colors.success}
-              fondo={colors.successSoft}
+              avance={avance(g.ganancia, mayorGanancia)}
+              tono="success"
               idBarra={`queme-barra-deja-${g.productoId}`}
               idCifra={`queme-cifra-deja-${g.productoId}`}
               idEtiqueta={`queme-etiqueta-barra-deja-${g.productoId}`}
@@ -206,7 +204,7 @@ const Tarjetas = ({
                 g.teDeja,
               )} (precio menos costo estimado)`}
             </Text>
-          </View>
+          </Card>
         );
       })}
     </View>
@@ -216,9 +214,9 @@ const Tarjetas = ({
 interface FilaBarraProps {
   etiqueta: string;
   cifra: string;
-  ancho: `${number}%`;
-  relleno: string;
-  fondo: string;
+  /** 0 a 1, respecto de la mayor de su tipo. */
+  avance: number;
+  tono: ProgressBarTone;
   idBarra: string;
   idCifra: string;
   idEtiqueta?: string;
@@ -229,9 +227,8 @@ interface FilaBarraProps {
 const FilaBarra = ({
   etiqueta,
   cifra,
-  ancho: anchoBarra,
-  relleno,
-  fondo,
+  avance: avanceBarra,
+  tono,
   idBarra,
   idCifra,
   idEtiqueta,
@@ -241,12 +238,14 @@ const FilaBarra = ({
       {etiqueta}
     </Text>
     <View style={styles.filaBarra}>
-      <View style={[styles.pista, { backgroundColor: fondo }]}>
-        <View
-          style={[styles.relleno, { width: anchoBarra, backgroundColor: relleno }]}
-          testID={idBarra}
-        />
-      </View>
+      <ProgressBar
+        value={avanceBarra}
+        accessibilityLabel={etiqueta}
+        tone={tono}
+        height={12}
+        style={styles.pista}
+        testID={idBarra}
+      />
       <Text variant="label" style={styles.cifra} testID={idCifra}>
         {cifra}
       </Text>
@@ -257,32 +256,8 @@ const FilaBarra = ({
 const styles = StyleSheet.create({
   pantalla: { flex: 1, backgroundColor: colors.background },
   contenido: { padding: spacing.lg, gap: spacing.lg, paddingBottom: spacing.xxl },
-  separado: { marginTop: spacing.md },
-  vacio: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.lg,
-    padding: spacing.lg,
-  },
-  insight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    backgroundColor: colors.accentSoft,
-    borderLeftWidth: 4,
-    borderLeftColor: colors.accent,
-    borderRadius: radius.lg,
-    padding: spacing.lg,
-  },
-  insightTexto: { flex: 1 },
   lista: { gap: spacing.md },
-  tarjeta: {
-    backgroundColor: colors.background,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.lg,
-    padding: spacing.lg,
-    gap: spacing.sm,
-  },
+  tarjeta: { backgroundColor: colors.background, gap: spacing.sm },
   etiquetas: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -307,8 +282,7 @@ const styles = StyleSheet.create({
   nombre: { flex: 1 },
   bloqueBarra: { gap: spacing.xs },
   filaBarra: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, minHeight: 28 },
-  pista: { flex: 1, height: 12, borderRadius: radius.full, overflow: 'hidden' },
-  relleno: { height: '100%', borderRadius: radius.full },
+  pista: { flex: 1 },
   // Sin ancho fijo: la cifra ocupa lo que necesita y la barra se queda con el resto.
   cifra: { flexShrink: 0, textAlign: 'right' },
 });

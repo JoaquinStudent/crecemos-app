@@ -16,7 +16,11 @@ import { colors, radius, spacing } from '@theme';
 import { Text } from '@components/atoms/Text';
 import { Button } from '@components/atoms/Button';
 import { Icon } from '@components/atoms/Icon';
+import { ProgressBar } from '@components/atoms/ProgressBar';
+import { Callout } from '@components/molecules/Callout';
+import { Card } from '@components/molecules/Card';
 import { CargandoBloques } from '@components/molecules/CargandoBloques';
+import { EmptyState } from '@components/molecules/EmptyState';
 import { compararCiclos } from '@analisis/metricas';
 import { agruparCiclos, mercaderiaDelCiclo, resumirCiclo, textoCapital } from '@dominio/ciclo';
 import { formatoFechaCorta, formatoSoles } from '@dominio/formato';
@@ -62,21 +66,14 @@ export const ResumenScreen = () => {
         ) : actual ? (
           <CicloActual ciclo={actual} anterior={anterior} productos={productos} />
         ) : (
-          <View style={styles.tarjeta} testID="resumen-vacio">
-            <Text variant="h3">Aún no cierras ningún día</Text>
-            <Text color="textMuted" style={styles.separado}>
-              Cuando cierres tu día, aquí verás el resultado registrado de tu ciclo de compra y
-              cuánto vendiste de tu mercadería.
-            </Text>
-            <Button
-              title="Cerrar mi día"
-              size="lg"
-              fullWidth
-              style={styles.separado}
-              testID="resumen-cerrar-dia"
-              onPress={() => navigation.navigate('CerrarDia')}
-            />
-          </View>
+          <EmptyState
+            title="Aún no cierras ningún día"
+            text="Cuando cierres tu día, aquí verás el resultado registrado de tu ciclo de compra y cuánto vendiste de tu mercadería."
+            actionLabel="Cerrar mi día"
+            onAction={() => navigation.navigate('CerrarDia')}
+            testID="resumen-vacio"
+            actionTestID="resumen-cerrar-dia"
+          />
         )}
 
         {cargando ? null : (
@@ -137,7 +134,7 @@ const CicloActual = ({
 
   return (
     <>
-      <View style={styles.tarjeta}>
+      <Card>
         <View style={styles.filaEntre}>
           <Text variant="label" color="textMuted">
             Ciclo actual
@@ -164,7 +161,21 @@ const CicloActual = ({
         </Text>
 
         {total > 0 ? (
-          <View style={[styles.barra, styles.separado]} testID="resumen-barra">
+          // Dos tramos en una sola barra (capital y resultado positivo): el lector de pantalla
+          // oye qué parte del total es capital.
+          <View
+            style={[styles.barra, styles.separado]}
+            accessible
+            accessibilityRole="progressbar"
+            accessibilityLabel="Capital contra resultado positivo"
+            accessibilityValue={{
+              min: 0,
+              max: 100,
+              now: capitalPorcentaje,
+              text: `El capital es el ${capitalPorcentaje} por ciento de lo vendido`,
+            }}
+            testID="resumen-barra"
+          >
             <View
               style={{ width: `${capitalPorcentaje}%`, backgroundColor: colors.danger }}
               testID="resumen-barra-capital"
@@ -205,14 +216,14 @@ const CicloActual = ({
             {textoCapital(resumen)}
           </Text>
         ) : null}
-      </View>
+      </Card>
 
       {anterior ? <Comparacion actual={resumen} anterior={resumirCiclo(anterior)} /> : null}
 
       {mercaderia.length > 0 ? (
         <View style={styles.seccion}>
           <Text variant="h3">Tu mercadería</Text>
-          <View style={styles.tarjeta}>
+          <Card>
             {mercaderia.map((m, i) => {
               const vendido = porcentaje(m.vendidas, m.preparadas);
               const bien = vendido >= VENDIDO_MINIMO;
@@ -231,18 +242,14 @@ const CicloActual = ({
                     {`${m.nombre} — vendiste ${m.vendidas} de ${m.preparadas} ${etiquetaUnidad}`}
                   </Text>
                   <View style={[styles.filaBarra, styles.separadoChico]}>
-                    <View style={styles.pista}>
-                      <View
-                        style={[
-                          styles.relleno,
-                          {
-                            width: `${vendido}%`,
-                            backgroundColor: bien ? colors.success : colors.accent,
-                          },
-                        ]}
-                        testID={`${base}-barra`}
-                      />
-                    </View>
+                    <ProgressBar
+                      value={vendido / 100}
+                      accessibilityLabel={`Vendido de ${m.nombre}`}
+                      tone={bien ? 'success' : 'accent'}
+                      height={12}
+                      style={styles.pista}
+                      testID={`${base}-barra`}
+                    />
                     {/* El naranja es solo relleno de barra: el número va en letra oscura. */}
                     <Text
                       variant="bodyStrong"
@@ -258,16 +265,15 @@ const CicloActual = ({
             })}
 
             {masSobrante && masSobrante.sobranteSoles > 0 ? (
-              <View style={[styles.sobrante, styles.separado]}>
-                <Icon icon={TriangleAlert} color="accent" />
+              <Callout icon={TriangleAlert} style={styles.separado}>
                 <Text style={styles.sobranteTexto} testID="resumen-sobrante">
                   {`Te sobró ${formatoSoles(
                     masSobrante.sobranteSoles,
                   )} en ${masSobrante.nombre.toLowerCase()}`}
                 </Text>
-              </View>
+              </Callout>
             ) : null}
-          </View>
+          </Card>
         </View>
       ) : null}
     </>
@@ -282,11 +288,12 @@ const Comparacion = ({ actual, anterior }: { actual: ResumenCiclo; anterior: Res
   const perdio = actual.teQueda < anterior.teQueda;
   const igual = actual.teQueda === anterior.teQueda;
   return (
-    <View style={styles.comparacion} testID="resumen-comparacion-fila">
+    <Card variant="bordered" style={styles.comparacion} testID="resumen-comparacion-fila">
       <View testID="resumen-comparacion-icono">
+        {/* Igual no es ni bueno ni malo: el ícono va en un tono neutro. */}
         <Icon
           icon={perdio ? TrendingDown : igual ? Minus : TrendingUp}
-          color={perdio ? 'danger' : 'success'}
+          color={perdio ? 'danger' : igual ? 'textMuted' : 'success'}
           size="lg"
         />
       </View>
@@ -298,24 +305,19 @@ const Comparacion = ({ actual, anterior }: { actual: ResumenCiclo; anterior: Res
           {`Resultado registrado anterior: ${formatoSoles(anterior.teQueda)}`}
         </Text>
       </View>
-    </View>
+    </Card>
   );
 };
 
 const styles = StyleSheet.create({
   pantalla: { flex: 1, backgroundColor: colors.background },
   contenido: { padding: spacing.lg, gap: spacing.xl },
-  tarjeta: { backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.lg },
   seccion: { gap: spacing.md },
   comparacion: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
     backgroundColor: colors.background,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    padding: spacing.lg,
   },
   comparacionTextos: { flex: 1 },
   separado: { marginTop: spacing.md },
@@ -342,15 +344,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.border,
   },
   filaBarra: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-  pista: {
-    flex: 1,
-    height: 12,
-    borderRadius: radius.full,
-    overflow: 'hidden',
-    backgroundColor: colors.border,
-  },
-  relleno: { height: '100%' },
+  pista: { flex: 1 },
   porcentaje: { minWidth: 56, textAlign: 'right' },
-  sobrante: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, minHeight: 48 },
   sobranteTexto: { flex: 1 },
 });

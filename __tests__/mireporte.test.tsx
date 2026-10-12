@@ -121,6 +121,17 @@ const montarApp = async () => {
     return encontrada;
   };
   const estiloDe = (testID: string) => StyleSheet.flatten(vista(testID).props.style);
+  // El avance (0 a 100) y el color de relleno de una barra de progreso.
+  const barra = (testID: string) => {
+    const encontrada = app.root.findAll(
+      n => n.props.testID === testID && n.props.accessibilityValue !== undefined,
+    )[0];
+    if (!encontrada) throw new Error(`No hay ninguna barra con testID "${testID}"`);
+    return encontrada;
+  };
+  const avanceDe = (testID: string) => barra(testID).props.accessibilityValue.now as number;
+  const colorDeBarra = (testID: string) => barra(testID).props.color as string;
+
   const vistasCon = (prefijo: string) =>
     app.root
       .findAll(n => esHost(n, 'View') && String(n.props.testID ?? '').startsWith(prefijo))
@@ -156,6 +167,8 @@ const montarApp = async () => {
     tamanoDe,
     vista,
     estiloDe,
+    avanceDe,
+    colorDeBarra,
     vistasCon,
     enOrden,
     botonDesactivado,
@@ -307,8 +320,8 @@ describe('Mi reporte', () => {
     expect(app.colorDe('reporte-faltan')).toBe(colors.text);
     expect(app.tamanoDe('reporte-faltan')).toBeGreaterThanOrEqual(14);
     expect(app.existe('reporte-progreso')).toBe(true);
-    expect(app.estiloDe('reporte-progreso-relleno').width).toBe('30%');
-    expect(app.estiloDe('reporte-progreso-relleno').backgroundColor).toBe(colors.accent);
+    expect(app.avanceDe('reporte-progreso')).toBe(30);
+    expect(app.colorDeBarra('reporte-progreso')).toBe(colors.accent);
     // La hoja se ve atenuada, pero el botón sigue activo: él decide.
     expect(app.estiloDe('reporte-hoja').opacity).toBeLessThan(1);
     expect(app.botonDesactivado('reporte-compartir')).toBe(false);

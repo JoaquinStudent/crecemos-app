@@ -9,7 +9,6 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
-  Switch,
   Vibration,
   View,
 } from 'react-native';
@@ -24,7 +23,10 @@ import { Icon } from '@components/atoms/Icon';
 import { MoneyText } from '@components/atoms/MoneyText';
 import { AmountInput } from '@components/molecules/AmountInput';
 import { CantidadInput } from '@components/molecules/CantidadInput';
+import { Callout } from '@components/molecules/Callout';
+import { Card } from '@components/molecules/Card';
 import { ChipGroup, ChipOption } from '@components/molecules/ChipGroup';
+import { SwitchRow } from '@components/molecules/SwitchRow';
 import { ScreenHeader } from '@components/molecules/ScreenHeader';
 import { StickyFooter } from '@components/molecules/StickyFooter';
 import { calcularCierre, crearId, editarCierre, nuevoCierre } from '@dominio/cierre';
@@ -256,21 +258,21 @@ export const CerrarDiaScreen = () => {
           keyboardShouldPersistTaps="handled"
         >
           {editandoHoy ? (
-            <View style={styles.aviso} accessibilityLiveRegion="polite" testID="cerrar-ya-cerraste">
+            <Callout accessibilityLiveRegion="polite" testID="cerrar-ya-cerraste">
               <Text variant="bodyStrong">Ya cerraste hoy. Estás editando ese cierre.</Text>
-            </View>
+            </Callout>
           ) : null}
 
           <View style={styles.bloque}>
             <Text variant="h3">¿Cuánto preparaste y cuánto te sobró?</Text>
             {activos.length === 0 ? (
-              <View style={styles.tarjeta}>
+              <Card style={styles.tarjeta}>
                 <Text>Agrega un producto activo en Perfil para registrar lo que vendes.</Text>
                 <Button title="Ir a mis productos" variant="outline" onPress={() => navigation.navigate('Perfil')} testID="cerrar-agregar-producto" />
-              </View>
+              </Card>
             ) : null}
             {activos.map(p => (
-              <View key={p.id} style={styles.tarjeta}>
+              <Card key={p.id} style={styles.tarjeta}>
                 <Text variant="bodyStrong">
                   {p.nombre}{' '}
                   <Text variant="label" color="textMuted">
@@ -295,7 +297,7 @@ export const CerrarDiaScreen = () => {
                     testID={`sobrantes-${p.id}`}
                   />
                 </View>
-              </View>
+              </Card>
             ))}
           </View>
 
@@ -349,24 +351,17 @@ export const CerrarDiaScreen = () => {
             ))}
           </View>
 
-          <View style={styles.tarjeta}>
-            <View style={styles.filaInterruptor}>
-              <Text style={styles.etiquetaInterruptor}>Hoy compré mercadería</Text>
-              <Switch
-                value={abreCiclo}
-                onValueChange={setAbreCiclo}
-                trackColor={{ false: colors.disabled, true: colors.primary }}
-                thumbColor={colors.background}
-                accessibilityLabel="Hoy compré mercadería"
-                testID="hoy-compre-mercaderia"
-              />
-            </View>
-            <Text variant="caption" color="textMuted">
-              Desde este día cuento un ciclo de compra nuevo.
-            </Text>
-          </View>
+          <Card style={styles.tarjeta}>
+            <SwitchRow
+              label="Hoy compré mercadería"
+              description="Desde este día cuento un ciclo de compra nuevo."
+              value={abreCiclo}
+              onValueChange={setAbreCiclo}
+              testID="hoy-compre-mercaderia"
+            />
+          </Card>
 
-          <View style={[styles.tarjeta, styles.teQueda]}>
+          <Card style={[styles.tarjeta, styles.teQueda]}>
             <View style={styles.teQuedaTexto} testID="cerrar-resultado-texto">
               <Text variant="label">Resultado registrado</Text>
               <Text variant="caption" color="textMuted">Ventas menos gastos registrados. No equivale al efectivo recibido.</Text>
@@ -382,7 +377,7 @@ export const CerrarDiaScreen = () => {
             >
               {formatoSoles(teQueda)}
             </Text>
-          </View>
+          </Card>
         </ScrollView>
 
         <StickyFooter>
@@ -428,19 +423,7 @@ const styles = StyleSheet.create({
   },
   exitoMonto: { alignItems: 'center', alignSelf: 'stretch', gap: spacing.xs },
   bloque: { gap: spacing.md },
-  tarjeta: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.lg,
-    padding: spacing.md,
-    gap: spacing.sm,
-  },
-  aviso: {
-    backgroundColor: colors.warningSoft,
-    borderRadius: radius.lg,
-    borderLeftWidth: 4,
-    borderLeftColor: colors.warning,
-    padding: spacing.md,
-  },
+  tarjeta: { padding: spacing.md, gap: spacing.sm },
   fila: { flexDirection: 'row', gap: spacing.md },
   columna: { flex: 1 },
   gasto: {
@@ -462,12 +445,4 @@ const styles = StyleSheet.create({
   },
   teQuedaTexto: { flex: 1 },
   teQuedaMonto: { flexShrink: 0, maxWidth: '55%' },
-  filaInterruptor: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    minHeight: 48,
-    gap: spacing.md,
-  },
-  etiquetaInterruptor: { flex: 1 },
 });

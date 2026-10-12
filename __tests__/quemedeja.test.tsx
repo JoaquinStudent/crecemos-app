@@ -62,7 +62,13 @@ const montarApp = async () => {
     if (!encontrada) throw new Error(`No hay ninguna vista con testID "${testID}"`);
     return encontrada;
   };
-  const anchoDe = (testID: string) => StyleSheet.flatten(vista(testID).props.style).width;
+  const anchoDe = (testID: string) => {
+    const barra = app.root.findAll(
+      n => n.props.testID === testID && n.props.accessibilityValue !== undefined,
+    )[0];
+    if (!barra) throw new Error(`No hay ninguna barra con testID "${testID}"`);
+    return `${barra.props.accessibilityValue.now}%`;
+  };
   const tarjetas = () =>
     app.root
       .findAll(n => esHost(n, 'View') && String(n.props.testID ?? '').startsWith('queme-tarjeta-'))

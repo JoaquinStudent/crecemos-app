@@ -14,13 +14,26 @@ export interface CalloutProps {
   children: ReactNode;
   icon?: LucideIcon;
   style?: StyleProp<ViewStyle>;
+  /** "polite" para avisos que aparecen de pronto: el lector de pantalla los lee. */
+  accessibilityLiveRegion?: 'none' | 'polite' | 'assertive';
   testID?: string;
 }
 
 export const ANCHO_BORDE_CALLOUT = 4;
 
-export const Callout = ({ title, children, icon, style, testID }: CalloutProps) => (
-  <View style={[styles.base, style]} testID={testID}>
+export const Callout = ({
+  title,
+  children,
+  icon,
+  style,
+  accessibilityLiveRegion,
+  testID,
+}: CalloutProps) => (
+  <View
+    style={[styles.base, style]}
+    accessibilityLiveRegion={accessibilityLiveRegion}
+    testID={testID}
+  >
     {icon ? <Icon icon={icon} color="text" size="lg" style={styles.icono} /> : null}
     <View style={styles.cuerpo}>
       {title ? (
