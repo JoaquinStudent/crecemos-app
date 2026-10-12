@@ -760,7 +760,8 @@ describe('Resumen', () => {
     await tocar('tab-resumen');
 
     expect(existe('mercaderia-p-chicha')).toBe(false); // la chicha era del ciclo del 1 de octubre
-    expect(textos().some(t => t.includes('1 de octubre'))).toBe(false);
+    // Se exige que no haya un dígito antes: el 11 de octubre también contiene "1 de octubre" y no es el día del ciclo anterior.
+    expect(textos().some(t => /(^|\D)1 de octubre/.test(t))).toBe(false);
   });
 
   it('"Tu mercadería": lo vendido de lo preparado, con su barra y su porcentaje', async () => {
