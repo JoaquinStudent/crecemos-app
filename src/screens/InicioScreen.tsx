@@ -22,6 +22,7 @@ import {
   PiggyBank,
   Scale,
   ShoppingBasket,
+  Smartphone,
   Tag,
   TrendingDown,
   type LucideIcon,
@@ -37,6 +38,7 @@ import { AvatarPerfil } from '@components/molecules/AvatarPerfil';
 import { Callout } from '@components/molecules/Callout';
 import { Card } from '@components/molecules/Card';
 import { CargandoBloques } from '@components/molecules/CargandoBloques';
+import { AnotarYapeSheet } from '@components/organisms/AnotarYapeSheet';
 import { EmptyState } from '@components/molecules/EmptyState';
 import { ListRow } from '@components/molecules/ListRow';
 import { gananciaPorProducto, insight } from '@analisis/metricas';
@@ -84,6 +86,8 @@ export const InicioScreen = () => {
     useCrecemos();
   const navigation = useNavigation<InicioNavigation>();
   const hoy = fechaLocal(new Date());
+  const [anotandoYape, setAnotandoYape] = useState(false);
+  const anotarYape = () => setAnotandoYape(true);
 
   // 'YYYY-MM-DD' ordena igual como texto que como fecha.
   const ultimo = cierres.reduce<(typeof cierres)[number] | null>(
@@ -175,6 +179,12 @@ export const InicioScreen = () => {
                 alTocar={() => navigation.navigate('MiReporte')}
                 testID="inicio-accion-mi-reporte"
               />
+              <AccionRapida
+                icono={Smartphone}
+                titulo="Anotar un yape"
+                alTocar={anotarYape}
+                testID="inicio-accion-anotar-yape"
+              />
             </View>
             {/* La única acción principal de la pantalla (UX, regla 2). Si hoy ya está cerrado,
                 no insiste: ofrece editar con calma. */}
@@ -209,9 +219,18 @@ export const InicioScreen = () => {
             {productos.length === 0 ? (
               <DatosDeEjemplo estado={semilla} alCargar={cargarDatosDeEjemplo} />
             ) : null}
+            <View style={styles.accionesRapidas}>
+              <AccionRapida
+                icono={Smartphone}
+                titulo="Anotar un yape"
+                alTocar={anotarYape}
+                testID="inicio-accion-anotar-yape"
+              />
+            </View>
           </>
         )}
       </ScrollView>
+      <AnotarYapeSheet visible={anotandoYape} onClose={() => setAnotandoYape(false)} />
     </SafeAreaView>
   );
 };

@@ -15,12 +15,13 @@ import { marcarCobrados } from '@dominio/cobro';
 import { fechaLocal } from '@dominio/fecha';
 import { redondearSoles } from '@dominio/formato';
 import { DatosMeta, Meta, NOMBRE_META, validarAporte, validarMeta } from '@dominio/meta';
+import { horaLocal, validarYape, YapeAnotado } from '@dominio/yape';
 import { quitarFoto as quitarFotoDelPerfil, validarFoto } from '@dominio/foto';
 import { normalizarPerfil, PERFIL_POR_DEFECTO } from '@dominio/perfil';
 import { cambiarPrecio } from '@dominio/producto';
 import { contarDatosDeEjemplo, DatosDeEjemplo } from '@dominio/origen';
 import { materializarSemilla } from '@dominio/semilla';
-import type { Cierre, DatosCierre, Perfil, Producto } from '@dominio/tipos';
+import type { Cierre, DatosCierre, FechaNegocio, Perfil, Producto } from '@dominio/tipos';
 import { DatosProducto, ResultadoValidacion, validarCierre, validarDatosProducto, validarProducto } from '@dominio/validacion';
 import { SEED_URL } from '../config';
 import { cargarSemilla } from '@services/seed';
@@ -32,9 +33,11 @@ import {
   guardarMeta as guardarMetaRepo,
   guardarPerfil as guardarPerfilRepo,
   guardarProducto,
+  guardarYapes as guardarYapesRepo,
   importarSemilla,
   listarCierres,
   listarProductos,
+  listarYapes,
   marcarCobrado as marcarCobradoRepo,
   marcarSemillaResuelta,
   obtenerMeta,
@@ -51,6 +54,8 @@ interface Estado {
   perfil: Perfil;
   /** La meta de ahorro de la cuota; `null` si no creó ninguna. */
   meta: Meta | null;
+  /** Los yapes que anotó durante el día, todavía sin sumar a un cierre. */
+  yapes: YapeAnotado[];
   cargando: boolean;
   /** `true` si no se pudo leer lo guardado al abrir: la pantalla ofrece reintentar. */
   error: boolean;
@@ -58,7 +63,7 @@ interface Estado {
 }
 
 type Accion =
-  | { tipo: 'cargado'; cierres: Cierre[]; productos: Producto[]; perfil: Perfil; meta: Meta | null }
+  | { tipo: 'cargado'; cierres: Cierre[]; productos: Producto[]; perfil: Perfil; meta: Meta | null; yapes: YapeAnotado[] }
   | { tipo: 'falloLaCarga' }
   | { tipo: 'reintentando' }
   | { tipo: 'semilla'; estado: EstadoSemilla }
@@ -67,6 +72,7 @@ type Accion =
   | { tipo: 'cobrado'; ids: string[]; fecha: string }
   | { tipo: 'perfilGuardado'; perfil: Perfil }
   | { tipo: 'metaGuardada'; meta: Meta | null }
+  | { tipo: 'yapesGuardados'; yapes: YapeAnotado[] }
   | { tipo: 'productoGuardado'; producto: Producto }
   | { tipo: 'cierreGuardado'; cierre: Cierre }
   | { tipo: 'cierreEliminado'; id: string };
@@ -76,6 +82,7 @@ const estadoInicial: Estado = {
   productos: [],
   perfil: PERFIL_POR_DEFECTO,
   meta: null,
+  yapes: [],
   cargando: true,
   error: false,
   semilla: 'ninguna',
@@ -89,6 +96,7 @@ const reducer = (estado: Estado, accion: Accion): Estado => {
         productos: accion.productos,
         perfil: accion.perfil,
         meta: accion.meta,
+        yapes: accion.yapes,
         cargando: false,
         error: false,
         semilla: 'ninguna',
@@ -114,6 +122,8 @@ const reducer = (estado: Estado, accion: Accion): Estado => {
       return { ...estado, perfil: accion.perfil };
     case 'metaGuardada':
       return { ...estado, meta: accion.meta };
+    case 'yapesGuardados':
+      return { ...estado, yapes: accion.yapes };
     case 'productoGuardado':
       // Reemplaza por id sin mover el producto de lugar.
       return {
@@ -133,11 +143,19 @@ const reducer = (estado: Estado, accion: Accion): Estado => {
   }
 };
 
+export interface OpcionesGuardarDia {
+  /**
+   * Si el monto de Yape ya incluye los yapes anotados de esa fecha, pasa la fecha: una vez
+   * guardado el día, esos apuntes se borran (se consumieron) y no se vuelven a sumar.
+   */
+  consumirYapesDe?: FechaNegocio;
+}
+
 interface ContextoCrecemos extends Estado {
   /** Vuelve a leer lo guardado después de un error al abrir. */
   reintentar: () => Promise<void>;
   /** Valida, arma y guarda el cierre del día. Devuelve los errores si no pasa. */
-  guardarDia: (datos: DatosCierre) => Promise<ResultadoValidacion>;
+  guardarDia: (datos: DatosCierre, opciones?: OpcionesGuardarDia) => Promise<ResultadoValidacion>;
   /** Borra el cierre con ese id. */
   eliminarDia: (id: string) => Promise<void>;
   guardarPerfil: (parcial: Partial<Perfil>) => Promise<void>;
@@ -171,6 +189,10 @@ interface ContextoCrecemos extends Estado {
   quitarAporte: (id: string) => Promise<void>;
   /** Borra la meta y todo lo que tenía separado en ella. */
   borrarMeta: () => Promise<void>;
+  /** Anota un yape de hoy, con la hora de ahora. Devuelve el error si el monto no sirve. */
+  anotarYape: (monto: number) => Promise<ResultadoValidacion>;
+  /** Quita un yape anotado (por si se equivocó). */
+  quitarYape: (id: string) => Promise<void>;
 }
 
 const Contexto = createContext<ContextoCrecemos | null>(null);
@@ -187,6 +209,8 @@ export const CrecemosProvider = ({ children }: { children: React.ReactNode }) =>
   const perfilRef = useRef<Perfil>(PERFIL_POR_DEFECTO);
   // La meta más reciente, incluso la que aún se está guardando: dos aportes seguidos se suman.
   const metaRef = useRef<Meta | null>(null);
+  // Igual con los yapes anotados: dos apuntes seguidos no se pisan.
+  const yapesRef = useRef<YapeAnotado[]>([]);
 
   /**
    * Pide la semilla en segundo plano y, si llega bien, la guarda y la deja en el estado.
@@ -231,17 +255,19 @@ export const CrecemosProvider = ({ children }: { children: React.ReactNode }) =>
   // "Reintentar") en vez de dejar la pantalla en blanco para siempre.
   const cargar = useCallback(async (): Promise<void> => {
     try {
-      const [cierres, productos, perfil, meta] = await Promise.all([
+      const [cierres, productos, perfil, meta, yapes] = await Promise.all([
         listarCierres(),
         listarProductos(),
         obtenerPerfil(),
-        // La meta es un extra: si no se puede leer, la app abre igual (sin meta).
+        // La meta y los yapes anotados son extras: si no se pueden leer, la app abre igual.
         obtenerMeta().catch(() => null),
+        listarYapes().catch(() => [] as YapeAnotado[]),
       ]);
       if (!montado.current) return;
       perfilRef.current = perfil ?? PERFIL_POR_DEFECTO;
       metaRef.current = meta;
-      dispatch({ tipo: 'cargado', cierres, productos, perfil: perfilRef.current, meta });
+      yapesRef.current = yapes;
+      dispatch({ tipo: 'cargado', cierres, productos, perfil: perfilRef.current, meta, yapes });
       // La demostración es voluntaria: solo se descarga cuando se toca el botón.
     } catch {
       if (montado.current) dispatch({ tipo: 'falloLaCarga' });
@@ -261,8 +287,21 @@ export const CrecemosProvider = ({ children }: { children: React.ReactNode }) =>
     await cargar();
   }, [cargar]);
 
+  /** Guarda la lista de yapes anotados apoyada en `yapesRef`; si falla, el ref vuelve atrás. */
+  const persistirYapes = useCallback(async (yapes: YapeAnotado[]): Promise<void> => {
+    const previos = yapesRef.current;
+    yapesRef.current = yapes;
+    try {
+      await guardarYapesRepo(yapes);
+    } catch (error) {
+      if (yapesRef.current === yapes) yapesRef.current = previos;
+      throw error;
+    }
+    dispatch({ tipo: 'yapesGuardados', yapes });
+  }, []);
+
   const guardarDia = useCallback(
-    async (datos: DatosCierre): Promise<ResultadoValidacion> => {
+    async (datos: DatosCierre, opciones?: OpcionesGuardarDia): Promise<ResultadoValidacion> => {
       const resultado = validarCierre(datos, estado.productos);
       if (!resultado.ok) return resultado;
       const ahora = new Date();
@@ -274,9 +313,17 @@ export const CrecemosProvider = ({ children }: { children: React.ReactNode }) =>
         : nuevoCierre(datos, estado.productos, estado.perfil, ahora);
       await guardarCierre(cierre);
       dispatch({ tipo: 'cierreGuardado', cierre });
+      const consumida = opciones?.consumirYapesDe;
+      if (consumida && yapesRef.current.some(y => y.fecha === consumida)) {
+        // El día ya quedó guardado: si esto falla, los apuntes se quedan (nunca se pierde el
+        // cierre) y solo se vuelven a sumar si la persona lo pide con "Sumar mis yapes anotados".
+        await persistirYapes(yapesRef.current.filter(y => y.fecha !== consumida)).catch(
+          () => undefined,
+        );
+      }
       return resultado;
     },
-    [estado.cierres, estado.productos, estado.perfil],
+    [estado.cierres, estado.productos, estado.perfil, persistirYapes],
   );
 
   const eliminarDia = useCallback(async (id: string): Promise<void> => {
@@ -480,6 +527,33 @@ export const CrecemosProvider = ({ children }: { children: React.ReactNode }) =>
     await persistirMeta(null);
   }, [persistirMeta]);
 
+  const anotarYape = useCallback(
+    async (monto: number): Promise<ResultadoValidacion> => {
+      const resultado = validarYape(monto);
+      if (!resultado.ok) return resultado;
+      const ahora = new Date();
+      await persistirYapes([
+        ...yapesRef.current,
+        {
+          id: `y-${crearId()}`,
+          fecha: fechaLocal(ahora),
+          hora: horaLocal(ahora),
+          monto: redondearSoles(monto),
+        },
+      ]);
+      return resultado;
+    },
+    [persistirYapes],
+  );
+
+  const quitarYape = useCallback(
+    async (id: string): Promise<void> => {
+      if (!yapesRef.current.some(y => y.id === id)) return;
+      await persistirYapes(yapesRef.current.filter(y => y.id !== id));
+    },
+    [persistirYapes],
+  );
+
   const valor = useMemo(
     () => ({
       ...estado,
@@ -501,6 +575,8 @@ export const CrecemosProvider = ({ children }: { children: React.ReactNode }) =>
       aportarAMeta,
       quitarAporte,
       borrarMeta,
+      anotarYape,
+      quitarYape,
     }),
     [
       estado,
@@ -522,6 +598,8 @@ export const CrecemosProvider = ({ children }: { children: React.ReactNode }) =>
       aportarAMeta,
       quitarAporte,
       borrarMeta,
+      anotarYape,
+      quitarYape,
     ],
   );
 

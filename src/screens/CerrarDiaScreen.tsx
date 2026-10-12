@@ -32,7 +32,8 @@ import { StickyFooter } from '@components/molecules/StickyFooter';
 import { calcularCierre, crearId, editarCierre, nuevoCierre } from '@dominio/cierre';
 import { ETIQUETA_GASTO } from '@dominio/categorias';
 import { fechaLocal } from '@dominio/fecha';
-import { formatoFecha, formatoSoles, parseAmount } from '@dominio/formato';
+import { formatoFecha, formatoSoles, parseAmount, redondearSoles } from '@dominio/formato';
+import { totalDelDia, yapesDeFecha } from '@dominio/yape';
 import { estado as estadoDeMeta, sugerenciaDeHoy, teQuedaDelUltimoCierre } from '@dominio/meta';
 import type { Cierre, CategoriaGasto, DatosCierre, Gasto } from '@dominio/tipos';
 import { MensajeError } from '@components/atoms/MensajeError';
@@ -62,7 +63,8 @@ type Cantidades = Record<string, { preparadas: string; sobrantes: string }>;
 const enteroDe = (texto: string) => (texto === '' ? 0 : parseInt(texto, 10));
 
 export const CerrarDiaScreen = () => {
-  const { productos, cierres, guardarDia, meta, aportarAMeta } = useCrecemos();
+  const { productos, cierres, guardarDia, meta, aportarAMeta, yapes } =
+    useCrecemos();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList, 'CerrarDia'>>();
   const route = useRoute<RouteProp<RootStackParamList, 'CerrarDia'>>();
 
@@ -75,6 +77,8 @@ export const CerrarDiaScreen = () => {
   const [errores, setErrores] = useState<Record<string, string>>({});
   const [exito, setExito] = useState<Exito | null>(null);
   // Lo que separó para su cuota desde la pantalla de éxito (null = todavía nada).
+  // `true` si el monto de Yape ya incluye los yapes anotados de esta fecha (se consumen al guardar).
+  const [sumados, setSumados] = useState(false);
   const [separado, setSeparado] = useState<number | null>(null);
 
   // Modo edición: llega la fecha de un día ya cerrado desde Historial.
@@ -89,6 +93,12 @@ export const CerrarDiaScreen = () => {
   const cierresRef = useRef(cierres);
   cierresRef.current = cierres;
   const scrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
+  const yapesRef = useRef(yapes);
+  yapesRef.current = yapes;
+  // Los yapes anotados del día que se está cerrando (o editando).
+  const fechaObjetivo = original?.fecha ?? fecha ?? hoy;
+  const anotados = yapesDeFecha(yapes, fechaObjetivo);
+  const sumaAnotados = totalDelDia(yapes, fechaObjetivo);
 
   const vaciar = useCallback(() => {
     setCantidades({});
@@ -98,6 +108,7 @@ export const CerrarDiaScreen = () => {
     setGastos([]);
     setAbreCiclo(false);
     setErrores({});
+    setSumados(false);
   }, []);
 
   const precargar = useCallback((c: Cierre) => {
@@ -115,6 +126,7 @@ export const CerrarDiaScreen = () => {
     setGastos(c.gastos.map(conId));
     setAbreCiclo(c.abreCiclo);
     setErrores({});
+    setSumados(false);
   }, []);
 
   // Al abrir el modal se carga lo que corresponda: con `fecha`, ese día; sin ella, el cierre de
@@ -130,6 +142,12 @@ export const CerrarDiaScreen = () => {
       return;
     }
     vaciar();
+    // Cierre nuevo con yapes anotados: el Yape ya viene sumado (se puede cambiar).
+    const anotadosDelDia = yapesDeFecha(yapesRef.current, objetivo);
+    if (anotadosDelDia.length > 0) {
+      setYape(String(totalDelDia(yapesRef.current, objetivo)));
+      setSumados(true);
+    }
   }, [fecha, precargar, vaciar]);
 
   useEffect(() => {
@@ -187,10 +205,19 @@ export const CerrarDiaScreen = () => {
     setMontoGasto('');
   };
 
+  // Día ya cerrado: los yapes anotados se suman solo si la persona lo pide (no se cuenta dos veces).
+  const sumarAnotados = () => {
+    setYape(String(redondearSoles(parseAmount(yape) + sumaAnotados)));
+    setSumados(true);
+  };
+
   const quitarGasto = (id: string) => setGastos(previos => previos.filter(g => g.id !== id));
 
   const { ejecutar: guardar, ejecutando: guardando, mensajeError } = useAccionSegura(async () => {
-    const resultado = await guardarDia(original ? { ...datos, fecha: original.fecha } : datos);
+    const resultado = await guardarDia(
+      original ? { ...datos, fecha: original.fecha } : datos,
+      sumados ? { consumirYapesDe: fechaObjetivo } : undefined,
+    );
     if (!resultado.ok) {
       setErrores(resultado.errores);
       return;
@@ -341,6 +368,26 @@ export const CerrarDiaScreen = () => {
             error={errores.montoYape}
             testID="monto-yape"
           />
+          {sumados ? (
+            <Callout accessibilityLiveRegion="polite" testID="cerrar-yapes-nota">
+              <Text variant="bodyStrong">
+                {`${anotados.length === 1 ? 'Sumamos tu yape anotado' : `Sumamos tus ${anotados.length} yapes anotados`} · ${formatoSoles(sumaAnotados)}`}
+              </Text>
+              <Text variant="caption">Puedes cambiar el monto si hace falta.</Text>
+            </Callout>
+          ) : anotados.length > 0 ? (
+            <Card variant="bordered" style={styles.tarjeta} testID="cerrar-yapes-pendientes">
+              <Text>
+                {`Tienes ${anotados.length === 1 ? '1 yape anotado' : `${anotados.length} yapes anotados`} · ${formatoSoles(sumaAnotados)}`}
+              </Text>
+              <Button
+                title="Sumar mis yapes anotados"
+                variant="outline"
+                onPress={sumarAnotados}
+                testID="cerrar-sumar-yapes"
+              />
+            </Card>
+          ) : null}
 
           <View style={styles.bloque}>
             <Text variant="h3">¿Gastaste algo hoy?</Text>

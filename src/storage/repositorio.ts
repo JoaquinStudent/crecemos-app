@@ -160,3 +160,12 @@ export const guardarMeta = async (m: Meta): Promise<void> => {
 export const borrarMeta = async (): Promise<void> => {
   await base().removeItem(CLAVE_META);
 };
+
+/** Los yapes anotados, de todas las fechas. Lo ilegible se ignora. */
+export const listarYapes = async (): Promise<YapeAnotado[]> =>
+  normalizarYapes(await leer<unknown>(CLAVE_YAPES));
+
+/** Reemplaza la lista completa de yapes anotados, en una sola escritura. */
+export const guardarYapes = async (yapes: YapeAnotado[]): Promise<void> => {
+  await base().setItem(CLAVE_YAPES, JSON.stringify(yapes));
+};
