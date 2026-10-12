@@ -13,7 +13,7 @@ import { Button } from '@components/atoms/Button';
 import { AmountInput } from '@components/molecules/AmountInput';
 import { CantidadInput } from '@components/molecules/CantidadInput';
 import { ChipGroup, ChipOption } from '@components/molecules/ChipGroup';
-import { calcularCierre, editarCierre, nuevoCierre } from '@dominio/cierre';
+import { calcularCierre, crearId, editarCierre, nuevoCierre } from '@dominio/cierre';
 import { ETIQUETA_GASTO } from '@dominio/categorias';
 import { fechaLocal } from '@dominio/fecha';
 import { formatoFecha, formatoSoles, parseAmount } from '@dominio/formato';
@@ -25,6 +25,11 @@ import type { TabsParamList } from '@navigation/Tabs';
 const CATEGORIAS: readonly ChipOption<CategoriaGasto>[] = (
   Object.keys(ETIQUETA_GASTO) as CategoriaGasto[]
 ).map(value => ({ value, label: ETIQUETA_GASTO[value] }));
+
+// Cada gasto agregado lleva un id propio para poder quitarlo sin depender de su posición.
+type GastoEnForm = Gasto & { id: string };
+
+const conId = (g: Gasto): GastoEnForm => ({ ...g, id: crearId() });
 
 type Cantidades = Record<string, { preparadas: string; sobrantes: string }>;
 
@@ -39,7 +44,7 @@ export const CerrarDiaScreen = () => {
   const [yape, setYape] = useState('');
   const [montoGasto, setMontoGasto] = useState('');
   const [categoria, setCategoria] = useState<CategoriaGasto>('mercaderia');
-  const [gastos, setGastos] = useState<Gasto[]>([]);
+  const [gastos, setGastos] = useState<GastoEnForm[]>([]);
   const [abreCiclo, setAbreCiclo] = useState(false);
   const [errores, setErrores] = useState<Record<string, string>>({});
   const [guardando, setGuardando] = useState(false);
@@ -80,7 +85,7 @@ export const CerrarDiaScreen = () => {
     setYape(c.montoYape > 0 ? String(c.montoYape) : '');
     setMontoGasto('');
     setCategoria('mercaderia');
-    setGastos(c.gastos);
+    setGastos(c.gastos.map(conId));
     setAbreCiclo(c.abreCiclo);
     setErrores({});
   }, []);
@@ -148,7 +153,10 @@ export const CerrarDiaScreen = () => {
       sobrantes: enteroDe(cantidades[id].sobrantes),
     })),
     montoYape: parseAmount(yape),
-    gastos: pendiente > 0 ? [...gastos, { categoria, monto: pendiente }] : gastos,
+    gastos: [
+      ...gastos.map(({ categoria: cat, monto }) => ({ categoria: cat, monto })),
+      ...(pendiente > 0 ? [{ categoria, monto: pendiente }] : []),
+    ],
     abreCiclo,
   };
   // En edición la vista previa usa los precios con que se cerró ese día (D2).
@@ -169,9 +177,11 @@ export const CerrarDiaScreen = () => {
     }));
 
   const agregarGasto = () => {
-    setGastos(previos => [...previos, { categoria, monto: parseAmount(montoGasto) }]);
+    setGastos(previos => [...previos, conId({ categoria, monto: parseAmount(montoGasto) })]);
     setMontoGasto('');
   };
+
+  const quitarGasto = (id: string) => setGastos(previos => previos.filter(g => g.id !== id));
 
   const guardar = async () => {
     setGuardando(true);
@@ -295,11 +305,20 @@ export const CerrarDiaScreen = () => {
               testID="agregar-gasto"
             />
             {gastos.map((g, i) => (
-              <View key={i} style={styles.gasto} testID={`gasto-${i}`}>
-                <Text testID={`gasto-${i}-categoria`}>{ETIQUETA_GASTO[g.categoria]}</Text>
+              <View key={g.id} style={styles.gasto} testID={`gasto-${i}`}>
+                <Text style={styles.gastoCategoria} testID={`gasto-${i}-categoria`}>
+                  {ETIQUETA_GASTO[g.categoria]}
+                </Text>
                 <Text variant="bodyStrong" color="danger" testID={`gasto-${i}-monto`}>
                   − {formatoSoles(g.monto)}
                 </Text>
+                <Button
+                  title="Quitar"
+                  variant="ghost"
+                  accessibilityLabel={`Quitar el gasto de ${ETIQUETA_GASTO[g.categoria]}, ${formatoSoles(g.monto)}`}
+                  onPress={() => quitarGasto(g.id)}
+                  testID={`quitar-gasto-${i}`}
+                />
               </View>
             ))}
           </View>
@@ -389,9 +408,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     minHeight: 48,
+    gap: spacing.sm,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
+  gastoCategoria: { flex: 1 },
   teQueda: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   filaInterruptor: {
     flexDirection: 'row',
