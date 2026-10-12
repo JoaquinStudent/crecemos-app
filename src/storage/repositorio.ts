@@ -4,6 +4,7 @@
 import { createAsyncStorage } from '@react-native-async-storage/async-storage';
 import { PRODUCTOS_POR_DEFECTO } from '@dominio/productosPorDefecto';
 import { marcarCobrados } from '@dominio/cobro';
+import { Meta, normalizarMeta } from '@dominio/meta';
 import { contarDatosDeEjemplo, DatosDeEjemplo, sinDatosDeEjemplo } from '@dominio/origen';
 import type {
   Cierre,
@@ -13,6 +14,7 @@ import type {
   Producto,
   SemillaMaterializada,
 } from '@dominio/tipos';
+import { normalizarYapes, YapeAnotado } from '@dominio/yape';
 
 const PREFIJO_CLAVE = '@crecemos/';
 const PREFIJO_RESPALDO = '@crecemos/respaldo-';
@@ -20,6 +22,8 @@ const CLAVE_CIERRES = '@crecemos/cierres';
 const CLAVE_PRODUCTOS = '@crecemos/productos';
 const CLAVE_PERFIL = '@crecemos/perfil';
 const CLAVE_SEED = '@crecemos/seed';
+const CLAVE_META = '@crecemos/meta';
+const CLAVE_YAPES = '@crecemos/yapes';
 
 // Base propia de la app (D21). Se pide en cada operación: en nativo la instancia
 // solo guarda el nombre, y en Jest el mock la reutiliza por nombre, así que
@@ -141,4 +145,18 @@ export const borrarDatosDeEjemplo = async (): Promise<
   await base().setItem(CLAVE_PRODUCTOS, JSON.stringify(resto.productos));
   await base().removeItem(CLAVE_SEED);
   return { ...quitado, cierresRestantes: resto.cierres, productosRestantes: resto.productos };
+};
+
+/** La meta de ahorro "Mi cuota". `null` si no hay, o si lo guardado no se puede usar. */
+export const obtenerMeta = async (): Promise<Meta | null> =>
+  normalizarMeta(await leer<unknown>(CLAVE_META));
+
+/** Reemplaza la meta, en una sola escritura. */
+export const guardarMeta = async (m: Meta): Promise<void> => {
+  await base().setItem(CLAVE_META, JSON.stringify(m));
+};
+
+/** Borra la meta. Sin meta guardada, no hace nada. */
+export const borrarMeta = async (): Promise<void> => {
+  await base().removeItem(CLAVE_META);
 };

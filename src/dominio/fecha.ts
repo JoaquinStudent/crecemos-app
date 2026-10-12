@@ -30,3 +30,23 @@ export const diasEntre = (desde: FechaNegocio, hasta: FechaNegocio): number =>
 
 /** Día de la semana de la fecha del negocio: 0 = domingo … 6 = sábado. Sin zona horaria. */
 export const diaSemana = (f: FechaNegocio): number => new Date(medianocheUTC(f)).getUTCDay();
+
+/** Último día del mes de la fecha dada ('2026-02-10' → '2026-02-28'). Sin zona horaria. */
+export const finDeMes = (f: FechaNegocio): FechaNegocio => {
+  const [anio, mes] = f.split('-').map(Number);
+  const ultimo = new Date(Date.UTC(anio, mes, 0)).getUTCDate();
+  return `${anio}-${dosDigitos(mes)}-${dosDigitos(ultimo)}`;
+};
+
+/**
+ * Arma 'YYYY-MM-DD' desde día, mes y año escritos a mano. `null` si no existe ese día
+ * (31 de febrero, mes 13, año de 2 cifras…): nunca inventa una fecha parecida.
+ */
+export const fechaDesdePartes = (dia: number, mes: number, anio: number): FechaNegocio | null => {
+  if (![dia, mes, anio].every(Number.isInteger) || anio < 1000 || anio > 9999) return null;
+  const d = new Date(Date.UTC(anio, mes - 1, dia));
+  if (d.getUTCFullYear() !== anio || d.getUTCMonth() !== mes - 1 || d.getUTCDate() !== dia) {
+    return null;
+  }
+  return `${anio}-${dosDigitos(mes)}-${dosDigitos(dia)}`;
+};

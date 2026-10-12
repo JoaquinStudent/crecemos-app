@@ -9,6 +9,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import type { NavigatorScreenParams } from '@react-navigation/native';
 import { PerfilScreen } from '@screens/PerfilScreen';
 import { CerrarDiaScreen } from '@screens/CerrarDiaScreen';
+import { MiMetaScreen } from '@screens/MiMetaScreen';
 import { MiReporteScreen } from '@screens/MiReporteScreen';
 import { QueMeDejaScreen } from '@screens/QueMeDejaScreen';
 import type { FechaNegocio } from '@dominio/tipos';
@@ -21,6 +22,8 @@ export type RootStackParamList = {
   Perfil: undefined;
   QueMeDeja: undefined;
   MiReporte: undefined;
+  /** La alcancía de la cuota del préstamo. */
+  MiMeta: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -32,5 +35,6 @@ export const RootStack = () => (
     <Stack.Screen name="Perfil" component={PerfilScreen} />
     <Stack.Screen name="QueMeDeja" component={QueMeDejaScreen} />
     <Stack.Screen name="MiReporte" component={MiReporteScreen} />
+    <Stack.Screen name="MiMeta" component={MiMetaScreen} />
   </Stack.Navigator>
 );

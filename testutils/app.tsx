@@ -60,6 +60,13 @@ export const montarApp = async () => {
     return campo.props.value;
   };
   const botonDe = (testID: string) => nodo(testID, 'onPress');
+  // Las props del primer nodo con ese testID (accessibilityValue de un anillo, etc.).
+  const propsDe = (testID: string) => {
+    const todos = app.root.findAll(n => n.props.testID === testID);
+    const encontrado = todos.find(n => typeof n.type === 'string') ?? todos[0];
+    if (!encontrado) throw new Error(`No hay nada con testID "${testID}"`);
+    return encontrado.props;
+  };
   const interruptor = (testID: string) => {
     const encontrado = app.root.findAll(n => n.props.testID === testID && 'value' in n.props)[0];
     if (!encontrado) throw new Error(`No hay ningún interruptor con testID "${testID}"`);
@@ -104,6 +111,7 @@ export const montarApp = async () => {
     cambiarInterruptor,
     existe,
     botonDe,
+    propsDe,
     textos,
     textoDe,
     colorDe,

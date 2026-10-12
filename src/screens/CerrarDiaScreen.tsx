@@ -15,7 +15,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { CircleCheck, Plus } from 'lucide-react-native';
+import { CircleCheck, PiggyBank, Plus } from 'lucide-react-native';
 import { colors, radius, spacing } from '@theme';
 import { Text } from '@components/atoms/Text';
 import { Button } from '@components/atoms/Button';
@@ -33,6 +33,7 @@ import { calcularCierre, crearId, editarCierre, nuevoCierre } from '@dominio/cie
 import { ETIQUETA_GASTO } from '@dominio/categorias';
 import { fechaLocal } from '@dominio/fecha';
 import { formatoFecha, formatoSoles, parseAmount } from '@dominio/formato';
+import { estado as estadoDeMeta, sugerenciaDeHoy, teQuedaDelUltimoCierre } from '@dominio/meta';
 import type { Cierre, CategoriaGasto, DatosCierre, Gasto } from '@dominio/tipos';
 import { MensajeError } from '@components/atoms/MensajeError';
 import { useAccionSegura } from '@hooks/useAccionSegura';
@@ -61,7 +62,7 @@ type Cantidades = Record<string, { preparadas: string; sobrantes: string }>;
 const enteroDe = (texto: string) => (texto === '' ? 0 : parseInt(texto, 10));
 
 export const CerrarDiaScreen = () => {
-  const { productos, cierres, guardarDia } = useCrecemos();
+  const { productos, cierres, guardarDia, meta, aportarAMeta } = useCrecemos();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList, 'CerrarDia'>>();
   const route = useRoute<RouteProp<RootStackParamList, 'CerrarDia'>>();
 
@@ -73,6 +74,8 @@ export const CerrarDiaScreen = () => {
   const [abreCiclo, setAbreCiclo] = useState(false);
   const [errores, setErrores] = useState<Record<string, string>>({});
   const [exito, setExito] = useState<Exito | null>(null);
+  // Lo que separó para su cuota desde la pantalla de éxito (null = todavía nada).
+  const [separado, setSeparado] = useState<number | null>(null);
 
   // Modo edición: llega la fecha de un día ya cerrado desde Historial.
   const fecha = route.params?.fecha;
@@ -204,6 +207,16 @@ export const CerrarDiaScreen = () => {
     }
   });
 
+  const sugerenciaMeta = meta
+    ? sugerenciaDeHoy(meta, hoy, teQuedaDelUltimoCierre(cierres))
+    : null;
+  const { ejecutar: separarParaCuota, ejecutando: separando, mensajeError: errorSeparar } =
+    useAccionSegura(async () => {
+      if (!sugerenciaMeta) return;
+      const resultado = await aportarAMeta(sugerenciaMeta.monto);
+      if (resultado.ok) setSeparado(sugerenciaMeta.monto);
+    });
+
   const cerrar = () => navigation.goBack();
 
   if (exito) {
@@ -226,6 +239,26 @@ export const CerrarDiaScreen = () => {
           <Text align="center" testID="cierre-exito-resumen">
             {`Vendiste ${formatoSoles(exito.venta)} · Gastaste ${formatoSoles(exito.gastoTotal)}`}
           </Text>
+          {/* Separar para la cuota es opcional y no cierra nada: el único principal sigue siendo "Listo". */}
+          {meta && estadoDeMeta(meta, hoy) !== 'cumplida' ? (
+            separado !== null ? (
+              <Text variant="bodyStrong" align="center" testID="cierre-meta-separado">
+                {`Separaste ${formatoSoles(separado)} para tu cuota`}
+              </Text>
+            ) : sugerenciaMeta && sugerenciaMeta.monto > 0 ? (
+              <View style={styles.exitoMonto}>
+                <MensajeError mensaje={errorSeparar} testID="cierre-meta-error" />
+                <Button
+                  title={`Separar ${formatoSoles(sugerenciaMeta.monto)} para tu cuota`}
+                  variant="outline"
+                  leftIcon={PiggyBank}
+                  loading={separando}
+                  onPress={() => separarParaCuota()}
+                  testID="cierre-meta-separar"
+                />
+              </View>
+            ) : null
+          ) : null}
         </View>
         <StickyFooter>
           <Button title="Listo" size="lg" fullWidth onPress={cerrar} testID="cierre-listo" />

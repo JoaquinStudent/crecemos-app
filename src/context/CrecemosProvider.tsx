@@ -14,6 +14,7 @@ import { crearId, editarCierre, nuevoCierre } from '@dominio/cierre';
 import { marcarCobrados } from '@dominio/cobro';
 import { fechaLocal } from '@dominio/fecha';
 import { redondearSoles } from '@dominio/formato';
+import { DatosMeta, Meta, NOMBRE_META, validarAporte, validarMeta } from '@dominio/meta';
 import { quitarFoto as quitarFotoDelPerfil, validarFoto } from '@dominio/foto';
 import { normalizarPerfil, PERFIL_POR_DEFECTO } from '@dominio/perfil';
 import { cambiarPrecio } from '@dominio/producto';
@@ -25,8 +26,10 @@ import { SEED_URL } from '../config';
 import { cargarSemilla } from '@services/seed';
 import {
   borrarDatosDeEjemplo as borrarDatosDeEjemploRepo,
+  borrarMeta as borrarMetaRepo,
   eliminarCierre,
   guardarCierre,
+  guardarMeta as guardarMetaRepo,
   guardarPerfil as guardarPerfilRepo,
   guardarProducto,
   importarSemilla,
@@ -34,6 +37,7 @@ import {
   listarProductos,
   marcarCobrado as marcarCobradoRepo,
   marcarSemillaResuelta,
+  obtenerMeta,
   obtenerPerfil,
   semillaCargada,
 } from '@storage/repositorio';
@@ -45,6 +49,8 @@ interface Estado {
   cierres: Cierre[];
   productos: Producto[];
   perfil: Perfil;
+  /** La meta de ahorro de la cuota; `null` si no creó ninguna. */
+  meta: Meta | null;
   cargando: boolean;
   /** `true` si no se pudo leer lo guardado al abrir: la pantalla ofrece reintentar. */
   error: boolean;
@@ -52,7 +58,7 @@ interface Estado {
 }
 
 type Accion =
-  | { tipo: 'cargado'; cierres: Cierre[]; productos: Producto[]; perfil: Perfil }
+  | { tipo: 'cargado'; cierres: Cierre[]; productos: Producto[]; perfil: Perfil; meta: Meta | null }
   | { tipo: 'falloLaCarga' }
   | { tipo: 'reintentando' }
   | { tipo: 'semilla'; estado: EstadoSemilla }
@@ -60,6 +66,7 @@ type Accion =
   | { tipo: 'ejemploBorrado'; cierres: Cierre[]; productos: Producto[] }
   | { tipo: 'cobrado'; ids: string[]; fecha: string }
   | { tipo: 'perfilGuardado'; perfil: Perfil }
+  | { tipo: 'metaGuardada'; meta: Meta | null }
   | { tipo: 'productoGuardado'; producto: Producto }
   | { tipo: 'cierreGuardado'; cierre: Cierre }
   | { tipo: 'cierreEliminado'; id: string };
@@ -68,6 +75,7 @@ const estadoInicial: Estado = {
   cierres: [],
   productos: [],
   perfil: PERFIL_POR_DEFECTO,
+  meta: null,
   cargando: true,
   error: false,
   semilla: 'ninguna',
@@ -80,6 +88,7 @@ const reducer = (estado: Estado, accion: Accion): Estado => {
         cierres: accion.cierres,
         productos: accion.productos,
         perfil: accion.perfil,
+        meta: accion.meta,
         cargando: false,
         error: false,
         semilla: 'ninguna',
@@ -103,6 +112,8 @@ const reducer = (estado: Estado, accion: Accion): Estado => {
       return { ...estado, cierres: marcarCobrados(estado.cierres, accion.ids, accion.fecha) };
     case 'perfilGuardado':
       return { ...estado, perfil: accion.perfil };
+    case 'metaGuardada':
+      return { ...estado, meta: accion.meta };
     case 'productoGuardado':
       // Reemplaza por id sin mover el producto de lugar.
       return {
@@ -149,6 +160,17 @@ interface ContextoCrecemos extends Estado {
   borrarDatosDeEjemplo: () => Promise<DatosDeEjemplo>;
   /** Marca como cobrado, con la fecha de hoy, todo el Yape que estaba por cobrar. */
   marcarCobrado: () => Promise<void>;
+  /**
+   * Crea la meta de la cuota. Si ya hay una, la edita (monto y fecha) y conserva lo ya separado.
+   * Devuelve los errores si no pasa.
+   */
+  crearMeta: (datos: DatosMeta) => Promise<ResultadoValidacion>;
+  /** Separa `monto` hoy para la meta. Sin meta o con un monto inválido, devuelve el error. */
+  aportarAMeta: (monto: number) => Promise<ResultadoValidacion>;
+  /** Quita un aporte de la meta (por si se equivocó). */
+  quitarAporte: (id: string) => Promise<void>;
+  /** Borra la meta y todo lo que tenía separado en ella. */
+  borrarMeta: () => Promise<void>;
 }
 
 const Contexto = createContext<ContextoCrecemos | null>(null);
@@ -163,6 +185,8 @@ export const CrecemosProvider = ({ children }: { children: React.ReactNode }) =>
   // El perfil más reciente, incluso el que aún se está guardando: dos cambios seguidos
   // (dos switches) se apoyan uno en el otro en vez de pisarse con un `estado.perfil` viejo.
   const perfilRef = useRef<Perfil>(PERFIL_POR_DEFECTO);
+  // La meta más reciente, incluso la que aún se está guardando: dos aportes seguidos se suman.
+  const metaRef = useRef<Meta | null>(null);
 
   /**
    * Pide la semilla en segundo plano y, si llega bien, la guarda y la deja en el estado.
@@ -207,14 +231,17 @@ export const CrecemosProvider = ({ children }: { children: React.ReactNode }) =>
   // "Reintentar") en vez de dejar la pantalla en blanco para siempre.
   const cargar = useCallback(async (): Promise<void> => {
     try {
-      const [cierres, productos, perfil] = await Promise.all([
+      const [cierres, productos, perfil, meta] = await Promise.all([
         listarCierres(),
         listarProductos(),
         obtenerPerfil(),
+        // La meta es un extra: si no se puede leer, la app abre igual (sin meta).
+        obtenerMeta().catch(() => null),
       ]);
       if (!montado.current) return;
       perfilRef.current = perfil ?? PERFIL_POR_DEFECTO;
-      dispatch({ tipo: 'cargado', cierres, productos, perfil: perfilRef.current });
+      metaRef.current = meta;
+      dispatch({ tipo: 'cargado', cierres, productos, perfil: perfilRef.current, meta });
       // La demostración es voluntaria: solo se descarga cuando se toca el botón.
     } catch {
       if (montado.current) dispatch({ tipo: 'falloLaCarga' });
@@ -384,6 +411,75 @@ export const CrecemosProvider = ({ children }: { children: React.ReactNode }) =>
     dispatch({ tipo: 'cobrado', ids, fecha });
   }, [estado.cierres]);
 
+  /** Guarda (o borra, con `null`) la meta apoyada en `metaRef`; si falla, el ref vuelve a como estaba. */
+  const persistirMeta = useCallback(async (meta: Meta | null): Promise<void> => {
+    const previa = metaRef.current;
+    metaRef.current = meta;
+    try {
+      if (meta) await guardarMetaRepo(meta);
+      else await borrarMetaRepo();
+    } catch (error) {
+      if (metaRef.current === meta) metaRef.current = previa;
+      throw error;
+    }
+    dispatch({ tipo: 'metaGuardada', meta });
+  }, []);
+
+  const crearMeta = useCallback(
+    async (datos: DatosMeta): Promise<ResultadoValidacion> => {
+      const hoy = fechaLocal(new Date());
+      const actual = metaRef.current;
+      // Al editar solo el monto de una meta ya vencida, su fecha pasada no se reclama.
+      const resultado = validarMeta(
+        datos,
+        actual && datos.fechaLimite === actual.fechaLimite ? actual.fechaLimite : hoy,
+      );
+      if (!resultado.ok) return resultado;
+      await persistirMeta({
+        id: actual?.id ?? `m-${crearId()}`,
+        nombre: datos.nombre?.trim() || actual?.nombre || NOMBRE_META,
+        montoObjetivo: redondearSoles(datos.montoObjetivo),
+        fechaLimite: datos.fechaLimite,
+        creada: actual?.creada ?? hoy,
+        aportes: actual?.aportes ?? [],
+      });
+      return resultado;
+    },
+    [persistirMeta],
+  );
+
+  const aportarAMeta = useCallback(
+    async (monto: number): Promise<ResultadoValidacion> => {
+      const actual = metaRef.current;
+      if (!actual) return { ok: false, errores: { meta: 'Primero crea tu meta' } };
+      const resultado = validarAporte(monto);
+      if (!resultado.ok) return resultado;
+      await persistirMeta({
+        ...actual,
+        aportes: [
+          ...actual.aportes,
+          { id: `a-${crearId()}`, fecha: fechaLocal(new Date()), monto: redondearSoles(monto) },
+        ],
+      });
+      return resultado;
+    },
+    [persistirMeta],
+  );
+
+  const quitarAporte = useCallback(
+    async (id: string): Promise<void> => {
+      const actual = metaRef.current;
+      if (!actual || !actual.aportes.some(a => a.id === id)) return;
+      await persistirMeta({ ...actual, aportes: actual.aportes.filter(a => a.id !== id) });
+    },
+    [persistirMeta],
+  );
+
+  const borrarMeta = useCallback(async (): Promise<void> => {
+    if (!metaRef.current) return;
+    await persistirMeta(null);
+  }, [persistirMeta]);
+
   const valor = useMemo(
     () => ({
       ...estado,
@@ -401,6 +497,10 @@ export const CrecemosProvider = ({ children }: { children: React.ReactNode }) =>
       datosDeEjemplo,
       borrarDatosDeEjemplo,
       marcarCobrado,
+      crearMeta,
+      aportarAMeta,
+      quitarAporte,
+      borrarMeta,
     }),
     [
       estado,
@@ -418,6 +518,10 @@ export const CrecemosProvider = ({ children }: { children: React.ReactNode }) =>
       datosDeEjemplo,
       borrarDatosDeEjemplo,
       marcarCobrado,
+      crearMeta,
+      aportarAMeta,
+      quitarAporte,
+      borrarMeta,
     ],
   );
 

@@ -53,6 +53,7 @@ import {
 import { totalPorCobrar } from '@dominio/cobro';
 import { fechaLocal, restarDias } from '@dominio/fecha';
 import { formatoFecha, formatoSoles } from '@dominio/formato';
+import { progreso, textoPlazo, totalAportado, type Meta } from '@dominio/meta';
 import { useAccionSegura } from '@hooks/useAccionSegura';
 import { useConteo } from '@hooks/useConteo';
 import { useCrecemos, type EstadoSemilla } from '@context/CrecemosProvider';
@@ -79,7 +80,7 @@ const ICONO_DE_REGLA: Record<Recomendacion['reglaId'], LucideIcon> = {
 };
 
 export const InicioScreen = () => {
-  const { cierres, productos, perfil, cargando, semilla, cargarDatosDeEjemplo, marcarCobrado } =
+  const { cierres, productos, perfil, meta, cargando, semilla, cargarDatosDeEjemplo, marcarCobrado } =
     useCrecemos();
   const navigation = useNavigation<InicioNavigation>();
   const hoy = fechaLocal(new Date());
@@ -144,6 +145,7 @@ export const InicioScreen = () => {
           <>
             <TarjetaCiclo ciclo={cicloActual} />
             <UltimoDia fecha={ultimo.fecha} teQueda={calcularCierre(ultimo).teQueda} />
+            <TarjetaMeta meta={meta} hoy={hoy} alAbrir={() => navigation.navigate('MiMeta')} />
             <Recomendaciones
               recomendaciones={recomendaciones}
               ciclos={ciclos.length}
@@ -315,6 +317,50 @@ const UltimoDia = ({ fecha, teQueda }: { fecha: string; teQueda: number }) => (
     />
   </Card>
 );
+
+/**
+ * Mi cuota: cuánto lleva separado para la cuota del préstamo y cuánto falta de tiempo. Sin meta,
+ * una invitación calmada a crearla (no un botón principal: el principal es "Cerrar mi día").
+ */
+const TarjetaMeta = ({ meta, hoy, alAbrir }: { meta: Meta | null; hoy: string; alAbrir: () => void }) =>
+  meta ? (
+    <Card variant="bordered" testID="inicio-meta">
+      <Text variant="label" color="textMuted">
+        {meta.nombre}
+      </Text>
+      <Text variant="h3" testID="inicio-meta-avance">
+        {`${formatoSoles(totalAportado(meta))} de ${formatoSoles(meta.montoObjetivo)}`}
+      </Text>
+      <ProgressBar
+        value={progreso(meta)}
+        accessibilityLabel="Avance de tu meta"
+        height={10}
+        tone={progreso(meta) >= 1 ? 'success' : 'primary'}
+        style={styles.separadoChico}
+        testID="inicio-meta-barra"
+      />
+      <Text variant="bodySmall" color="textMuted" testID="inicio-meta-plazo">
+        {textoPlazo(meta, hoy)}
+      </Text>
+      <Button
+        title="Ver mi meta"
+        variant="ghost"
+        rightIcon={ArrowRight}
+        style={styles.preguntarPorQue}
+        onPress={alAbrir}
+        testID="inicio-ver-meta"
+      />
+    </Card>
+  ) : (
+    <Button
+      title="Crear una meta para mi cuota"
+      variant="outline"
+      leftIcon={PiggyBank}
+      fullWidth
+      onPress={alAbrir}
+      testID="inicio-crear-meta"
+    />
+  );
 
 /**
  * La frase que contrasta lo que se vende con lo que deja. El naranja es solo fondo, borde e ícono
