@@ -14,6 +14,8 @@ export interface BadgeProps {
   label: string;
   tone?: BadgeTone;
   icon?: LucideIcon;
+  /** testID del texto de la etiqueta (para leer o tocar el texto, no la píldora). */
+  labelTestID?: string;
   style?: StyleProp<ViewStyle>;
   testID?: string;
 }
@@ -27,7 +29,14 @@ const tones: Record<BadgeTone, { bg: ColorName; fg: ColorName }> = {
   accent: { bg: 'accent', fg: 'text' },
 };
 
-export const Badge = ({ label, tone = 'neutral', icon, style, testID }: BadgeProps) => {
+export const Badge = ({
+  label,
+  tone = 'neutral',
+  icon,
+  labelTestID,
+  style,
+  testID,
+}: BadgeProps) => {
   const t = tones[tone];
   return (
     <View
@@ -40,7 +49,7 @@ export const Badge = ({ label, tone = 'neutral', icon, style, testID }: BadgePro
         value={
           <>
             {icon ? <Icon icon={icon} size="xs" color={t.fg} style={styles.icono} /> : null}
-            <Text variant="captionStrong" color={t.fg} numberOfLines={1}>
+            <Text variant="captionStrong" color={t.fg} numberOfLines={1} testID={labelTestID}>
               {label}
             </Text>
           </>

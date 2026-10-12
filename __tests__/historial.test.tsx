@@ -11,6 +11,7 @@ import { clearAllMockStorages } from '@react-native-async-storage/async-storage/
 import App from '../App';
 import { colors } from '@theme';
 import { nuevoCierre } from '@dominio/cierre';
+import { fechaLocal } from '@dominio/fecha';
 import { ETIQUETA_GASTO } from '@dominio/categorias';
 import { cambiarPrecio } from '@dominio/producto';
 import { PRODUCTOS_POR_DEFECTO } from '@dominio/productosPorDefecto';
@@ -317,6 +318,68 @@ describe('Historial', () => {
     expect(textoDe('dia-neto-c-2026-10-05')).toBe('+ S/ 186.00');
     expect(textoDe('dia-neto-c-2026-10-04')).toBe('+ S/ 40.00');
     expect(colorDe('dia-neto-c-2026-10-06')).toBe(colors.success);
+  });
+
+  it('arriba resume el mes: "Este mes · + S/ X ganados", sin contar otros meses', async () => {
+    const hoy = fechaLocal(new Date());
+    await sembrar(hoy, {
+      lineas: [{ productoId: 'p-anticucho', preparadas: 10, sobrantes: 0 }],
+      gastos: [{ categoria: 'gas', monto: 20 }],
+    });
+    await sembrar('2020-01-15', {
+      lineas: [{ productoId: 'p-anticucho', preparadas: 50, sobrantes: 0 }],
+    });
+    const { tocar, textoDe } = await montarApp();
+    await tocar('tab-historial');
+
+    expect(textoDe('historial-periodo-titulo')).toBe('Este mes');
+    expect(textoDe('historial-periodo-monto')).toBe('+ S/ 80.00');
+    expect(textoDe('historial-periodo-palabra')).toBe('ganados');
+  });
+
+  it('si el mes va en negativo dice "en rojo" y si no hay días, lo avisa', async () => {
+    const hoy = fechaLocal(new Date());
+    await sembrar(hoy, {
+      lineas: [{ productoId: 'p-anticucho', preparadas: 1, sobrantes: 0 }],
+      gastos: [{ categoria: 'gas', monto: 40 }],
+    });
+    const rojo = await montarApp();
+    await rojo.tocar('tab-historial');
+    expect(rojo.textoDe('historial-periodo-monto')).toBe('− S/ 30.00');
+    expect(rojo.textoDe('historial-periodo-palabra')).toBe('en rojo');
+    expect(rojo.colorDe('historial-periodo-monto')).toBe(colors.danger);
+  });
+
+  it('un mes sin días cerrados dice que aún no cierras días', async () => {
+    await sembrar('2020-01-15', {
+      lineas: [{ productoId: 'p-anticucho', preparadas: 5, sobrantes: 0 }],
+    });
+    const { tocar, textoDe, existe } = await montarApp();
+    await tocar('tab-historial');
+
+    expect(textoDe('historial-periodo-vacio')).toBe('Aún no cierras días este mes');
+    expect(existe('historial-periodo-monto')).toBe(false);
+  });
+
+  it('bajo cada monto hay una palabra: Ingreso, Gasto o Por cobrar', async () => {
+    await sembrarTresDias();
+    const { tocar, textoDe } = await montarApp();
+    await tocar('tab-historial');
+
+    expect(textoDe('fila-c-2026-10-05-0-tipo')).toBe('Ingreso');
+    expect(textoDe('fila-c-2026-10-05-1-por-cobrar')).toBe('Por cobrar');
+    expect(textoDe('fila-c-2026-10-05-2-tipo')).toBe('Gasto');
+  });
+
+  it('las filas usan el id estable del movimiento como llave, no su posición', async () => {
+    await sembrarTresDias();
+    const { tocar } = await montarApp();
+    await tocar('tab-historial');
+
+    const lista = montada!.root.findAll(
+      n => n.props.testID === 'historial-lista' && typeof n.props.keyExtractor === 'function',
+    )[0];
+    expect(lista.props.keyExtractor({ id: 'c-2026-10-05:gasto-0' }, 7)).toBe('c-2026-10-05:gasto-0');
   });
 
   it('un día con neto negativo lleva el signo menos y el rojo', async () => {

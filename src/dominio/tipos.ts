@@ -114,6 +114,8 @@ export type FiltroHistorial = 'todo' | 'ingresos' | 'gastos' | 'porCobrar';
 
 /** Una fila del historial. Monto positivo = ingreso; negativo = gasto. */
 export interface Movimiento {
+  /** Estable: id del cierre + qué movimiento es. Sirve de llave en las listas. */
+  id: string;
   tipo: 'venta' | 'gasto';
   etiqueta: string;
   /** `null` en los gastos. */
