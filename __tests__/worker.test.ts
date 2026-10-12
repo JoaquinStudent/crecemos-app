@@ -1187,7 +1187,7 @@ describe('servidor: consistencia con la app', () => {
 
   it('las intenciones que se juzgan son exactamente las de la app', () => {
     expect(INTENCIONES_JUZGABLES).toEqual([...JUZGABLES_APP]);
-    expect(INTENCIONES_JUZGABLES).toHaveLength(6);
+    expect(INTENCIONES_JUZGABLES).toHaveLength(5);
   });
 
   it('cada intención y cada día del Worker los acepta la app', () => {

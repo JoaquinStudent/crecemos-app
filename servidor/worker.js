@@ -108,7 +108,6 @@ export const INTENCIONES_JUZGABLES = [
   'compararCiclo',
   'cuantoPorCobrar',
   'cuantoSacarParaLaCasa',
-  'cuantoPreparar',
   'revisarPrecio',
   'peorDia',
 ];

@@ -5,7 +5,7 @@
 // abajo. El juicio es del modelo; la aritmética es del código. Puro: sin red, sin reloj, sin React
 // (AGENTS.md, reglas 3, 12 y 13). La fecha de hoy entra por `ctx.hoy`.
 import { z } from 'zod';
-import { mercaderiaDelCiclo, resumirCiclo } from '@dominio/ciclo';
+import { resumirCiclo } from '@dominio/ciclo';
 import { totalPorCobrar } from '@dominio/cobro';
 import { diasEntre } from '@dominio/fecha';
 import { redondearSoles } from '@dominio/formato';
@@ -50,8 +50,6 @@ export const DIAS_COBRO_RECIENTE = 3;
 export const PCT_HOLGURA_POCA = 10;
 /** cuantoSacarParaLaCasa: hasta este % es media; más es mucha. */
 export const PCT_HOLGURA_MEDIA = 30;
-/** cuantoPreparar: hasta este % de lo preparado, lo que sobra es poco. */
-export const PCT_SOBRA_POCO = 10;
 /** revisarPrecio: una caída de esta cantidad de soles por porción o más es fuerte. */
 export const CAIDA_FUERTE_SOLES = 1;
 /** revisarPrecio: una caída de este % del margen anterior o más es fuerte. */
@@ -79,7 +77,6 @@ export const INTENCIONES_JUZGABLES: readonly IntencionId[] = [
   'compararCiclo',
   'cuantoPorCobrar',
   'cuantoSacarParaLaCasa',
-  'cuantoPreparar',
   'revisarPrecio',
   'peorDia',
 ];
@@ -143,32 +140,6 @@ const cuantoSacarParaLaCasa = (ctx: ContextoAnalisis): SenalesJuicio | null => {
   return { resultado: 'ganancia', holgura };
 };
 
-/** Lo que sobró y lo que se preparó de ese producto en un ciclo. */
-const sobrantesYPreparadas = (
-  ciclo: Ciclo,
-  productoId: string,
-): { sobrantes: number; preparadas: number } => {
-  const m = mercaderiaDelCiclo(ciclo).find(x => x.productoId === productoId);
-  return { sobrantes: (m?.preparadas ?? 0) - (m?.vendidas ?? 0), preparadas: m?.preparadas ?? 0 };
-};
-
-const cuantoPreparar = (consulta: Consulta, ctx: ContextoAnalisis): SenalesJuicio | null => {
-  const id = consulta.producto;
-  const ciclos = cicloCerradoYActual(ctx);
-  if (id === undefined || ciclos === null) return null;
-  const sobrante = sobranteDeDosCiclos(ctx, id);
-  if (sobrante === null) return null;
-  if (sobrante.cantidad === 0) return { sobra: 'nada', repite: 'no' };
-  const a = sobrantesYPreparadas(ciclos.cerrado, id);
-  const b = sobrantesYPreparadas(ciclos.actual, id);
-  // Manda el ciclo en que menos sobró, en proporción a lo que se preparó (producto cruzado, sin dividir).
-  const menor = a.sobrantes * b.preparadas <= b.sobrantes * a.preparadas ? a : b;
-  return {
-    sobra: menor.sobrantes * 100 <= PCT_SOBRA_POCO * menor.preparadas ? 'poco' : 'mucho',
-    repite: sobrante.cantidad >= SOBRANTES_MINIMOS ? 'si' : 'no',
-  };
-};
-
 const revisarPrecio = (consulta: Consulta, ctx: ContextoAnalisis): SenalesJuicio | null => {
   const producto = productoDe(consulta, ctx);
   if (producto === undefined) return null;
@@ -204,8 +175,6 @@ export const senalesDeJuicio = (
       return cuantoPorCobrar(ctx);
     case 'cuantoSacarParaLaCasa':
       return cuantoSacarParaLaCasa(ctx);
-    case 'cuantoPreparar':
-      return cuantoPreparar(consulta, ctx);
     case 'revisarPrecio':
       return revisarPrecio(consulta, ctx);
     default:

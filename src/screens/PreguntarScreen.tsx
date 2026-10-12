@@ -43,7 +43,7 @@ import type { TabsParamList } from '@navigation/Tabs';
 import { JEV_URL } from '../config';
 
 const TEXTO_PRIVACIDAD =
-  'Tu pregunta se envía a un servicio de inteligencia artificial para entenderla. Algunas respuestas se envían ya calculadas (por ejemplo, cuánto te queda en el ciclo) para valorar cómo va el negocio. Nunca van tu nombre, tu Yape, lo que te deben por cobrar ni tus días uno por uno.';
+  'Tu pregunta se envía a un servicio de inteligencia artificial para entenderla. Algunas respuestas se envían ya calculadas (por ejemplo, cuánto te queda en el ciclo) para valorar cómo va el negocio. Nunca van tu nombre, tu Yape, lo que te deben por cobrar ni tus días uno por uno. Si no hay internet, la pregunta se entiende en tu teléfono y no se envía nada.';
 const TEXTO_AVISO_CORTO = 'Tu pregunta se envía a una IA';
 const TEXTO_INVITACION =
   'Pregúntame lo que quieras de tus ventas. Toca una pregunta o escribe la tuya:';

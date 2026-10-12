@@ -482,6 +482,34 @@ describe('regla preparar', () => {
   it('con un solo ciclo no aplica', () => {
     expect(regla('preparar').aplica(ctxDe([dosCiclos(9, 9)[1]]))).toBe(false);
   });
+
+  describe('convive con la tarjeta "Para mañana"', () => {
+    // Hoy es miércoles 7: mañana es jueves. Rachi sobra en dos ciclos seguidos.
+    const jueves = ['2026-09-17', '2026-09-24', '2026-10-01'];
+    const conJueves = (fechas: FechaNegocio[]) => [
+      cierreDe('2026-09-14', { abreCiclo: true, lineas: [linea('Rachi', 30, 4, 9, 7.6)] }),
+      ...fechas
+        .filter(f => f < '2026-09-28')
+        .map(f => cierreDe(f, { lineas: [linea('Rachi', 30, 0, 9, 7.6)] })),
+      cierreDe('2026-09-28', { abreCiclo: true, lineas: [linea('Rachi', 30, 4, 9, 7.6)] }),
+      ...fechas
+        .filter(f => f >= '2026-09-28')
+        .map(f => cierreDe(f, { lineas: [linea('Rachi', 30, 0, 9, 7.6)] })),
+    ];
+    const rachi = [producto('Rachi', 9, 7.6)];
+
+    it('si el planificador ya le sugiere una cantidad a ese producto, la regla calla', () => {
+      const ctx = ctxDe(conJueves(jueves), rachi);
+      expect(regla('preparar').aplica(ctx)).toBe(false);
+      expect(regla('preparar').mensaje(ctx)).toBe('');
+    });
+
+    it('con pocos jueves el planificador no sugiere y la regla sigue hablando', () => {
+      const ctx = ctxDe(conJueves(['2026-10-01']), rachi);
+      expect(regla('preparar').aplica(ctx)).toBe(true);
+      expect(regla('preparar').mensaje(ctx)).toContain('Prepara 4 porciones menos');
+    });
+  });
 });
 
 describe('regla retiro', () => {

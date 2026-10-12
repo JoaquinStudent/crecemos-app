@@ -8,6 +8,7 @@ import { formatoFechaCorta, formatoSoles, nombreMes, redondearSoles } from '@dom
 import { teDeja } from '@dominio/producto';
 import type { Ciclo, ContextoAnalisis, Producto, Recomendacion } from '@dominio/tipos';
 import { compararCiclos, gananciaDelDia } from './metricas';
+import { planificarManana } from './planificador';
 
 /** Más de este monto por cobrar y la regla `cobro` salta (S/). */
 export const UMBRAL_COBRO_SOLES = 100;
@@ -180,6 +181,22 @@ const productoQueSobra = (
   return mejor;
 };
 
+/**
+ * El producto que sobra, salvo que "Para mañana" ya le sugiera una cantidad (`planificarManana`): ahí
+ * manda el planificador y esta regla calla, para no decir "10 menos" junto a "+8 más que el último".
+ */
+const productoQueSobraSinPlan = (
+  ctx: ContextoAnalisis,
+): { productoId: string; nombre: string; cantidad: number } | null => {
+  const p = productoQueSobra(ctx);
+  if (p === null) return null;
+  const plan = planificarManana(ctx.cierres, ctx.productos, ctx.hoy);
+  const conSugerencia = plan.sugerencias.some(
+    s => s.productoId === p.productoId && !s.datosInsuficientes && s.porciones !== null,
+  );
+  return conSugerencia ? null : p;
+};
+
 // --- retiro --------------------------------------------------------------------------------
 
 const retiroAplica = (ctx: ContextoAnalisis): boolean => cicloCerradoYActual(ctx) !== null;
@@ -332,9 +349,9 @@ export const REGLAS: Regla[] = [
   {
     id: 'preparar',
     prioridad: 3,
-    aplica: ctx => productoQueSobra(ctx) !== null,
+    aplica: ctx => productoQueSobraSinPlan(ctx) !== null,
     mensaje: ctx => {
-      const p = productoQueSobra(ctx);
+      const p = productoQueSobraSinPlan(ctx);
       if (p === null) return '';
       const unidad =
         ctx.productos.find(x => x.id === p.productoId)?.unidad === 'vaso' ? 'vasos' : 'porciones';

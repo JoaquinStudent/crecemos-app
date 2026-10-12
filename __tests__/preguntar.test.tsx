@@ -21,7 +21,7 @@ import { importarSemilla } from '@storage/repositorio';
 import { JEV_URL, SEED_URL } from '../src/config';
 
 const TEXTO_PRIVACIDAD =
-  'Tu pregunta se envía a un servicio de inteligencia artificial para entenderla. Algunas respuestas se envían ya calculadas (por ejemplo, cuánto te queda en el ciclo) para valorar cómo va el negocio. Nunca van tu nombre, tu Yape, lo que te deben por cobrar ni tus días uno por uno.';
+  'Tu pregunta se envía a un servicio de inteligencia artificial para entenderla. Algunas respuestas se envían ya calculadas (por ejemplo, cuánto te queda en el ciclo) para valorar cómo va el negocio. Nunca van tu nombre, tu Yape, lo que te deben por cobrar ni tus días uno por uno. Si no hay internet, la pregunta se entiende en tu teléfono y no se envía nada.';
 const RUTA_SEMILLA = join(__dirname, '..', 'seed', 'semilla.json');
 const SEMILLA = readFileSync(RUTA_SEMILLA, 'utf8');
 const prepararDemostracion = async () => {

@@ -126,7 +126,7 @@ Debe responder algo como:
   a 0.6). La app muestra entonces la respuesta sin semáforo y sin ningún mensaje. **No hay respaldo con
   DeepSeek** para esto: si `semaforo` sale siempre `null`, revisa el saldo y la clave (paso 8).
 - Solo se aceptan estas intenciones: `compararCiclo`, `cuantoPorCobrar`, `cuantoSacarParaLaCasa`,
-  `cuantoPreparar`, `revisarPrecio` y `peorDia`. Las señales son palabras en minúsculas (como mucho 6) y el
+  `revisarPrecio` y `peorDia`. Las señales son palabras en minúsculas (como mucho 6) y el
   `hecho` completo no puede pasar de 600 caracteres.
 
 Si responde un error:
