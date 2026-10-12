@@ -149,7 +149,7 @@ const montarApp = async () => {
         testID: n.props.testID as string | undefined,
         ...StyleSheet.flatten(n.props.style),
       }));
-  const abrirDesdeInicio = () => tocar('inicio-preguntar');
+  const abrirDesdeInicio = () => tocar('tab-asistente');
   const preguntar = async (texto: string) => {
     await escribir('preguntar-campo', texto);
     await tocar('preguntar-enviar');
@@ -319,10 +319,7 @@ describe('Chat "Preguntarle a mis datos": lo que se envía y cuándo', () => {
         'una pregunta que no debe quedar guardada',
       );
     }
-    // Al salir y volver a entrar, el chat empieza de cero.
-    await p.tocar('preguntar-atras');
-    await p.abrirDesdeInicio();
-    expect(p.existe('chat-burbuja-0')).toBe(false);
+    // Vive solo en la memoria de la pantalla (la pestaña): nada llegó al almacenamiento.
   });
 });
 
@@ -350,16 +347,16 @@ describe('Chat "Preguntarle a mis datos": lo que se ve', () => {
     expect(p.existe('chat-burbuja-0')).toBe(false);
   });
 
-  it('una sola forma de volver: "Atrás", y regresa a la pantalla de donde se abrió', async () => {
+  it('es una pestaña: no lleva "Atrás" y se sale tocando otra pestaña', async () => {
     ponerRed({});
     const p = await montarApp();
 
     await p.abrirDesdeInicio();
-    expect(p.textosEn('preguntar-pantalla').filter(t => t === 'Atrás')).toHaveLength(1);
-    await p.tocar('preguntar-atras');
+    expect(p.textosEn('preguntar-pantalla').filter(t => t === 'Atrás')).toHaveLength(0);
+    expect(p.existe('preguntar-atras')).toBe(false);
+    await p.tocar('tab-inicio');
 
-    expect(p.existe('preguntar-pantalla')).toBe(false);
-    expect(p.existe('inicio-preguntar')).toBe(true);
+    expect(p.existe('inicio-saludo')).toBe(true);
   });
 
   it('el campo y "Preguntar" van fuera del scroll, dentro de un KeyboardAvoidingView', async () => {
@@ -471,7 +468,7 @@ describe('Chat "Preguntarle a mis datos": lo que se ve', () => {
     );
   });
 
-  it('los toques miden 48 o más: Atrás, las sugeridas y "Preguntar"', async () => {
+  it('los toques miden 48 o más: las sugeridas y "Preguntar"', async () => {
     ponerRed({});
     const p = await montarApp();
 
@@ -486,7 +483,6 @@ describe('Chat "Preguntarle a mis datos": lo que se ve', () => {
       );
       return estilo.minHeight ?? estilo.height;
     };
-    expect(alto('preguntar-atras')).toBeGreaterThanOrEqual(48);
     expect(alto('preguntar-sugerida-0')).toBeGreaterThanOrEqual(48);
     expect(alto('preguntar-enviar')).toBeGreaterThanOrEqual(48);
   });
@@ -720,48 +716,36 @@ describe('Chat "Preguntarle a mis datos": los accesos', () => {
     global.fetch = fetchPorDefecto;
   });
 
-  it('el botón flotante de Inicio es solo un robot con etiqueta, mide 48 o más y queda abajo a la derecha', async () => {
+  it('Inicio ya no tiene botón flotante: el chat es la pestaña "Asistente"', async () => {
     ponerRed({});
     const p = await montarApp();
 
-    const boton = p.app.root.findAll(
-      n => n.props.testID === 'inicio-preguntar' && esHost(n, 'View'),
-    )[0];
-    const estilo = StyleSheet.flatten(boton.props.style);
-    expect(estilo.position).toBe('absolute');
-    expect(estilo.right).toBeGreaterThan(0);
-    expect(estilo.bottom).toBeGreaterThan(0);
-    expect(estilo.width).toBeGreaterThanOrEqual(48);
-    expect(estilo.height).toBeGreaterThanOrEqual(48);
-    // Sin texto: lo dice la etiqueta accesible, para el lector de pantalla.
-    expect(boton.findAll(n => esHost(n, 'Text'))).toHaveLength(0);
-    expect(boton.props.accessibilityLabel).toBe('Preguntar');
-    expect(boton.props.accessibilityRole).toBe('button');
-    expect(boton.findAll(n => (n.type as unknown) === 'RNSVGSvgView').length).toBeGreaterThan(0);
+    expect(p.existe('inicio-preguntar')).toBe(false);
+    expect(p.textosEn('tab-asistente')).toEqual(['Asistente']);
   });
 
-  it('el botón flotante no tapa "Cerrar mi día": el scroll le deja su espacio al final', async () => {
+  it('sin botón flotante, el scroll de Inicio no deja espacio extra al final', async () => {
     ponerRed({});
     await prepararDemostracion();
     const p = await montarApp();
 
     const scroll = p.app.root.findAll(n => esHost(n, 'RCTScrollView'))[0];
-    const relleno = StyleSheet.flatten(scroll.props.contentContainerStyle).paddingBottom;
-    expect(relleno).toBeGreaterThanOrEqual(56 + 16);
+    const estilo = StyleSheet.flatten(scroll.props.contentContainerStyle);
+    expect(estilo.paddingBottom ?? estilo.padding).toBeLessThanOrEqual(24);
     expect(p.existe('inicio-cerrar-dia-rapido')).toBe(true);
   });
 
-  it('tocar el botón de Inicio y volver con "Atrás" no envía ninguna petición', async () => {
+  it('abrir la pestaña Asistente y volver a Inicio no envía ninguna petición', async () => {
     const red = ponerRed({});
     const p = await montarApp();
 
     await p.abrirDesdeInicio();
-    await p.tocar('preguntar-atras');
+    await p.tocar('tab-inicio');
 
     expect(red.tipos()).toEqual([]);
   });
 
-  it('Resumen tiene "Preguntarle a mis datos", que abre el mismo chat, y "Atrás" vuelve a Resumen', async () => {
+  it('Resumen tiene "Preguntarle a mis datos", que abre el mismo chat (la pestaña Asistente)', async () => {
     const red = ponerRed({});
     const p = await montarApp();
 
@@ -774,9 +758,9 @@ describe('Chat "Preguntarle a mis datos": los accesos', () => {
     for (const pregunta of PREGUNTAS_SUGERIDAS) {
       expect(p.textosEn('preguntar-pantalla')).toContain(pregunta);
     }
-    await p.tocar('preguntar-atras');
+    expect(p.estadoDe('tab-asistente')).toMatchObject({ selected: true });
+    await p.tocar('tab-resumen');
 
-    expect(p.existe('preguntar-pantalla')).toBe(false);
     expect(p.existe('resumen-preguntar')).toBe(true);
     expect(red.tipos()).toEqual([]);
   });

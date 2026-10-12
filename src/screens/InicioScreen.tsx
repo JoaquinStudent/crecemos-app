@@ -1,21 +1,21 @@
 // src/screens/InicioScreen.tsx
 // Responde "¿cómo me fue?" y "¿qué decido hoy?". De arriba hacia abajo: saludo, ciclo de compra,
 // el insight, las recomendaciones, el Yape por cobrar, el último día y el botón "Cerrar mi día".
-// Encima de todo, en la esquina inferior derecha, el botón flotante del robot abre el chat; el
-// scroll deja un espacio al final para que nunca tape "Cerrar mi día".
+// El chat ya no es un botón flotante: es la pestaña "Asistente" de la barra inferior.
 import React, { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { CompositeNavigationProp, useNavigation } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { ArrowRight, Bot, Lightbulb } from 'lucide-react-native';
+import { ArrowRight, Lightbulb } from 'lucide-react-native';
 import { colors, radius, spacing } from '@theme';
 import { Text } from '@components/atoms/Text';
 import { Button } from '@components/atoms/Button';
 import { Icon } from '@components/atoms/Icon';
 import { MensajeError } from '@components/atoms/MensajeError';
 import { AvatarPerfil } from '@components/molecules/AvatarPerfil';
+import { CargandoBloques } from '@components/molecules/CargandoBloques';
 import { gananciaPorProducto, insight } from '@analisis/metricas';
 import { evaluarReglas } from '@analisis/reglas';
 import { calcularCierre } from '@dominio/cierre';
@@ -41,8 +41,6 @@ type InicioNavigation = CompositeNavigationProp<
 
 /** El mismo periodo que mira "Qué me deja cada uno": los últimos 30 días, contando el día 30. */
 const DIAS_DEL_INSIGHT = 30;
-/** Alto del botón flotante "Preguntar" (≥ 48 dp) y espacio que el scroll le deja para no quedar debajo. */
-const ALTO_FLOTANTE = 56;
 
 export const InicioScreen = () => {
   const { cierres, productos, perfil, cargando, semilla, cargarDatosDeEjemplo, marcarCobrado } =
@@ -71,7 +69,7 @@ export const InicioScreen = () => {
 
   return (
     <SafeAreaView style={styles.pantalla} edges={['top']}>
-      <ScrollView contentContainerStyle={[styles.contenido, styles.conFlotante]}>
+      <ScrollView contentContainerStyle={styles.contenido}>
         <View style={styles.encabezado}>
           <View style={styles.saludo}>
             <Text variant="h2" testID="inicio-saludo">
@@ -101,7 +99,9 @@ export const InicioScreen = () => {
           </Pressable>
         </View>
 
-        {cargando ? null : ultimo && cicloActual ? (
+        {cargando ? (
+          <CargandoBloques bloques={3} alto={140} testID="inicio-cargando" />
+        ) : ultimo && cicloActual ? (
           <>
             <TarjetaCiclo ciclo={cicloActual} />
             {frase ? (
@@ -148,18 +148,6 @@ export const InicioScreen = () => {
         )}
       </ScrollView>
 
-      {/* Solo el robot, para ahorrar espacio: excepción pedida por el usuario a la regla de UX de
-          "ícono con texto". Por eso lleva su etiqueta accesible "Preguntar" y mide 56 dp (≥ 48).
-          No dispara ninguna petición: solo abre el chat. */}
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Preguntar"
-        onPress={() => navigation.navigate('Preguntar')}
-        style={({ pressed }) => [styles.flotante, pressed && styles.flotantePresionado]}
-        testID="inicio-preguntar"
-      >
-        <Icon icon={Bot} color="textInverse" size="xl" />
-      </Pressable>
     </SafeAreaView>
   );
 };
@@ -303,13 +291,13 @@ const TarjetaInsight = ({ frase, alVer }: { frase: string; alVer: () => void }) 
     </View>
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel="Ver qué me deja cada uno"
+      accessibilityLabel="Qué me deja cada uno"
       onPress={alVer}
       style={styles.enlace}
       testID="inicio-ver-que-me-deja"
     >
       <Text variant="bodyStrong" color="primary" testID="inicio-ver-que-me-deja-texto">
-        Ver qué me deja cada uno
+        Qué me deja cada uno
       </Text>
       <Icon icon={ArrowRight} color="primary" size="md" />
     </Pressable>
@@ -471,24 +459,6 @@ const DatosDeEjemplo = ({
 const styles = StyleSheet.create({
   pantalla: { flex: 1, backgroundColor: colors.background },
   contenido: { padding: spacing.lg, gap: spacing.xl },
-  conFlotante: { paddingBottom: ALTO_FLOTANTE + spacing.lg + spacing.sm },
-  flotante: {
-    position: 'absolute',
-    right: spacing.lg,
-    bottom: spacing.lg,
-    width: ALTO_FLOTANTE,
-    height: ALTO_FLOTANTE,
-    borderRadius: ALTO_FLOTANTE / 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.primary,
-    shadowColor: colors.text,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
-    elevation: 4,
-  },
-  flotantePresionado: { backgroundColor: colors.primaryPressed },
   encabezado: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   saludo: { flex: 1, paddingRight: spacing.md },
   perfil: { minWidth: 48, minHeight: 48, alignItems: 'center', gap: spacing.xxs },

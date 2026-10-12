@@ -261,6 +261,8 @@ describe('SPEC-02: Perfil y productos con precio vigente', () => {
     await escribir('preparadas-p-anticucho', '10');
     await escribir('sobrantes-p-anticucho', '0');
     await tocar('guardar-dia');
+    // El modal muestra "Tu día quedó cuadrado": "Listo" lo cierra y deja ver Inicio.
+    await tocar('cierre-listo');
 
     // Inicio muestra la venta de hoy.
     expect(textos()).toContain('+ S/ 110.00');

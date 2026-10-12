@@ -194,13 +194,14 @@ describe('Las 4 pestañas', () => {
     if (app) await act(async () => app.unmount());
   });
 
-  it('cada pestaña lleva su texto: Inicio, Cerrar mi día, Historial y Resumen', async () => {
+  it('cada pestaña lleva su texto: Inicio, Historial, Cerrar día, Resumen y Asistente', async () => {
     const { botonDe } = await montarApp();
     const etiquetas: Record<string, string> = {
       'tab-inicio': 'Inicio',
-      'tab-cerrar-dia': 'Cerrar mi día',
       'tab-historial': 'Historial',
+      'tab-cerrar-dia': 'Cerrar día',
       'tab-resumen': 'Resumen',
+      'tab-asistente': 'Asistente',
     };
 
     // El ícono acompaña, nunca va solo: el botón de la pestaña trae el texto.
@@ -250,6 +251,7 @@ describe('Cerrar mi día: interruptor y categorías', () => {
     expect(interruptor('hoy-compre-mercaderia').props.value).toBe(true);
     await escribir('preparadas-p-anticucho', '10');
     await tocar('guardar-dia');
+    await tocar('cierre-listo');
 
     const guardados = await listarCierres();
     expect(guardados).toHaveLength(1);
@@ -291,13 +293,13 @@ describe('Historial', () => {
   });
 
   it('sin cierres invita a cerrar el día y el botón lleva a "Cerrar mi día"', async () => {
-    const { tocar, textos, existe, pestanaActiva } = await montarApp();
+    const { tocar, textos, existe } = await montarApp();
     await tocar('tab-historial');
 
     expect(textos()).toContain('Aún no cierras ningún día');
     expect(existe('historial-vacio')).toBe(true);
     await tocar('historial-cerrar-dia');
-    expect(pestanaActiva('tab-cerrar-dia')).toBe(true);
+    expect(existe('guardar-dia')).toBe(true);
   });
 
   it('un grupo por día, del más reciente al más antiguo, con su neto y color', async () => {
@@ -528,7 +530,7 @@ describe('Editar un día desde Historial', () => {
 
     await abrirEdicion(app);
 
-    expect(app.pestanaActiva('tab-cerrar-dia')).toBe(true);
+    expect(app.existe('guardar-dia')).toBe(true);
     expect(app.textos()).toContain('Editando el lunes 5 de octubre');
     expect(app.textos()).toContain('Guardar los cambios');
     expect(app.textos()).toContain('Cancelar');
@@ -564,7 +566,10 @@ describe('Editar un día desde Historial', () => {
     await app.escribir('preparadas-p-anticucho', '30');
     expect(app.textoDe('cerrar-te-queda')).toBe('S/ 286.00'); // 30 × S/ 10.00 − S/ 14.00
     await app.tocar('guardar-dia');
+    expect(app.textos()).toContain('Tu día quedó cuadrado');
+    await app.tocar('cierre-listo');
 
+    expect(app.existe('guardar-dia')).toBe(false);
     expect(app.pestanaActiva('tab-historial')).toBe(true);
     const despues = await listarCierres();
     expect(despues).toHaveLength(3); // se reemplazó, no se duplicó
@@ -581,6 +586,7 @@ describe('Editar un día desde Historial', () => {
     const app = await montarApp();
     await abrirEdicion(app);
     await app.tocar('guardar-dia');
+    await app.tocar('cierre-listo');
 
     await app.tocar('tab-cerrar-dia');
 
@@ -648,13 +654,14 @@ describe('Editar un día desde Historial', () => {
     expect(editado.lineas[0].precioUnitario).toBe(10);
   });
 
-  it('salir de la edición por la barra de pestañas la cancela: al volver el formulario está vacío', async () => {
+  it('salir de la edición con "Atrás" la cancela: al volver el formulario está vacío', async () => {
     await sembrarTresDias();
     const app = await montarApp();
     await abrirEdicion(app);
     expect(app.textos()).toContain('Editando el lunes 5 de octubre');
 
-    await app.tocar('tab-inicio');
+    await app.tocar('cerrar-atras');
+    expect(app.existe('guardar-dia')).toBe(false);
     await app.tocar('tab-cerrar-dia');
 
     expect(app.textos()).not.toContain('Editando el lunes 5 de octubre');
@@ -671,7 +678,7 @@ describe('Editar un día desde Historial', () => {
     await app.tocar('guardar-dia');
 
     expect(app.textos()).toContain('No te pueden sobrar más de los que preparaste');
-    expect(app.pestanaActiva('tab-cerrar-dia')).toBe(true); // sigue editando
+    expect(app.existe('guardar-dia')).toBe(true); // sigue editando
     expect(app.textos()).toContain('Guardar los cambios');
     const intacto = (await listarCierres()).find(c => c.fecha === '2026-10-05')!;
     expect(intacto.lineas[0].sobrantes).toBe(0);
@@ -714,14 +721,14 @@ describe('Resumen', () => {
   };
 
   it('sin cierres invita a cerrar el día y el botón lleva a "Cerrar mi día"', async () => {
-    const { tocar, textos, existe, pestanaActiva } = await montarApp();
+    const { tocar, textos, existe } = await montarApp();
     await tocar('tab-resumen');
 
     expect(textos()).toContain('Aún no cierras ningún día');
     expect(existe('resumen-vacio')).toBe(true);
     expect(existe('resumen-te-queda')).toBe(false);
     await tocar('resumen-cerrar-dia');
-    expect(pestanaActiva('tab-cerrar-dia')).toBe(true);
+    expect(existe('guardar-dia')).toBe(true);
   });
 
   it('muestra el ciclo actual: rango, "Te queda" grande y capital recuperado', async () => {

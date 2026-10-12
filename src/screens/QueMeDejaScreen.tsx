@@ -5,15 +5,17 @@
 // No entran del mock: el selector "Lo que más dejó / Lo que más se vendió", la proyección en
 // soles ni "Octubre · N ciclos" (el periodo son los últimos 30 días).
 import React, { useMemo } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { ChevronLeft, Lightbulb } from 'lucide-react-native';
+import { Lightbulb } from 'lucide-react-native';
 import { colors, radius, spacing } from '@theme';
 import { Text } from '@components/atoms/Text';
 import { Button } from '@components/atoms/Button';
 import { Icon } from '@components/atoms/Icon';
+import { CargandoBloques } from '@components/molecules/CargandoBloques';
+import { ScreenHeader } from '@components/molecules/ScreenHeader';
 import { gananciaPorProducto, insight } from '@analisis/metricas';
 import { agruparCiclos } from '@dominio/ciclo';
 import { fechaLocal, restarDias } from '@dominio/fecha';
@@ -62,29 +64,17 @@ export const QueMeDejaScreen = () => {
   return (
     <SafeAreaView style={styles.pantalla} edges={['top']} testID="queme-pantalla">
       <ScrollView contentContainerStyle={styles.contenido}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Atrás"
-          onPress={() => navigation.goBack()}
-          style={styles.atras}
-          testID="queme-atras"
-        >
-          <Icon icon={ChevronLeft} color="primary" size="lg" />
-          <Text variant="bodyStrong" color="primary">
-            Atrás
-          </Text>
-        </Pressable>
+        <ScreenHeader
+          title="Qué me deja cada uno"
+          subtitle={periodoEnPalabras(ciclos)}
+          onBack={() => navigation.goBack()}
+          backTestID="queme-atras"
+          subtitleTestID="queme-periodo"
+        />
 
-        <View>
-          <Text variant="h1" accessibilityRole="header">
-            Comparar productos
-          </Text>
-          <Text variant="caption" color="textMuted" testID="queme-periodo">
-            {periodoEnPalabras(ciclos)}
-          </Text>
-        </View>
-
-        {cargando ? null : ganancias.length === 0 ? (
+        {cargando ? (
+          <CargandoBloques bloques={3} alto={140} testID="queme-cargando" />
+        ) : ganancias.length === 0 ? (
           <View style={styles.vacio} testID="queme-vacio">
             <Text variant="h3">Todavía no hay días cerrados</Text>
             <Text color="textMuted" style={styles.separado}>
@@ -97,7 +87,7 @@ export const QueMeDejaScreen = () => {
               fullWidth
               style={styles.separado}
               testID="queme-cerrar-dia"
-              onPress={() => navigation.popTo('Tabs', { screen: 'CerrarDia' })}
+              onPress={() => navigation.navigate('CerrarDia')}
             />
           </View>
         ) : (
@@ -156,7 +146,7 @@ const Tarjetas = ({
                 {vendes ? (
                   <View style={[styles.etiqueta, styles.etiquetaVendes]}>
                     <Text
-                      variant="caption"
+                      variant="captionStrong"
                       style={styles.etiquetaTexto}
                       testID={`queme-etiqueta-vendes-${g.productoId}`}
                     >
@@ -167,7 +157,7 @@ const Tarjetas = ({
                 {deja ? (
                   <View style={[styles.etiqueta, styles.etiquetaDeja]}>
                     <Text
-                      variant="caption"
+                      variant="captionStrong"
                       style={styles.etiquetaTexto}
                       testID={`queme-etiqueta-deja-${g.productoId}`}
                     >
@@ -195,6 +185,7 @@ const Tarjetas = ({
               fondo={colors.primarySoft}
               idBarra={`queme-barra-vende-${g.productoId}`}
               idCifra={`queme-cifra-vende-${g.productoId}`}
+              idEtiqueta={`queme-etiqueta-barra-vende-${g.productoId}`}
             />
             <FilaBarra
               etiqueta="Diferencia estimada total"
@@ -204,6 +195,7 @@ const Tarjetas = ({
               fondo={colors.successSoft}
               idBarra={`queme-barra-deja-${g.productoId}`}
               idCifra={`queme-cifra-deja-${g.productoId}`}
+              idEtiqueta={`queme-etiqueta-barra-deja-${g.productoId}`}
             />
 
             <Text variant="caption" color="textMuted" testID={`queme-detalle-${g.productoId}`}>
@@ -229,9 +221,11 @@ interface FilaBarraProps {
   fondo: string;
   idBarra: string;
   idCifra: string;
+  idEtiqueta?: string;
 }
 
-// Etiqueta a la izquierda, la barra y su cifra en palabras al lado: ningún porcentaje suelto.
+// La etiqueta va arriba, a todo el ancho (a 360 dp no cabe "Diferencia estimada total" en una
+// columna angosta); debajo, la barra y su cifra en palabras al lado: ningún porcentaje suelto.
 const FilaBarra = ({
   etiqueta,
   cifra,
@@ -240,34 +234,29 @@ const FilaBarra = ({
   fondo,
   idBarra,
   idCifra,
+  idEtiqueta,
 }: FilaBarraProps) => (
-  <View style={styles.filaBarra}>
-    <Text variant="label" color="textMuted" style={styles.etiquetaBarra}>
+  <View style={styles.bloqueBarra}>
+    <Text variant="label" color="textMuted" testID={idEtiqueta}>
       {etiqueta}
     </Text>
-    <View style={[styles.pista, { backgroundColor: fondo }]}>
-      <View
-        style={[styles.relleno, { width: anchoBarra, backgroundColor: relleno }]}
-        testID={idBarra}
-      />
+    <View style={styles.filaBarra}>
+      <View style={[styles.pista, { backgroundColor: fondo }]}>
+        <View
+          style={[styles.relleno, { width: anchoBarra, backgroundColor: relleno }]}
+          testID={idBarra}
+        />
+      </View>
+      <Text variant="label" style={styles.cifra} testID={idCifra}>
+        {cifra}
+      </Text>
     </View>
-    <Text variant="label" style={styles.cifra} testID={idCifra}>
-      {cifra}
-    </Text>
   </View>
 );
 
 const styles = StyleSheet.create({
   pantalla: { flex: 1, backgroundColor: colors.background },
   contenido: { padding: spacing.lg, gap: spacing.lg, paddingBottom: spacing.xxl },
-  atras: {
-    alignSelf: 'flex-start',
-    minHeight: 48,
-    minWidth: 48,
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginLeft: -spacing.xs,
-  },
   separado: { marginTop: spacing.md },
   vacio: {
     backgroundColor: colors.surface,
@@ -308,7 +297,7 @@ const styles = StyleSheet.create({
   etiquetaVendes: { backgroundColor: colors.accentSoft },
   etiquetaDeja: { backgroundColor: colors.successSoft },
   // Letra oscura sobre fondo suave: el naranja nunca es el color del texto.
-  etiquetaTexto: { color: colors.text, fontWeight: '600' },
+  etiquetaTexto: { color: colors.text },
   filaEntre: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -316,9 +305,10 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   nombre: { flex: 1 },
-  filaBarra: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 28 },
-  etiquetaBarra: { width: 72 },
+  bloqueBarra: { gap: spacing.xs },
+  filaBarra: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, minHeight: 28 },
   pista: { flex: 1, height: 12, borderRadius: radius.full, overflow: 'hidden' },
   relleno: { height: '100%', borderRadius: radius.full },
-  cifra: { minWidth: 92, textAlign: 'right' },
+  // Sin ancho fijo: la cifra ocupa lo que necesita y la barra se queda con el resto.
+  cifra: { flexShrink: 0, textAlign: 'right' },
 });

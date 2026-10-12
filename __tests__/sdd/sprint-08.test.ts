@@ -397,7 +397,7 @@ const conApp = async (
 
 const textoSemilla = () => readFileSync(RUTA_SEMILLA, 'utf8');
 /** Abre el chat desde el botón flotante de Inicio y escribe + toca "Preguntar". */
-const abrirElChat = () => tocar('inicio-preguntar');
+const abrirElChat = () => tocar('tab-asistente');
 const preguntar = async (texto: string) => {
   await escribir('preguntar-campo', texto);
   await tocar('preguntar-enviar');
@@ -888,11 +888,11 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
         interpretar: () => respuestaJson(interpretacion('ventaDelDia', 'ayer')),
       });
       await conApp(red, async () => {
-        // En Inicio, con la semilla cargada: el botón flotante dice "Preguntar" y no abre nada solo.
+        // En Inicio, con la semilla cargada: la pestaña "Asistente" no abre nada solo.
         expect(hayNodo('inicio-saludo')).toBe(true);
         expect(hayNodo('preguntar-pantalla')).toBe(false);
 
-        await tocar('inicio-preguntar');
+        await tocar('tab-asistente');
 
         // Se abre el chat con las preguntas sugeridas visibles.
         expect(hayNodo('preguntar-pantalla')).toBe(true);
@@ -900,9 +900,9 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
         for (const sugerida of PREGUNTAS_SUGERIDAS) expect(pantalla).toContain(sugerida);
         expect(red.tiposDelChat()).toEqual([]);
 
-        // "Atrás" vuelve a Inicio, y todavía no se envió ninguna petición.
-        await tocar('preguntar-atras');
-        expect(hayNodo('preguntar-pantalla')).toBe(false);
+        // El chat es una pestaña (sin "Atrás"): volver a Inicio no envía nada.
+        expect(hayNodo('preguntar-atras')).toBe(false);
+        await tocar('tab-inicio');
         expect(hayNodo('inicio-saludo')).toBe(true);
         expect(red.tiposDelChat()).toEqual([]);
       });
@@ -1225,29 +1225,20 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
     })();
   });
 
-  // @spec08_e21 — El botón flotante es solo el robot, con etiqueta accesible
-  it('spec08_e21 el boton flotante es solo el robot con etiqueta accesible', () => {
+  // @spec08_e21 — El Asistente es una pestaña con texto visible (ya no hay botón flotante)
+  it('spec08_e21 el asistente es una pestana con texto y no hay boton flotante', () => {
     // Given: la app en Inicio
-    // When: se mira el botón flotante que abre el chat
-    // Then: es un botón redondo de al menos 48 dp que muestra solo el ícono de un robot, sin texto, y su etiqueta accesible es "Preguntar"
+    // When: se mira la barra de navegación
+    // Then: la pestaña "Asistente" lleva su ícono y su texto visible, mide al menos 48 dp, y el botón flotante ya no existe
     return (async () => {
       await conApp(redDeLaApp(null), async () => {
-        const boton = raiz().findAll(n => n.props.testID === 'inicio-preguntar' && esHost(n, 'View'))[0];
-        expect(boton).toBeDefined();
-        // Solo el ícono: ningún texto dentro del botón; la etiqueta es solo para el lector de pantalla.
-        expect(boton.findAll(n => esHost(n, 'Text'))).toHaveLength(0);
-        expect(boton.props.accessibilityRole).toBe('button');
-        expect(boton.props.accessibilityLabel).toBe('Preguntar');
-        const iconos = boton
-          .findAll(n => typeof (n.type as { displayName?: string }).displayName === 'string')
-          .map(n => (n.type as { displayName: string }).displayName);
-        expect(iconos).toContain('Bot');
-        // Redondo y de 48 dp o más.
-        const estilo = StyleSheet.flatten(boton.props.style);
-        expect(estilo.width).toBeGreaterThanOrEqual(48);
+        expect(hayNodo('inicio-preguntar')).toBe(false);
+        const pestana = raiz().findAll(n => n.props.testID === 'tab-asistente' && esHost(n, 'View'))[0];
+        expect(pestana).toBeDefined();
+        expect(pestana.props.accessibilityRole).toBe('tab');
+        expect(pestana.findAll(n => esHost(n, 'Text')).map(textoCompleto)).toEqual(['Asistente']);
+        const estilo = StyleSheet.flatten(pestana.props.style);
         expect(estilo.height).toBeGreaterThanOrEqual(48);
-        expect(estilo.borderRadius).toBeGreaterThanOrEqual((estilo.height as number) / 2);
-        expect(estilo.backgroundColor).toBe(colors.primary);
       });
     })();
   });

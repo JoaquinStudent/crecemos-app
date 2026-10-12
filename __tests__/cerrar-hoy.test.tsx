@@ -29,6 +29,7 @@ describe('Cerrar mi día cuando hoy ya está cerrado', () => {
     await app.escribir('preparadas-p-anticucho', '20');
     await app.escribir('sobrantes-p-anticucho', '2');
     await app.tocar('guardar-dia');
+    await app.tocar('cierre-listo');
 
     await app.tocar('tab-cerrar-dia');
 
@@ -44,6 +45,7 @@ describe('Cerrar mi día cuando hoy ya está cerrado', () => {
     await app.escribir('preparadas-p-anticucho', '20');
     await app.escribir('sobrantes-p-anticucho', '2');
     await app.tocar('guardar-dia');
+    await app.tocar('cierre-listo');
     const [primero] = await listarCierres();
 
     await app.tocar('tab-cerrar-dia');
@@ -62,6 +64,7 @@ describe('Cerrar mi día cuando hoy ya está cerrado', () => {
     await app.tocar('tab-cerrar-dia');
     await app.escribir('preparadas-p-anticucho', '20');
     await app.tocar('guardar-dia');
+    await app.tocar('cierre-listo');
 
     await app.tocar('tab-cerrar-dia');
     await app.escribir('preparadas-p-anticucho', '');

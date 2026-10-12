@@ -158,6 +158,8 @@ describe('SPEC-09 catálogo configurable', () => {
     await escribir(`preparadas-${producto.id}`, '4');
     await escribir(`sobrantes-${producto.id}`, '1');
     await tocar('guardar-dia');
+    // El modal muestra "Tu día quedó cuadrado": "Listo" lo cierra y deja ver Inicio.
+    await tocar('cierre-listo');
     expect((await listarCierres())[0].lineas[0]).toMatchObject({ productoId: producto.id, nombre: 'Pan con queso', precioUnitario: 5, costoUnitario: 2 });
   });
 

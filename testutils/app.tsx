@@ -48,6 +48,10 @@ export const montarApp = async () => {
     return encontrado;
   };
   const textoDe = (testID: string) => textoCompleto(textoNodo(testID));
+  // El estilo (aplanado) de un texto.
+  const estiloTextoDe = (testID: string) => StyleSheet.flatten(textoNodo(testID).props.style);
+  // Las props de un texto (numberOfLines, etc.).
+  const textoNodoProps = (testID: string) => textoNodo(testID).props;
   const colorDe = (testID: string) => StyleSheet.flatten(textoNodo(testID).props.style).color;
   // Lo que escribió o precargó en un campo.
   const valorDe = (testID: string): string => {
@@ -103,6 +107,8 @@ export const montarApp = async () => {
     textos,
     textoDe,
     colorDe,
+    estiloTextoDe,
+    textoNodoProps,
     valorDe,
     interruptor,
     estiloDe,

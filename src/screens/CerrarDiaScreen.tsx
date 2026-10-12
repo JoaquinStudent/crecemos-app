@@ -1,18 +1,32 @@
 // src/screens/CerrarDiaScreen.tsx
 // El único formulario de cierre (RNF-12): porciones por producto (D1), Yape y gastos.
 // Con el parámetro `fecha` es el modo edición: carga ese día y guardar lo reemplaza.
+// Es un modal del stack raíz (no una pestaña): al guardar NO se cierra solo, muestra "Tu día
+// quedó cuadrado" con el resultado y un único botón "Listo" (UX, regla 9: nada desaparece solo).
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Switch, View } from 'react-native';
+import {
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Vibration,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
-import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
-import { Plus } from 'lucide-react-native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { CircleCheck, Plus } from 'lucide-react-native';
 import { colors, radius, spacing } from '@theme';
 import { Text } from '@components/atoms/Text';
 import { Button } from '@components/atoms/Button';
+import { Icon } from '@components/atoms/Icon';
+import { MoneyText } from '@components/atoms/MoneyText';
 import { AmountInput } from '@components/molecules/AmountInput';
 import { CantidadInput } from '@components/molecules/CantidadInput';
 import { ChipGroup, ChipOption } from '@components/molecules/ChipGroup';
+import { ScreenHeader } from '@components/molecules/ScreenHeader';
+import { StickyFooter } from '@components/molecules/StickyFooter';
 import { calcularCierre, crearId, editarCierre, nuevoCierre } from '@dominio/cierre';
 import { ETIQUETA_GASTO } from '@dominio/categorias';
 import { fechaLocal } from '@dominio/fecha';
@@ -21,7 +35,7 @@ import type { Cierre, CategoriaGasto, DatosCierre, Gasto } from '@dominio/tipos'
 import { MensajeError } from '@components/atoms/MensajeError';
 import { useAccionSegura } from '@hooks/useAccionSegura';
 import { useCrecemos } from '@context/CrecemosProvider';
-import type { TabsParamList } from '@navigation/Tabs';
+import type { RootStackParamList } from '@navigation/RootStack';
 
 // Una sola fuente para las categorías: ETIQUETA_GASTO (dominio).
 const CATEGORIAS: readonly ChipOption<CategoriaGasto>[] = (
@@ -33,14 +47,21 @@ type GastoEnForm = Gasto & { id: string };
 
 const conId = (g: Gasto): GastoEnForm => ({ ...g, id: crearId() });
 
+/** Lo que muestra la pantalla de éxito: el resultado del día recién guardado. */
+interface Exito {
+  teQueda: number;
+  venta: number;
+  gastoTotal: number;
+}
+
 type Cantidades = Record<string, { preparadas: string; sobrantes: string }>;
 
 const enteroDe = (texto: string) => (texto === '' ? 0 : parseInt(texto, 10));
 
 export const CerrarDiaScreen = () => {
   const { productos, cierres, guardarDia } = useCrecemos();
-  const navigation = useNavigation<BottomTabNavigationProp<TabsParamList, 'CerrarDia'>>();
-  const route = useRoute<RouteProp<TabsParamList, 'CerrarDia'>>();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList, 'CerrarDia'>>();
+  const route = useRoute<RouteProp<RootStackParamList, 'CerrarDia'>>();
 
   const [cantidades, setCantidades] = useState<Cantidades>({});
   const [yape, setYape] = useState('');
@@ -49,6 +70,7 @@ export const CerrarDiaScreen = () => {
   const [gastos, setGastos] = useState<GastoEnForm[]>([]);
   const [abreCiclo, setAbreCiclo] = useState(false);
   const [errores, setErrores] = useState<Record<string, string>>({});
+  const [exito, setExito] = useState<Exito | null>(null);
 
   // Modo edición: llega la fecha de un día ya cerrado desde Historial.
   const fecha = route.params?.fecha;
@@ -61,7 +83,6 @@ export const CerrarDiaScreen = () => {
   const hayOriginal = original !== undefined;
   const cierresRef = useRef(cierres);
   cierresRef.current = cierres;
-  const ultimoObjetivo = useRef<string | null>(null);
   const scrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
 
   const vaciar = useCallback(() => {
@@ -91,13 +112,12 @@ export const CerrarDiaScreen = () => {
     setErrores({});
   }, []);
 
-  // Las pestañas siguen montadas: el formulario tiene que reaccionar al cambio del parámetro.
-  // Con `fecha` carga ese día; sin ella carga el cierre de hoy si ya existe. Si no hay nada que
-  // cargar queda vacío, nunca con restos de una edición anterior. Solo depende de la fecha y de
-  // que el día exista: guardar la edición no la vuelve a disparar.
+  // Al abrir el modal se carga lo que corresponda: con `fecha`, ese día; sin ella, el cierre de
+  // hoy si ya existe. Si no hay nada que cargar queda vacío. Solo depende de la fecha y de que el
+  // día exista: guardar la edición no la vuelve a disparar. El modal se desmonta al cerrarse, así
+  // que nunca queda una edición vieja a medias ni "hoy" de ayer.
   const sincronizar = useCallback(() => {
     const objetivo = fecha ?? fechaLocal(new Date());
-    ultimoObjetivo.current = objetivo;
     const c = cierresRef.current.find(x => x.fecha === objetivo);
     if (c) {
       precargar(c);
@@ -105,33 +125,12 @@ export const CerrarDiaScreen = () => {
       return;
     }
     vaciar();
-    if (fecha !== undefined) navigation.setParams({ fecha: undefined });
-  }, [fecha, navigation, precargar, vaciar]);
+  }, [fecha, precargar, vaciar]);
 
   useEffect(() => {
     sincronizar();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fecha, hayOriginal]);
-
-  // Si la app quedó abierta pasada la medianoche, "hoy" ya es otro día: al volver a la pestaña
-  // se carga el de hoy (o queda vacío) en vez de seguir con el cierre de ayer.
-  useEffect(
-    () =>
-      navigation.addListener('focus', () => {
-        if (fecha === undefined && ultimoObjetivo.current !== fechaLocal(new Date())) sincronizar();
-      }),
-    [fecha, navigation, sincronizar],
-  );
-
-  // Salir de la edición por la barra de pestañas la cancela: volver a "Cerrar mi día" no debe
-  // retomar una edición vieja y dejar a Freddy cambiando, sin darse cuenta, un día que no es hoy.
-  useEffect(
-    () =>
-      navigation.addListener('blur', () => {
-        if (fecha !== undefined) navigation.setParams({ fecha: undefined });
-      }),
-    [fecha, navigation],
-  );
 
   // Al editar un día se muestra el precio con que se vendió ese día, no el de hoy (D2).
   const precioDe = (productoId: string, vigente: number) =>
@@ -164,7 +163,8 @@ export const CerrarDiaScreen = () => {
   const vista = original
     ? editarCierre(original, datos, productos, null, new Date())
     : nuevoCierre(datos, productos, null, new Date());
-  const teQueda = calcularCierre(vista).teQueda;
+  const resumenVista = calcularCierre(vista);
+  const teQueda = resumenVista.teQueda;
 
   const errorDe = (productoId: string, campo: 'preparadas' | 'sobrantes') => {
     const i = ids.indexOf(productoId);
@@ -190,20 +190,47 @@ export const CerrarDiaScreen = () => {
       setErrores(resultado.errores);
       return;
     }
-    vaciar();
-    if (fecha !== undefined) {
-      navigation.setParams({ fecha: undefined });
-      navigation.navigate('Historial');
-    } else {
-      navigation.navigate('Inicio');
+    setExito({
+      teQueda: resumenVista.teQueda,
+      venta: resumenVista.venta,
+      gastoTotal: resumenVista.gastoTotal,
+    });
+    try {
+      Vibration.vibrate(10);
+    } catch {
+      // Sin vibración (o sin permiso) no pasa nada: es solo una confirmación táctil.
     }
   });
 
-  const cancelarEdicion = () => {
-    vaciar();
-    navigation.setParams({ fecha: undefined });
-    navigation.navigate(editandoHoy ? 'Inicio' : 'Historial');
-  };
+  const cerrar = () => navigation.goBack();
+
+  if (exito) {
+    return (
+      <SafeAreaView style={styles.pantalla} edges={['top']} testID="cierre-exito">
+        <View style={styles.exito}>
+          <Icon icon={CircleCheck} color="success" size={64} />
+          <Text variant="h1" align="center" accessibilityRole="header" testID="cierre-exito-titulo">
+            Tu día quedó cuadrado
+          </Text>
+          <View style={styles.exitoMonto}>
+            <Text variant="label" color="textMuted">
+              Te queda
+            </Text>
+            <MoneyText monto={exito.teQueda} variant="hero" testID="cierre-exito-te-queda" />
+            <Text variant="caption" color="textMuted" align="center">
+              Ventas menos gastos registrados. No equivale al efectivo recibido.
+            </Text>
+          </View>
+          <Text align="center" testID="cierre-exito-resumen">
+            {`Vendiste ${formatoSoles(exito.venta)} · Gastaste ${formatoSoles(exito.gastoTotal)}`}
+          </Text>
+        </View>
+        <StickyFooter>
+          <Button title="Listo" size="lg" fullWidth onPress={cerrar} testID="cierre-listo" />
+        </StickyFooter>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.pantalla} edges={['top']}>
@@ -211,20 +238,23 @@ export const CerrarDiaScreen = () => {
         style={styles.pantalla}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
+        <ScreenHeader
+          title="Cerrar mi día"
+          subtitle={
+            original
+              ? `Editando el ${formatoFecha(original.fecha).toLowerCase()}`
+              : formatoFecha(fechaLocal(new Date()))
+          }
+          onBack={cerrar}
+          style={styles.encabezado}
+          backTestID="cerrar-atras"
+          subtitleTestID="cerrar-fecha"
+        />
         <ScrollView
           ref={scrollRef}
           contentContainerStyle={styles.contenido}
           keyboardShouldPersistTaps="handled"
         >
-          <View>
-            <Text variant="h1">Cerrar mi día</Text>
-            <Text variant="label" color="textMuted" testID="cerrar-fecha">
-              {original
-                ? `Editando el ${formatoFecha(original.fecha).toLowerCase()}`
-                : formatoFecha(fechaLocal(new Date()))}
-            </Text>
-          </View>
-
           {editandoHoy ? (
             <View style={styles.aviso} accessibilityLiveRegion="polite" testID="cerrar-ya-cerraste">
               <Text variant="bodyStrong">Ya cerraste hoy. Estás editando ese cierre.</Text>
@@ -236,7 +266,7 @@ export const CerrarDiaScreen = () => {
             {activos.length === 0 ? (
               <View style={styles.tarjeta}>
                 <Text>Agrega un producto activo en Perfil para registrar lo que vendes.</Text>
-                <Button title="Ir a mis productos" variant="outline" onPress={() => navigation.getParent()?.navigate('Perfil')} testID="cerrar-agregar-producto" />
+                <Button title="Ir a mis productos" variant="outline" onPress={() => navigation.navigate('Perfil')} testID="cerrar-agregar-producto" />
               </View>
             ) : null}
             {activos.map(p => (
@@ -337,13 +367,17 @@ export const CerrarDiaScreen = () => {
           </View>
 
           <View style={[styles.tarjeta, styles.teQueda]}>
-            <View>
+            <View style={styles.teQuedaTexto} testID="cerrar-resultado-texto">
               <Text variant="label">Resultado registrado</Text>
               <Text variant="caption" color="textMuted">Ventas menos gastos registrados. No equivale al efectivo recibido.</Text>
             </View>
             <Text
               variant="amount"
               color={teQueda < 0 ? 'danger' : 'success'}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.7}
+              style={styles.teQuedaMonto}
               testID="cerrar-te-queda"
             >
               {formatoSoles(teQueda)}
@@ -351,7 +385,7 @@ export const CerrarDiaScreen = () => {
           </View>
         </ScrollView>
 
-        <View style={styles.pie}>
+        <StickyFooter>
           {errores.cierre ? (
             <Text color="danger" accessibilityLiveRegion="polite" testID="error-cierre">
               {errores.cierre}
@@ -371,11 +405,11 @@ export const CerrarDiaScreen = () => {
               title="Cancelar"
               variant="ghost"
               fullWidth
-              onPress={cancelarEdicion}
+              onPress={cerrar}
               testID="cancelar-edicion"
             />
           ) : null}
-        </View>
+        </StickyFooter>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -383,7 +417,16 @@ export const CerrarDiaScreen = () => {
 
 const styles = StyleSheet.create({
   pantalla: { flex: 1, backgroundColor: colors.background },
+  encabezado: { paddingHorizontal: spacing.lg, paddingTop: spacing.xs },
   contenido: { padding: spacing.lg, gap: spacing.xl },
+  exito: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.lg,
+    padding: spacing.xl,
+  },
+  exitoMonto: { alignItems: 'center', alignSelf: 'stretch', gap: spacing.xs },
   bloque: { gap: spacing.md },
   tarjeta: {
     backgroundColor: colors.surface,
@@ -410,7 +453,15 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.border,
   },
   gastoCategoria: { flex: 1 },
-  teQueda: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  // El texto cede (flex: 1) y el monto no se parte: a 360 dp con fuente grande no se desborda.
+  teQueda: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  teQuedaTexto: { flex: 1 },
+  teQuedaMonto: { flexShrink: 0, maxWidth: '55%' },
   filaInterruptor: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -419,11 +470,4 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   etiquetaInterruptor: { flex: 1 },
-  pie: {
-    padding: spacing.lg,
-    gap: spacing.sm,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-    backgroundColor: colors.background,
-  },
 });

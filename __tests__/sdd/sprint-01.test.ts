@@ -261,6 +261,8 @@ describe('SPEC-01: Flujo mínimo de punta a punta — cerrar el día y ver cuán
     await escribir('monto-gasto', '110');
     await tocar('agregar-gasto'); // la categoría Mercadería viene marcada
     await tocar('guardar-dia');
+    // El modal muestra "Tu día quedó cuadrado": "Listo" lo cierra y deja ver Inicio.
+    await tocar('cierre-listo');
 
     // Guardar lleva a Inicio, que muestra el resultado del cierre guardado.
     const tabInicio = app.root.findAll(
@@ -288,6 +290,10 @@ describe('SPEC-01: Flujo mínimo de punta a punta — cerrar el día y ver cuán
     await escribir('monto-gasto', '110'); // Mercadería viene marcada; no se toca "Agregar gasto"
 
     await tocar('guardar-dia');
+
+    // El modal muestra "Tu día quedó cuadrado": "Listo" lo cierra y deja ver Inicio.
+
+    await tocar('cierre-listo');
 
     expect(textos()).toContain('Resultado registrado');
     expect(teQuedaEnInicio()).toBe('S/ 70.00');

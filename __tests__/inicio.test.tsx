@@ -491,15 +491,15 @@ describe('Inicio: acceso rápido', () => {
     global.fetch = fetchPorDefecto;
   });
 
-  it('con cierres, "Cerrar mi día" lleva a la pestaña "Cerrar mi día"', async () => {
+  it('con cierres, "Cerrar mi día" abre el formulario "Cerrar mi día"', async () => {
     await sembrarTresDias();
-    const { tocar, textos, pestanaActiva } = await montarApp();
+    const { tocar, textos, pestanaActiva, existe } = await montarApp();
     expect(textos()).toContain('Cerrar mi día');
     expect(pestanaActiva('tab-inicio')).toBe(true);
 
     await tocar('inicio-cerrar-dia-rapido');
 
-    expect(pestanaActiva('tab-cerrar-dia')).toBe(true);
+    expect(existe('guardar-dia')).toBe(true);
   });
 
   it('con cierres no muestra el estado vacío', async () => {
@@ -512,12 +512,12 @@ describe('Inicio: acceso rápido', () => {
   });
 
   it('sin cierres, el botón del estado vacío también lleva a "Cerrar mi día"', async () => {
-    const { tocar, existe, pestanaActiva } = await montarApp();
+    const { tocar, existe } = await montarApp();
     expect(existe('inicio-cerrar-dia-rapido')).toBe(false);
 
     await tocar('inicio-cerrar-dia');
 
-    expect(pestanaActiva('tab-cerrar-dia')).toBe(true);
+    expect(existe('guardar-dia')).toBe(true);
   });
 });
 
@@ -813,12 +813,12 @@ describe('Inicio: el insight', () => {
     expect(colorDe('inicio-insight-texto')).not.toBe(tarjeta.borderLeftColor);
   });
 
-  it('el enlace "Ver qué me deja cada uno" lleva la flecha y mide al menos 48 dp', async () => {
+  it('el enlace "Qué me deja cada uno" lleva la flecha y mide al menos 48 dp', async () => {
     await sembrarInsight();
 
     const { textos, estiloDe, colorDe } = await montarApp();
 
-    expect(textos()).toContain('Ver qué me deja cada uno');
+    expect(textos()).toContain('Qué me deja cada uno');
     expect(estiloDe('inicio-ver-que-me-deja').minHeight).toBeGreaterThanOrEqual(48);
     expect(colorDe('inicio-ver-que-me-deja-texto')).not.toBe(colors.accent);
   });
@@ -837,7 +837,7 @@ describe('Inicio: el insight', () => {
 
     expect(existe('inicio-insight')).toBe(false);
     expect(existe('inicio-ver-que-me-deja')).toBe(false);
-    expect(textos()).not.toContain('Ver qué me deja cada uno');
+    expect(textos()).not.toContain('Qué me deja cada uno');
   });
 
   it('no aparece con un solo producto vendido', async () => {
@@ -885,7 +885,7 @@ describe('Inicio: el insight', () => {
     expect(existe('inicio-insight')).toBe(false);
   });
 
-  it('"Ver qué me deja cada uno" abre esa pantalla, con la misma frase', async () => {
+  it('"Qué me deja cada uno" abre esa pantalla, con la misma frase', async () => {
     await sembrarInsight();
     const { tocar, existe, textoDe } = await montarApp();
     expect(existe('queme-pantalla')).toBe(false);

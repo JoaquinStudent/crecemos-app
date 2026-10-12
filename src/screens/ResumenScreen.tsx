@@ -3,7 +3,7 @@
 // segundo es la ganancia" dibujado como una barra, y cuánto de la mercadería se vendió.
 // Con 2 ciclos o más, una fila compara con el ciclo anterior: el texto y el monto, nunca solo un
 // porcentaje. Termina con los botones a "Qué me deja cada uno", "Mi reporte" y "Preguntarle a mis
-// datos" (el chat). Sin "Este mes / Todo", sin gráfico de ciclos y sin buscar.
+// datos" (la pestaña Asistente). Sin "Este mes / Todo", sin gráfico de ciclos y sin buscar.
 // Las barras son Views de ancho porcentual, sin librerías.
 import React from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
@@ -16,6 +16,7 @@ import { colors, radius, spacing } from '@theme';
 import { Text } from '@components/atoms/Text';
 import { Button } from '@components/atoms/Button';
 import { Icon } from '@components/atoms/Icon';
+import { CargandoBloques } from '@components/molecules/CargandoBloques';
 import { compararCiclos } from '@analisis/metricas';
 import { agruparCiclos, mercaderiaDelCiclo, resumirCiclo, textoCapital } from '@dominio/ciclo';
 import { formatoFechaCorta, formatoSoles } from '@dominio/formato';
@@ -56,7 +57,9 @@ export const ResumenScreen = () => {
           Resumen
         </Text>
 
-        {cargando ? null : actual ? (
+        {cargando ? (
+          <CargandoBloques bloques={3} alto={120} testID="resumen-cargando" />
+        ) : actual ? (
           <CicloActual ciclo={actual} anterior={anterior} productos={productos} />
         ) : (
           <View style={styles.tarjeta} testID="resumen-vacio">
@@ -79,7 +82,7 @@ export const ResumenScreen = () => {
         {cargando ? null : (
           <>
             <Button
-              title="Comparar productos"
+              title="Qué me deja cada uno"
               variant="outline"
               size="lg"
               fullWidth
@@ -100,7 +103,7 @@ export const ResumenScreen = () => {
               size="lg"
               fullWidth
               testID="resumen-preguntar"
-              onPress={() => navigation.navigate('Preguntar')}
+              onPress={() => navigation.navigate('Asistente')}
             />
           </>
         )}
@@ -172,11 +175,22 @@ const CicloActual = ({
             />
           </View>
         ) : null}
-        <View style={[styles.filaEntre, styles.separadoChico]}>
-          <Text variant="bodyStrong" color="danger" testID="resumen-capital">
+        {/* A 360 dp con fuente grande no caben lado a lado: la fila se parte en dos líneas. */}
+        <View style={[styles.filaCapital, styles.separadoChico]} testID="resumen-capital-fila">
+          <Text
+            variant="bodyStrong"
+            color="danger"
+            style={styles.cifraCapital}
+            testID="resumen-capital"
+          >
             {`Capital ${formatoSoles(resumen.capital)}`}
           </Text>
-          <Text variant="bodyStrong" color="success" testID="resumen-ganancia">
+          <Text
+            variant="bodyStrong"
+            color="success"
+            style={styles.cifraCapital}
+            testID="resumen-ganancia"
+          >
             {`Resultado positivo ${formatoSoles(ganancia)}`}
           </Text>
         </View>
@@ -312,6 +326,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.md,
   },
+  filaCapital: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    columnGap: spacing.md,
+    rowGap: spacing.xs,
+  },
+  cifraCapital: { flexShrink: 1 },
   barra: {
     flexDirection: 'row',
     height: 12,

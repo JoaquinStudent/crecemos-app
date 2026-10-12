@@ -5,19 +5,27 @@
 import React, { useMemo, useState } from 'react';
 import { Pressable, SectionList, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { CompositeNavigationProp, useNavigation } from '@react-navigation/native';
 import { ArrowDown, ArrowUp, Clock, List } from 'lucide-react-native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { ColorName, colors, radius, spacing } from '@theme';
 import { Text } from '@components/atoms/Text';
 import { Button } from '@components/atoms/Button';
+import { CargandoBloques } from '@components/molecules/CargandoBloques';
 import { ChipGroup, ChipOption } from '@components/molecules/ChipGroup';
 import { DiaSheet } from '@components/organisms/DiaSheet';
 import { formatoSoles } from '@dominio/formato';
 import { armarHistorial } from '@dominio/historial';
 import type { Cierre, FiltroHistorial, GrupoDia, Movimiento } from '@dominio/tipos';
 import { useCrecemos } from '@context/CrecemosProvider';
+import type { RootStackParamList } from '@navigation/RootStack';
 import type { TabsParamList } from '@navigation/Tabs';
+
+type HistorialNavigation = CompositeNavigationProp<
+  BottomTabNavigationProp<TabsParamList, 'Historial'>,
+  NativeStackNavigationProp<RootStackParamList>
+>;
 
 const FILTROS: readonly ChipOption<FiltroHistorial>[] = [
   { value: 'todo', label: 'Todo', icon: List },
@@ -35,7 +43,7 @@ const colorDe = (n: number): ColorName => (n > 0 ? 'success' : n < 0 ? 'danger' 
 
 export const HistorialScreen = () => {
   const { cierres, cargando } = useCrecemos();
-  const navigation = useNavigation<BottomTabNavigationProp<TabsParamList, 'Historial'>>();
+  const navigation = useNavigation<HistorialNavigation>();
   const [filtro, setFiltro] = useState<FiltroHistorial>('todo');
   // La hoja conserva el día aunque se cierre (para que no se vacíe mientras baja).
   const [enHoja, setEnHoja] = useState<Cierre | null>(null);
@@ -77,7 +85,9 @@ export const HistorialScreen = () => {
         ) : null}
       </View>
 
-      {cargando ? null : cierres.length === 0 ? (
+      {cargando ? (
+        <CargandoBloques style={styles.vacio} bloques={4} alto={64} testID="historial-cargando" />
+      ) : cierres.length === 0 ? (
         <View style={styles.vacio}>
           <View style={styles.tarjeta} testID="historial-vacio">
             <Text variant="h3">Aún no cierras ningún día</Text>
@@ -114,17 +124,15 @@ export const HistorialScreen = () => {
           renderSectionHeader={({ section }) => (
             <View style={styles.diaEncabezado} testID={`dia-${section.cierreId}`}>
               <Text
-                variant="label"
+                variant="labelStrong"
                 color="textMuted"
-                style={styles.diaTitulo}
                 testID={`dia-titulo-${section.cierreId}`}
               >
                 {section.titulo}
               </Text>
               <Text
-                variant="label"
+                variant="labelStrong"
                 color={colorDe(section.neto)}
-                style={styles.diaTitulo}
                 testID={`dia-neto-${section.cierreId}`}
               >
                 {conSigno(section.neto)}
@@ -207,7 +215,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     backgroundColor: colors.surface,
   },
-  diaTitulo: { fontWeight: '600' },
   fila: {
     flexDirection: 'row',
     alignItems: 'center',

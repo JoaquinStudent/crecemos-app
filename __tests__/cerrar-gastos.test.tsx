@@ -49,6 +49,8 @@ describe('Cerrar mi día: quitar un gasto agregado', () => {
     await agregar(app, '99');
     await app.tocar('quitar-gasto-1');
     await app.tocar('guardar-dia');
+    // El modal muestra "Tu día quedó cuadrado": "Listo" lo cierra y deja ver Inicio.
+    await app.tocar('cierre-listo');
 
     const [cierre] = await listarCierres();
     expect(cierre.gastos).toEqual([{ categoria: 'mercaderia', monto: 10 }]);

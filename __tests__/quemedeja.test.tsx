@@ -153,10 +153,11 @@ describe('Qué me deja cada uno', () => {
 
     await app.tocar('tab-resumen');
     expect(app.existe('resumen-que-me-deja')).toBe(true);
-    expect(app.textos()).toContain('Comparar productos');
+    expect(app.textos()).toContain('Qué me deja cada uno');
     await app.tocar('resumen-que-me-deja');
 
-    expect(app.textos()).toContain('Comparar productos');
+    expect(app.existe('queme-pantalla')).toBe(true);
+    expect(app.textos()).toContain('Qué me deja cada uno');
     expect(app.textoDe('queme-periodo')).toBe('Últimos 30 días · 2 ciclos');
   });
 
@@ -183,7 +184,7 @@ describe('Qué me deja cada uno', () => {
     expect(app.textoDe('queme-periodo')).toBe('Últimos 30 días · 1 ciclo');
   });
 
-  it('sin cierres en el periodo: mensaje con la voz de Freddy y "Cerrar mi día" que lleva a la pestaña', async () => {
+  it('sin cierres en el periodo: mensaje con la voz de Freddy y "Cerrar mi día" que abre el formulario', async () => {
     await sembrar(
       haceDias(45),
       [{ productoId: 'p-anticucho', preparadas: 10, sobrantes: 0 }],
@@ -198,8 +199,8 @@ describe('Qué me deja cada uno', () => {
     expect(app.textos()).toContain('Cerrar mi día');
 
     await app.tocar('queme-cerrar-dia');
-    // Ya está en la pestaña "Cerrar mi día", no en la pantalla de la que salió.
-    expect(app.existe('queme-vacio')).toBe(false);
+    // Se abre el formulario "Cerrar mi día" encima de esta pantalla.
+    expect(app.existe('guardar-dia')).toBe(true);
     expect(app.textos()).toContain('Guardar mi día');
   });
 

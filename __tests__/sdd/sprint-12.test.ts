@@ -107,13 +107,21 @@ describe('SPEC-12: Auditoría', () => {
     // Given: la configuración de la barra de navegación inferior
     // When: se revisa cada pestaña
     // Then: todas declaran una etiqueta de texto además de su ícono
-    // Se lee el código de las pestañas: cada <Tab.Screen> declara un tabBarLabel no vacío.
-    const fuente = readFileSync(join(RAIZ, 'src', 'navigation', 'Tabs.tsx'), 'utf8');
-    const pestanas = fuente.split('<Tab.Screen').slice(1);
-    expect(pestanas.length).toBeGreaterThanOrEqual(4);
-    for (const pestana of pestanas) {
-      expect(pestana).toMatch(/tabBarLabel:\s*'[^']+'/);
+    // La barra es propia (BarraNavegacion): cada pestaña de Tabs.tsx tiene su ranura con una
+    // etiqueta de texto no vacía, y el botón central "Cerrar día" también.
+    const tabs = readFileSync(join(RAIZ, 'src', 'navigation', 'Tabs.tsx'), 'utf8');
+    const barra = readFileSync(
+      join(RAIZ, 'src', 'components', 'organisms', 'BarraNavegacion', 'BarraNavegacion.tsx'),
+      'utf8',
+    );
+    const nombres = [...tabs.matchAll(/<Tab\.Screen\s+name="(\w+)"/g)].map(m => m[1]);
+    expect(nombres.length).toBeGreaterThanOrEqual(4);
+    expect(tabs).toMatch(/tabBar=\{/);
+    for (const nombre of nombres) {
+      expect(barra).toMatch(new RegExp(`${nombre}:\\s*\\{\\s*etiqueta:\\s*'[^']+'`));
     }
+    expect(barra).toMatch(/ETIQUETA_CERRAR\s*=\s*'[^']+'/);
+    expect(barra).toMatch(/ETIQUETA_CERRADO\s*=\s*'[^']+'/);
   });
 
   // @spec12_e6 — La app cabe en un plan prepago

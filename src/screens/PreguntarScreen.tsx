@@ -4,6 +4,7 @@
 // veces con el semáforo de Jev. La pantalla solo orquesta: no calcula nada ni habla con ningún
 // proveedor (AGENTS.md, reglas 3 y 8). Nada se envía al abrir ni al escribir: solo al tocar
 // "Preguntar" o una pregunta sugerida, y una sola petición por toque.
+// Es la pestaña "Asistente" (sin "Atrás"). Con el parámetro `pregunta` la hace al abrirse.
 // El historial vive solo en el estado de esta pantalla: no se guarda en el teléfono y se va con ella.
 // Para dejarle sitio a la conversación, el aviso de privacidad y las preguntas sugeridas se pliegan
 // en cuanto hay una pregunta: el aviso queda en una línea con "Ver aviso" / "Ocultar", y las
@@ -20,14 +21,15 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { ChevronDown, ChevronLeft, ChevronUp, Lock } from 'lucide-react-native';
+import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
+import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import { ChevronDown, ChevronUp, Lock } from 'lucide-react-native';
 import { colors, radius, spacing } from '@theme';
 import { Text } from '@components/atoms/Text';
 import { Button } from '@components/atoms/Button';
 import { Icon } from '@components/atoms/Icon';
 import { Chip } from '@components/molecules/Chip';
+import { ScreenHeader } from '@components/molecules/ScreenHeader';
 import { Input } from '@components/atoms/Input';
 import { BurbujaChat } from '@components/molecules/BurbujaChat';
 import { responderCharla } from '@analisis/charla';
@@ -36,7 +38,7 @@ import { fechaLocal } from '@dominio/fecha';
 import type { Consulta, Semaforo } from '@dominio/tipos';
 import { useCrecemos } from '@context/CrecemosProvider';
 import { consultar, MAX_CARACTERES_PREGUNTA } from '@services/jev';
-import type { RootStackParamList } from '@navigation/RootStack';
+import type { TabsParamList } from '@navigation/Tabs';
 import { JEV_URL } from '../config';
 
 const TEXTO_PRIVACIDAD =
@@ -62,7 +64,8 @@ interface Mensaje {
 
 export const PreguntarScreen = () => {
   const { cierres, productos, perfil } = useCrecemos();
-  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList, 'Preguntar'>>();
+  const navigation = useNavigation<BottomTabNavigationProp<TabsParamList, 'Asistente'>>();
+  const route = useRoute<RouteProp<TabsParamList, 'Asistente'>>();
 
   const [mensajes, setMensajes] = useState<Mensaje[]>([]);
   const [texto, setTexto] = useState('');
@@ -141,6 +144,17 @@ export const PreguntarScreen = () => {
     }
   };
 
+  // Otra pantalla puede abrir el chat con una pregunta lista (botones "¿Por qué?"): se hace una
+  // sola vez y se borra del parámetro para que volver a la pestaña no la repita.
+  const preguntarRef = useRef(preguntar);
+  preguntarRef.current = preguntar;
+  const preguntaDeRuta = route.params?.pregunta;
+  useEffect(() => {
+    if (!preguntaDeRuta) return;
+    navigation.setParams({ pregunta: undefined });
+    preguntarRef.current(preguntaDeRuta).catch(() => undefined);
+  }, [preguntaDeRuta, navigation]);
+
   const ultimo = mensajes.length > 0 ? mensajes[mensajes.length - 1] : null;
   // Esta bandera también la llevan las respuestas de charla que invitan a una sugerida ("ayuda").
   const ultimoNoEntendi = ultimo?.noEntendi === true;
@@ -168,21 +182,8 @@ export const PreguntarScreen = () => {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <View style={styles.cabecera}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Atrás"
-            onPress={() => navigation.goBack()}
-            style={styles.atras}
-            testID="preguntar-atras"
-          >
-            <Icon icon={ChevronLeft} color="primary" size="lg" />
-            <Text variant="bodyStrong" color="primary">
-              Atrás
-            </Text>
-          </Pressable>
-          <Text variant="h1" accessibilityRole="header">
-            Preguntarle a mis datos
-          </Text>
+          {/* Es una pestaña: no lleva "Atrás". */}
+          <ScreenHeader title="Preguntarle a mis datos" />
           {/* Al abrir, completo y sin scroll. Ya con una pregunta, una línea con "Ver aviso". */}
           {conversando ? (
             <View style={styles.avisoCorto} testID="preguntar-aviso-compacto">
@@ -337,14 +338,6 @@ export const PreguntarScreen = () => {
 const styles = StyleSheet.create({
   pantalla: { flex: 1, backgroundColor: colors.background },
   cabecera: { paddingHorizontal: spacing.lg, paddingTop: spacing.xs, gap: spacing.sm },
-  atras: {
-    alignSelf: 'flex-start',
-    minHeight: 48,
-    minWidth: 48,
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginLeft: -spacing.xs,
-  },
   privacidad: {
     flexDirection: 'row',
     alignItems: 'center',
