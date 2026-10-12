@@ -30,6 +30,7 @@ import { validarNumeroYape } from '@dominio/validacion';
 import { requiereRevision, teDeja } from '@dominio/producto';
 import type { DatosProducto } from '@dominio/validacion';
 import type { Perfil, Producto } from '@dominio/tipos';
+import { useRecorrido } from '@context/RecorridoProvider';
 import { useCrecemos } from '@context/CrecemosProvider';
 import { elegirFoto, mensajeFoto } from '@services/foto';
 import { avisaConLaAppCerrada, pedirPermisoDeAvisos } from '@services/recordatorio';
@@ -151,6 +152,12 @@ export const PerfilScreen = () => {
     await borrarDatosDeEjemplo();
     setConfirmandoBorrarEjemplo(false);
   }, 'No pudimos borrar los datos de ejemplo. Inténtalo otra vez.');
+  // "Ver el recorrido otra vez": olvida que lo vio, vuelve a Inicio y lo arranca allí.
+  const { repetir: repetirRecorrido } = useRecorrido();
+  const recorridoSeguro = useAccionSegura(async () => {
+    await repetirRecorrido();
+    navigation.navigate('Tabs', { screen: 'Inicio' });
+  }, 'No pudimos abrir el recorrido. Inténtalo otra vez.');
   const hayEjemplo = datosDeEjemplo.dias > 0 || datosDeEjemplo.productos > 0;
   const ejemploSeguro = useAccionSegura(
     () => cargarDatosDeEjemplo(),
@@ -654,6 +661,24 @@ export const PerfilScreen = () => {
               )}
             </View>
           ) : null}
+
+          <View style={styles.seccion} testID="perfil-ayuda">
+            <View>
+              <Text variant="h3">Ayuda</Text>
+              <Text variant="caption" color="textMuted">
+                Un paseo corto por lo más importante de la app.
+              </Text>
+            </View>
+            <Button
+              title="Ver el recorrido otra vez"
+              variant="outline"
+              fullWidth
+              loading={recorridoSeguro.ejecutando}
+              onPress={() => recorridoSeguro.ejecutar()}
+              testID="ver-recorrido"
+            />
+            <MensajeError mensaje={recorridoSeguro.mensajeError} testID="error-ver-recorrido" />
+          </View>
         </View>
       </ScrollView>
 
