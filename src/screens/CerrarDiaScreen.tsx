@@ -20,6 +20,7 @@ import { colors, spacing } from '@theme';
 import { Text } from '@components/atoms/Text';
 import { Button } from '@components/atoms/Button';
 import { Icon } from '@components/atoms/Icon';
+import { Input } from '@components/atoms/Input';
 import { MoneyText } from '@components/atoms/MoneyText';
 import { AmountInput } from '@components/molecules/AmountInput';
 import { CantidadInput } from '@components/molecules/CantidadInput';
@@ -29,6 +30,8 @@ import { ChipGroup, ChipOption } from '@components/molecules/ChipGroup';
 import { SwitchRow } from '@components/molecules/SwitchRow';
 import { ScreenHeader } from '@components/molecules/ScreenHeader';
 import { StickyFooter } from '@components/molecules/StickyFooter';
+import { interpretarDia, resumenEntendido } from '@analisis/contarDia';
+import type { InterpretacionDia } from '@analisis/contarDia';
 import { calcularCierre, crearId, editarCierre, nuevoCierre } from '@dominio/cierre';
 import { ETIQUETA_GASTO } from '@dominio/categorias';
 import { fechaLocal } from '@dominio/fecha';
@@ -60,6 +63,13 @@ interface Exito {
 
 type Cantidades = Record<string, { preparadas: string; sobrantes: string }>;
 
+/** Lo que la persona ve tras "Llenar mi cierre": lo entendido y lo que quedó sin ubicar. */
+interface Entendido {
+  resumen: string;
+  noEntendido: string[];
+  notas: string[];
+}
+
 const enteroDe = (texto: string) => (texto === '' ? 0 : parseInt(texto, 10));
 
 export const CerrarDiaScreen = () => {
@@ -80,6 +90,10 @@ export const CerrarDiaScreen = () => {
   // `true` si el monto de Yape ya incluye los yapes anotados de esta fecha (se consumen al guardar).
   const [sumados, setSumados] = useState(false);
   const [separado, setSeparado] = useState<number | null>(null);
+  // "Cuéntame tu día": la frase, lo que se entendió y, si pisaría algo escrito, la propuesta a confirmar.
+  const [relato, setRelato] = useState('');
+  const [entendido, setEntendido] = useState<Entendido | null>(null);
+  const [porConfirmar, setPorConfirmar] = useState<InterpretacionDia | null>(null);
 
   // Modo edición: llega la fecha de un día ya cerrado desde Historial.
   const fecha = route.params?.fecha;
@@ -211,6 +225,58 @@ export const CerrarDiaScreen = () => {
     setSumados(true);
   };
 
+  // ¿Llenar con lo dictado pisaría algo que la persona ya escribió (y es distinto)?
+  const pisaria = (i: InterpretacionDia): boolean => {
+    const cantidadesPisadas = Object.entries(i.cantidades).some(([id, c]) =>
+      (['preparadas', 'sobrantes'] as const).some(campo => {
+        const actual = cantidades[id]?.[campo] ?? '';
+        return c[campo] !== undefined && actual !== '' && actual !== String(c[campo]);
+      }),
+    );
+    const yapePisado =
+      i.montoYape !== undefined && yape !== '' && parseAmount(yape) !== i.montoYape;
+    const gastosPisados = i.gastos.length > 0 && gastos.length > 0;
+    return cantidadesPisadas || yapePisado || gastosPisados;
+  };
+
+  const aplicarRelato = (i: InterpretacionDia) => {
+    setCantidades(previas => {
+      const nuevas = { ...previas };
+      for (const [id, c] of Object.entries(i.cantidades)) {
+        nuevas[id] = {
+          preparadas: c.preparadas !== undefined ? String(c.preparadas) : (previas[id]?.preparadas ?? ''),
+          sobrantes: c.sobrantes !== undefined ? String(c.sobrantes) : (previas[id]?.sobrantes ?? ''),
+        };
+      }
+      return nuevas;
+    });
+    if (i.montoYape !== undefined) {
+      setYape(String(i.montoYape));
+      // El monto ya no es la suma de los yapes anotados: no se consumen al guardar.
+      setSumados(false);
+    }
+    if (i.gastos.length > 0) setGastos(i.gastos.map(conId));
+    if (i.abreCiclo) setAbreCiclo(true);
+    setErrores({});
+    setEntendido({
+      resumen: resumenEntendido(i, activos),
+      noEntendido: i.noEntendido,
+      notas: i.notas,
+    });
+    setPorConfirmar(null);
+  };
+
+  // Solo propone: llena el formulario para que la persona lo revise. Nada se guarda aquí.
+  const llenarConRelato = () => {
+    const i = interpretarDia(relato, activos);
+    if (pisaria(i)) {
+      setEntendido(null);
+      setPorConfirmar(i);
+      return;
+    }
+    aplicarRelato(i);
+  };
+
   const quitarGasto = (id: string) => setGastos(previos => previos.filter(g => g.id !== id));
 
   const { ejecutar: guardar, ejecutando: guardando, mensajeError } = useAccionSegura(async () => {
@@ -322,6 +388,76 @@ export const CerrarDiaScreen = () => {
               <Text variant="bodyStrong">Ya cerraste hoy. Estás editando ese cierre.</Text>
             </Callout>
           ) : null}
+
+          <Card style={styles.tarjeta} testID="cuentame-tarjeta">
+            <Text variant="h3">Cuéntame tu día</Text>
+            <Input
+              label="Escribe o dicta cómo te fue"
+              value={relato}
+              onChangeText={setRelato}
+              placeholder="Preparé 60 anticuchos y me sobraron 5. Yape 120. Gasté 30 de carbón."
+              multiline
+              numberOfLines={3}
+              maxLength={600}
+              textAlignVertical="top"
+              style={styles.relato}
+              helperText="Toca el micrófono de tu teclado para hablar"
+              autoCorrect={false}
+              testID="cuentame-texto"
+            />
+            <Button
+              title="Llenar mi cierre"
+              variant="outline"
+              fullWidth
+              disabled={relato.trim() === ''}
+              accessibilityLabel="Llenar mi cierre con lo que me contaste"
+              onPress={llenarConRelato}
+              testID="cuentame-llenar"
+            />
+            {porConfirmar ? (
+              <Callout accessibilityLiveRegion="polite" testID="cuentame-confirmar">
+                <Text variant="bodyStrong">Esto cambia lo que ya escribiste. ¿Continuar?</Text>
+                <Button
+                  title="Sí, reemplazar"
+                  variant="outline"
+                  fullWidth
+                  onPress={() => aplicarRelato(porConfirmar)}
+                  testID="cuentame-reemplazar"
+                />
+                <Button
+                  title="No, dejar como está"
+                  variant="ghost"
+                  fullWidth
+                  onPress={() => setPorConfirmar(null)}
+                  testID="cuentame-dejar"
+                />
+              </Callout>
+            ) : null}
+            {entendido ? (
+              <Callout accessibilityLiveRegion="polite" testID="cuentame-resultado">
+                {entendido.resumen !== '' ? (
+                  <Text variant="bodyStrong" testID="cuentame-entendi">
+                    {`Entendí: ${entendido.resumen}`}
+                  </Text>
+                ) : (
+                  <Text variant="bodyStrong" testID="cuentame-nada">
+                    No pude llenar nada. Escribe los datos en los campos de abajo.
+                  </Text>
+                )}
+                {entendido.noEntendido.length > 0 ? (
+                  <Text testID="cuentame-no-entendi">
+                    {`No entendí: ${entendido.noEntendido.join('; ')}`}
+                  </Text>
+                ) : null}
+                {entendido.notas.map(n => (
+                  <Text key={n} variant="caption">
+                    {n}
+                  </Text>
+                ))}
+                <Text variant="caption">Revisa los campos y corrige lo que haga falta. Todavía no se guardó nada.</Text>
+              </Callout>
+            ) : null}
+          </Card>
 
           <View style={styles.bloque}>
             <Text variant="h3">¿Cuánto preparaste y cuánto te sobró?</Text>
@@ -504,6 +640,7 @@ const styles = StyleSheet.create({
   exitoMonto: { alignItems: 'center', alignSelf: 'stretch', gap: spacing.xs },
   bloque: { gap: spacing.md },
   tarjeta: { padding: spacing.md, gap: spacing.sm },
+  relato: { minHeight: 96 },
   fila: { flexDirection: 'row', gap: spacing.md },
   columna: { flex: 1 },
   gasto: {
