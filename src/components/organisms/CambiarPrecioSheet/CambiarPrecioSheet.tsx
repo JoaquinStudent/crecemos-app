@@ -24,6 +24,8 @@ import { AmountInput } from '@components/molecules/AmountInput';
 import { formatoFechaCorta, formatoSoles, parseAmount, redondearSoles } from '@dominio/formato';
 import { teDeja } from '@dominio/producto';
 import type { Producto } from '@dominio/tipos';
+import { MensajeError } from '@components/atoms/MensajeError';
+import { useAccionSegura } from '@hooks/useAccionSegura';
 import { useCrecemos } from '@context/CrecemosProvider';
 
 export interface CambiarPrecioSheetProps {
@@ -47,13 +49,12 @@ const Contenido = ({ producto, onClose }: { producto: Producto; onClose: () => v
   const [precio, setPrecio] = useState(producto.precioVenta.toFixed(2));
   const [costo, setCosto] = useState(producto.costoUnitario.toFixed(2));
   const [errores, setErrores] = useState<Record<string, string>>({});
-  const [guardando, setGuardando] = useState(false);
 
   // Resultado en vivo: lo que deja ahora contra lo que dejaba antes (D10: "te deja", no "te queda").
   const nuevo = redondearSoles(parseAmount(precio) - parseAmount(costo));
   const diferencia = redondearSoles(nuevo - teDeja(producto).monto);
 
-  const guardarPrecio = async () => {
+  const { ejecutar: guardar, ejecutando: guardando, mensajeError } = useAccionSegura(async () => {
     const resultado = await cambiarPrecioProducto(
       producto.id,
       parseAmount(precio),
@@ -65,16 +66,7 @@ const Contenido = ({ producto, onClose }: { producto: Producto; onClose: () => v
       return;
     }
     onClose();
-  };
-
-  const guardar = async () => {
-    setGuardando(true);
-    try {
-      await guardarPrecio();
-    } finally {
-      setGuardando(false);
-    }
-  };
+  });
 
   return (
     <View style={styles.fondo}>
@@ -141,12 +133,13 @@ const Contenido = ({ producto, onClose }: { producto: Producto; onClose: () => v
         </ScrollView>
 
         <View style={[styles.pie, { paddingBottom: spacing.lg + insets.bottom }]}>
+          <MensajeError mensaje={mensajeError} testID="error-guardar-precio" />
           <Button
             title="Guardar el nuevo precio"
             size="lg"
             fullWidth
             loading={guardando}
-            onPress={guardar}
+            onPress={() => guardar()}
             testID="guardar-precio"
           />
           <Button

@@ -9,6 +9,8 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { ChevronLeft, Clock, TriangleAlert } from 'lucide-react-native';
 import { colors, radius, spacing } from '@theme';
 import { Text } from '@components/atoms/Text';
+import { MensajeError } from '@components/atoms/MensajeError';
+import { useAccionSegura } from '@hooks/useAccionSegura';
 import { Button } from '@components/atoms/Button';
 import { Icon } from '@components/atoms/Icon';
 import { Input } from '@components/atoms/Input';
@@ -77,6 +79,28 @@ export const PerfilScreen = () => {
 
   const hoy = fechaLocal(new Date());
 
+  // Cada guardado pasa por `useAccionSegura`: si falla, lo dice en su lugar en vez de callar.
+  const datoSeguro = useAccionSegura(async (campo: CampoDato) => {
+    const error = campo === 'yapeNumero' ? validarNumeroYape(borrador.trim()) : null;
+    if (error) {
+      setErrorBorrador(error);
+      return;
+    }
+    await guardarPerfil({ [campo]: borrador.trim() } as Partial<Perfil>);
+    setEditando(null);
+  });
+  const pagoSeguro = useAccionSegura((parcial: Partial<Perfil>) => guardarPerfil(parcial));
+  const fotoSegura = useAccionSegura(async () => {
+    await quitarFoto();
+    setConfirmandoQuitar(false);
+  }, 'No pudimos quitar tu foto. Inténtalo otra vez.');
+  // Guardar o editar un producto y activarlo o desactivarlo comparten el aviso de la sección.
+  const productoSeguro = useAccionSegura((tarea: () => Promise<void>) => tarea());
+  const ejemploSeguro = useAccionSegura(
+    () => cargarDatosDeEjemplo(),
+    'No pudimos cargar los datos de ejemplo. Inténtalo otra vez.',
+  );
+
   // Foto de perfil: se guarda al elegirla. Los botones dependen de si ya hay una foto válida.
   const hayFoto = avatarDe(perfil).tipo === 'foto';
   const [abriendoFoto, setAbriendoFoto] = useState(false);
@@ -121,11 +145,6 @@ export const PerfilScreen = () => {
     setConfirmandoQuitar(true);
   };
 
-  const confirmarQuitarFoto = async () => {
-    await quitarFoto();
-    setConfirmandoQuitar(false);
-  };
-
   // El teclado de iOS tapaba la fila que se edita, con su "Guardar" y "Cancelar", y
   // `automaticallyAdjustKeyboardInsets` solo no alcanzaba: al abrir la edición se lleva la
   // fila al borde de arriba de la pantalla, así el campo y sus botones quedan sobre el teclado.
@@ -144,6 +163,7 @@ export const PerfilScreen = () => {
   const editar = (campo: CampoDato) => {
     setBorrador(perfil[campo] ?? '');
     setErrorBorrador(undefined);
+    datoSeguro.limpiarError();
     setEditando(campo);
     verFila(campo);
   };
@@ -151,22 +171,13 @@ export const PerfilScreen = () => {
   const cambiarBorrador = (campo: CampoDato, texto: string) =>
     setBorrador(campo === 'yapeNumero' ? texto.replace(/\D/g, '') : texto);
 
-  const guardarDato = async (campo: CampoDato) => {
-    const error = campo === 'yapeNumero' ? validarNumeroYape(borrador.trim()) : null;
-    if (error) {
-      setErrorBorrador(error);
-      return;
-    }
-    await guardarPerfil({ [campo]: borrador.trim() } as Partial<Perfil>);
-    setEditando(null);
-  };
-
   const abrirHoja = (producto: Producto) => {
     setEnHoja(producto);
     setHojaVisible(true);
   };
 
   const abrirFormularioProducto = (producto?: Producto) => {
+    productoSeguro.limpiarError();
     setProductoEditado(producto ?? null);
     setFormularioProducto(producto
       ? { nombre: producto.nombre, unidad: producto.unidad, precioVenta: producto.precioVenta, costoUnitario: producto.costoUnitario }
@@ -219,7 +230,7 @@ export const PerfilScreen = () => {
             <Button
               title="Guardar"
               variant="outline"
-              onPress={() => guardarDato(campo)}
+              onPress={() => datoSeguro.ejecutar(campo)}
               testID={`guardar-${campo}`}
             />
             <Button
@@ -229,6 +240,7 @@ export const PerfilScreen = () => {
               testID={`cancelar-${campo}`}
             />
           </View>
+          <MensajeError mensaje={datoSeguro.mensajeError} testID={`error-guardar-${campo}`} />
         </View>
       ) : (
         <View style={styles.dato}>
@@ -368,7 +380,7 @@ export const PerfilScreen = () => {
                 title="Sí, quitar"
                 variant="danger"
                 fullWidth
-                onPress={confirmarQuitarFoto}
+                onPress={() => fotoSegura.ejecutar()}
                 testID="perfil-foto-quitar-si"
               />
               <Button
@@ -380,6 +392,8 @@ export const PerfilScreen = () => {
               />
             </View>
           ) : null}
+
+          <MensajeError mensaje={fotoSegura.mensajeError} color="textInverse" testID="perfil-foto-quitar-error" />
 
           {errorFoto ? (
             <Text variant="bodySmall" color="textInverse" align="center" testID="perfil-foto-error">
@@ -403,7 +417,7 @@ export const PerfilScreen = () => {
                 <Text style={styles.etiquetaInterruptor}>Acepto Yape</Text>
                 <Switch
                   value={perfil.aceptaYape}
-                  onValueChange={v => guardarPerfil({ aceptaYape: v })}
+                  onValueChange={v => pagoSeguro.ejecutar({ aceptaYape: v })}
                   trackColor={{ false: colors.disabled, true: colors.primary }}
                   thumbColor={colors.background}
                   accessibilityLabel="Acepto Yape"
@@ -421,7 +435,7 @@ export const PerfilScreen = () => {
                   <Switch
                     value={perfil.yapeAjeno}
                     disabled={!perfil.aceptaYape}
-                    onValueChange={v => guardarPerfil({ yapeAjeno: v })}
+                    onValueChange={v => pagoSeguro.ejecutar({ yapeAjeno: v })}
                     trackColor={{ false: colors.disabled, true: colors.primary }}
                     thumbColor={colors.background}
                     accessibilityLabel="El Yape no está a mi nombre"
@@ -443,6 +457,7 @@ export const PerfilScreen = () => {
                   ) : null}
                 </View>
               ) : null}
+              <MensajeError mensaje={pagoSeguro.mensajeError} testID="error-guardar-pagos" />
             </View>
           </View>
 
@@ -457,7 +472,8 @@ export const PerfilScreen = () => {
             {productos.length === 0 ? (
               <View style={styles.tarjetaProducto}>
                 <Text>Agrega lo que vendes para registrar tu día.</Text>
-                <Button title="Cargar datos de ejemplo" variant="ghost" onPress={cargarDatosDeEjemplo} disabled={semilla === 'cargando'} testID="cargar-ejemplo-perfil" />
+                <Button title="Cargar datos de ejemplo" variant="ghost" onPress={() => ejemploSeguro.ejecutar()} disabled={semilla === 'cargando' || ejemploSeguro.ejecutando} testID="cargar-ejemplo-perfil" />
+                <MensajeError mensaje={ejemploSeguro.mensajeError} testID="error-cargar-ejemplo" />
               </View>
             ) : null}
             {formularioProducto ? (
@@ -467,10 +483,14 @@ export const PerfilScreen = () => {
                 <Input label="Unidad de venta" value={formularioProducto.unidad} onChangeText={unidad => setFormularioProducto({ ...formularioProducto, unidad })} error={erroresProducto.unidad} testID="producto-unidad" />
                 <Input label="Precio de venta" value={precioTexto} onChangeText={setPrecioTexto} error={erroresProducto.precioVenta} keyboardType="decimal-pad" testID="producto-precio" />
                 <Input label="Costo estimado" value={costoTexto} onChangeText={setCostoTexto} error={erroresProducto.costoUnitario} keyboardType="decimal-pad" testID="producto-costo" />
-                <Button title="Guardar producto" onPress={guardarFormularioProducto} testID="guardar-producto" />
+                <MensajeError mensaje={productoSeguro.mensajeError} testID="error-guardar-producto" />
+                <Button title="Guardar producto" onPress={() => productoSeguro.ejecutar(guardarFormularioProducto)} testID="guardar-producto" />
                 <Button title="Cancelar" variant="ghost" onPress={() => setFormularioProducto(null)} testID="cancelar-producto" />
               </View>
             ) : null}
+            {formularioProducto ? null : (
+              <MensajeError mensaje={productoSeguro.mensajeError} testID="error-producto-seccion" />
+            )}
             {productos.map(p => (
                 <TarjetaProducto
                   key={p.id}
@@ -478,7 +498,7 @@ export const PerfilScreen = () => {
                   hoy={hoy}
                   onCambiarPrecio={() => abrirHoja(p)}
                   onEditar={() => abrirFormularioProducto(p)}
-                  onActivo={() => establecerProductoActivo(p.id, !p.activo)}
+                  onActivo={() => productoSeguro.ejecutar(() => establecerProductoActivo(p.id, !p.activo))}
                 />
               ))}
           </View>

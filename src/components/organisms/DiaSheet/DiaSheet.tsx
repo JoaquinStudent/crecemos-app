@@ -16,6 +16,8 @@ import { calcularCierre } from '@dominio/cierre';
 import { formatoFecha, formatoSoles } from '@dominio/formato';
 import { mensajeBorrar } from '@dominio/historial';
 import type { Cierre, FechaNegocio } from '@dominio/tipos';
+import { MensajeError } from '@components/atoms/MensajeError';
+import { useAccionSegura } from '@hooks/useAccionSegura';
 import { useCrecemos } from '@context/CrecemosProvider';
 
 export interface DiaSheetProps {
@@ -47,18 +49,16 @@ const Contenido = ({
   const { eliminarDia, productos } = useCrecemos();
   const insets = useSafeAreaInsets();
   const [confirmando, setConfirmando] = useState(false);
-  const [borrando, setBorrando] = useState(false);
   const teQueda = calcularCierre(cierre).teQueda;
 
-  const borrar = async () => {
-    setBorrando(true);
-    try {
+  // Si borrar falla, la hoja sigue abierta en la confirmación y lo dice (antes no pasaba nada).
+  const { ejecutar: borrar, ejecutando: borrando, mensajeError } = useAccionSegura(
+    async () => {
       await eliminarDia(cierre.id);
       onClose();
-    } finally {
-      setBorrando(false);
-    }
-  };
+    },
+    'No pudimos borrar este día. Inténtalo otra vez.',
+  );
 
   return (
     <View style={styles.fondo}>
@@ -107,6 +107,7 @@ const Contenido = ({
               {mensajeBorrar(cierre)}
             </Text>
           ) : null}
+          <MensajeError mensaje={mensajeError} testID="hoja-borrar-error" />
         </ScrollView>
 
         <View style={[styles.pie, { paddingBottom: spacing.lg + insets.bottom }]}>
@@ -118,7 +119,7 @@ const Contenido = ({
                 size="lg"
                 fullWidth
                 loading={borrando}
-                onPress={borrar}
+                onPress={() => borrar()}
                 testID="confirmar-borrar"
               />
               <Button

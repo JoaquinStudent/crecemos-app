@@ -18,6 +18,8 @@ import { ETIQUETA_GASTO } from '@dominio/categorias';
 import { fechaLocal } from '@dominio/fecha';
 import { formatoFecha, formatoSoles, parseAmount } from '@dominio/formato';
 import type { Cierre, CategoriaGasto, DatosCierre, Gasto } from '@dominio/tipos';
+import { MensajeError } from '@components/atoms/MensajeError';
+import { useAccionSegura } from '@hooks/useAccionSegura';
 import { useCrecemos } from '@context/CrecemosProvider';
 import type { TabsParamList } from '@navigation/Tabs';
 
@@ -47,7 +49,6 @@ export const CerrarDiaScreen = () => {
   const [gastos, setGastos] = useState<GastoEnForm[]>([]);
   const [abreCiclo, setAbreCiclo] = useState(false);
   const [errores, setErrores] = useState<Record<string, string>>({});
-  const [guardando, setGuardando] = useState(false);
 
   // Modo edición: llega la fecha de un día ya cerrado desde Historial.
   const fecha = route.params?.fecha;
@@ -183,25 +184,20 @@ export const CerrarDiaScreen = () => {
 
   const quitarGasto = (id: string) => setGastos(previos => previos.filter(g => g.id !== id));
 
-  const guardar = async () => {
-    setGuardando(true);
-    try {
-      const resultado = await guardarDia(original ? { ...datos, fecha: original.fecha } : datos);
-      if (!resultado.ok) {
-        setErrores(resultado.errores);
-        return;
-      }
-      vaciar();
-      if (fecha !== undefined) {
-        navigation.setParams({ fecha: undefined });
-        navigation.navigate('Historial');
-      } else {
-        navigation.navigate('Inicio');
-      }
-    } finally {
-      setGuardando(false);
+  const { ejecutar: guardar, ejecutando: guardando, mensajeError } = useAccionSegura(async () => {
+    const resultado = await guardarDia(original ? { ...datos, fecha: original.fecha } : datos);
+    if (!resultado.ok) {
+      setErrores(resultado.errores);
+      return;
     }
-  };
+    vaciar();
+    if (fecha !== undefined) {
+      navigation.setParams({ fecha: undefined });
+      navigation.navigate('Historial');
+    } else {
+      navigation.navigate('Inicio');
+    }
+  });
 
   const cancelarEdicion = () => {
     vaciar();
@@ -361,12 +357,13 @@ export const CerrarDiaScreen = () => {
               {errores.cierre}
             </Text>
           ) : null}
+          <MensajeError mensaje={mensajeError} testID="error-guardar-dia" />
           <Button
             title={original ? 'Guardar los cambios' : 'Guardar mi día'}
             size="lg"
             fullWidth
             loading={guardando}
-            onPress={guardar}
+            onPress={() => guardar()}
             testID="guardar-dia"
           />
           {original ? (

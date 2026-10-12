@@ -14,6 +14,7 @@ import { colors, radius, spacing } from '@theme';
 import { Text } from '@components/atoms/Text';
 import { Button } from '@components/atoms/Button';
 import { Icon } from '@components/atoms/Icon';
+import { MensajeError } from '@components/atoms/MensajeError';
 import { AvatarPerfil } from '@components/molecules/AvatarPerfil';
 import { gananciaPorProducto, insight } from '@analisis/metricas';
 import { evaluarReglas } from '@analisis/reglas';
@@ -27,6 +28,7 @@ import {
 import { totalPorCobrar } from '@dominio/cobro';
 import { fechaLocal, restarDias } from '@dominio/fecha';
 import { formatoFecha, formatoSoles } from '@dominio/formato';
+import { useAccionSegura } from '@hooks/useAccionSegura';
 import { useCrecemos, type EstadoSemilla } from '@context/CrecemosProvider';
 import type { Ciclo, Recomendacion } from '@dominio/tipos';
 import type { RootStackParamList } from '@navigation/RootStack';
@@ -363,17 +365,14 @@ const TarjetaPorCobrar = ({
   alCobrar: () => Promise<void>;
 }) => {
   const [confirmando, setConfirmando] = useState(false);
-  const [guardando, setGuardando] = useState(false);
-
-  const yaLosRecibi = async () => {
-    setGuardando(true);
-    try {
+  // Si no se pudo marcar, la pregunta sigue a la vista con el aviso para volver a intentar.
+  const { ejecutar: yaLosRecibi, ejecutando: guardando, mensajeError } = useAccionSegura(
+    async () => {
       await alCobrar();
-    } finally {
-      setGuardando(false);
       setConfirmando(false);
-    }
-  };
+    },
+    'No pudimos marcarlo como cobrado. Inténtalo otra vez.',
+  );
 
   return (
     <View style={styles.tarjetaBorde}>
@@ -393,6 +392,7 @@ const TarjetaPorCobrar = ({
           <Text variant="bodyStrong" testID="inicio-cobrado-pregunta">
             {`¿Ya recibiste ${formatoSoles(total)} en tu Yape?`}
           </Text>
+          <MensajeError mensaje={mensajeError} testID="inicio-cobrado-error" />
           <Button
             title="Sí, ya los recibí"
             variant="outline"
@@ -400,7 +400,7 @@ const TarjetaPorCobrar = ({
             disabled={guardando}
             style={styles.separado}
             testID="inicio-cobrado-si"
-            onPress={yaLosRecibi}
+            onPress={() => yaLosRecibi()}
           />
           <Button
             title="No, todavía"
