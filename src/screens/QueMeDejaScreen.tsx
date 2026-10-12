@@ -4,26 +4,44 @@
 // salen del dominio (`gananciaPorProducto`, `insight`): la pantalla solo los dibuja.
 // No entran del mock: el selector "Lo que más dejó / Lo que más se vendió", la proyección en
 // soles ni "Octubre · N ciclos" (el periodo son los últimos 30 días).
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Lightbulb } from 'lucide-react-native';
+import {
+  Calculator,
+  Lightbulb,
+  Minus,
+  Plus,
+  RotateCcw,
+  TriangleAlert,
+} from 'lucide-react-native';
 import { colors, radius, spacing } from '@theme';
 import { Text } from '@components/atoms/Text';
+import { Button } from '@components/atoms/Button';
+import { Icon } from '@components/atoms/Icon';
 import { ProgressBar } from '@components/atoms/ProgressBar';
 import type { ProgressBarTone } from '@components/atoms/ProgressBar';
 import { Callout } from '@components/molecules/Callout';
 import { Card } from '@components/molecules/Card';
 import { EmptyState } from '@components/molecules/EmptyState';
 import { CargandoBloques } from '@components/molecules/CargandoBloques';
+import { ChipGroup } from '@components/molecules/ChipGroup';
 import { ScreenHeader } from '@components/molecules/ScreenHeader';
 import { gananciaPorProducto, insight } from '@analisis/metricas';
+import {
+  AVISO_SUBIR_DE_A_POCO,
+  MAXIMO_AUMENTO,
+  moverDelta,
+  PASO_PRECIO,
+  simularPrecio,
+} from '@analisis/simulador';
 import { agruparCiclos } from '@dominio/ciclo';
+import { alertaDeCostos } from '@dominio/estacionalidad';
 import { fechaLocal, restarDias } from '@dominio/fecha';
 import { formatoSoles } from '@dominio/formato';
-import type { GananciaProducto, Producto } from '@dominio/tipos';
+import type { Cierre, GananciaProducto, Producto } from '@dominio/tipos';
 import { useCrecemos } from '@context/CrecemosProvider';
 import type { RootStackParamList } from '@navigation/RootStack';
 
@@ -53,7 +71,12 @@ export const QueMeDejaScreen = () => {
   const { cierres, productos, cargando } = useCrecemos();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList, 'QueMeDeja'>>();
 
-  const desde = restarDias(fechaLocal(new Date()), DIAS_DEL_PERIODO);
+  const hoy = fechaLocal(new Date());
+  const desde = restarDias(hoy, DIAS_DEL_PERIODO);
+  const alertaCostos = useMemo(
+    () => alertaDeCostos(hoy, cierres, productos),
+    [hoy, cierres, productos],
+  );
   const ganancias = useMemo(
     () => gananciaPorProducto(cierres, desde, productos),
     [cierres, desde, productos],
@@ -88,6 +111,14 @@ export const QueMeDejaScreen = () => {
           />
         ) : (
           <>
+            {alertaCostos ? (
+              <Callout icon={TriangleAlert} testID="queme-alerta-costos">
+                <Text variant="bodyStrong" testID="queme-alerta-costos-texto">
+                  {alertaCostos}
+                </Text>
+              </Callout>
+            ) : null}
+
             {frase ? (
               <Callout icon={Lightbulb} testID="queme-insight">
                 <Text variant="bodyStrong" testID="queme-insight-texto">
@@ -97,6 +128,8 @@ export const QueMeDejaScreen = () => {
             ) : null}
 
             <Tarjetas ganancias={ganancias} productos={productos} />
+
+            <SimuladorPrecio ganancias={ganancias} productos={productos} cierres={cierres} />
 
             <Text variant="caption" color="textMuted" align="center" testID="queme-nota">
               Calculado con lo que registraste. Mientras más cierres tus días, más preciso.
@@ -211,6 +244,115 @@ const Tarjetas = ({
   );
 };
 
+/**
+ * "¿Y si subo el precio?": solo una cuenta, no cambia ningún precio. Dos botones con texto (subir y
+ * bajar de a S/ 0.50, hasta S/ 3 más que hoy) y el precio simulado a la vista. Nada de deslizadores.
+ */
+const SimuladorPrecio = ({
+  ganancias,
+  productos,
+  cierres,
+}: {
+  ganancias: GananciaProducto[];
+  productos: Producto[];
+  cierres: Cierre[];
+}) => {
+  // Solo los productos activos que se vendieron en el periodo, en el orden de las tarjetas.
+  const candidatos = useMemo(
+    () =>
+      ganancias
+        .map(g => productos.find(p => p.id === g.productoId))
+        .filter((p): p is Producto => p !== undefined && p.activo),
+    [ganancias, productos],
+  );
+  const [elegido, setElegido] = useState('');
+  const [delta, setDelta] = useState(0);
+  const producto = candidatos.find(p => p.id === elegido) ?? candidatos[0];
+  const simulacion = useMemo(
+    () => (producto ? simularPrecio(cierres, producto, delta) : null),
+    [cierres, producto, delta],
+  );
+  if (!producto || !simulacion) return null;
+
+  const elegir = (id: string) => {
+    setElegido(id);
+    setDelta(0);
+  };
+  const paso = formatoSoles(PASO_PRECIO);
+
+  return (
+    <Card variant="bordered" style={styles.tarjeta} testID="queme-simulador">
+      <View style={styles.filaTitulo}>
+        <Icon icon={Calculator} color="primary" size="md" />
+        <Text variant="h3" accessibilityRole="header">
+          ¿Y si subo el precio?
+        </Text>
+      </View>
+      {candidatos.length > 1 ? (
+        <ChipGroup
+          label="Producto"
+          options={candidatos.map(p => ({ value: p.id, label: p.nombre }))}
+          value={producto.id}
+          onChange={elegir}
+          testIDPrefix="queme-sim-producto"
+        />
+      ) : (
+        <Text variant="bodyStrong">{producto.nombre}</Text>
+      )}
+      <Text variant="label" color="textMuted">
+        Precio simulado
+      </Text>
+      <Text variant="h2" testID="queme-sim-precio">
+        {formatoSoles(simulacion.precioSimulado)}
+      </Text>
+      <Text variant="caption" color="textMuted" testID="queme-sim-actual">
+        {`Hoy cobras ${formatoSoles(simulacion.precioActual)}`}
+      </Text>
+      <View style={styles.filaBotones}>
+        <Button
+          title={`Bajar ${paso}`}
+          variant="outline"
+          leftIcon={Minus}
+          disabled={delta <= 0}
+          style={styles.botonPaso}
+          testID="queme-sim-bajar"
+          onPress={() => setDelta(moverDelta(delta, -1))}
+        />
+        <Button
+          title={`Subir ${paso}`}
+          variant="outline"
+          leftIcon={Plus}
+          disabled={delta >= MAXIMO_AUMENTO}
+          style={styles.botonPaso}
+          testID="queme-sim-subir"
+          onPress={() => setDelta(moverDelta(delta, 1))}
+        />
+      </View>
+      {delta > 0 ? (
+        <Button
+          title="Volver al precio actual"
+          variant="ghost"
+          leftIcon={RotateCcw}
+          style={styles.alineadoIzquierda}
+          testID="queme-sim-volver"
+          onPress={() => setDelta(0)}
+        />
+      ) : null}
+      <Text variant="bodyStrong" testID="queme-sim-frase">
+        {simulacion.frase}
+      </Text>
+      {simulacion.avisoSubirDeAPoco && simulacion.hayDatos ? (
+        <Callout icon={TriangleAlert} testID="queme-sim-aviso">
+          <Text variant="bodySmall">{AVISO_SUBIR_DE_A_POCO}</Text>
+        </Callout>
+      ) : null}
+      <Text variant="caption" color="textMuted" testID="queme-sim-nota">
+        Es solo una estimación con lo que vendiste en tus últimos ciclos. No cambia tus precios.
+      </Text>
+    </Card>
+  );
+};
+
 interface FilaBarraProps {
   etiqueta: string;
   cifra: string;
@@ -280,6 +422,10 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   nombre: { flex: 1 },
+  filaTitulo: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  filaBotones: { flexDirection: 'row', gap: spacing.md },
+  botonPaso: { flex: 1 },
+  alineadoIzquierda: { alignSelf: 'flex-start' },
   bloqueBarra: { gap: spacing.xs },
   filaBarra: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, minHeight: 28 },
   pista: { flex: 1 },
