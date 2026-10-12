@@ -1059,14 +1059,16 @@ describe('no mutan lo que reciben', () => {
 
 describe('la regla del día flojo no cambió al compartir su medición', () => {
   // Resultado de cada regla (null = no aplica) con la semilla real; conserva cifras y orden.
-  const COMUN = [
+  const COMUN: (string | null)[] = [
     'La diferencia estimada por unidad de Anticucho bajó S/ 0.40 desde julio (precio menos costo estimado). Revisa el precio.',
-    'Registraste sobrantes de Rachi en dos ciclos seguidos. Prepara 10 porciones menos.',
+    // Con la semilla, "Para mañana" ya sugiere una cantidad de Rachi: la regla preparar calla para no
+    // contradecirla (antes decía "Prepara 10 porciones menos").
+    null,
     'El resultado registrado del ciclo fue S/ 269.00. Antes de retirar dinero, revisa los cobros pendientes.',
     'Los miércoles el resultado estimado por producto fue S/ 18.13 menor que el promedio.',
     'Resultado registrado S/ 78.00 menos que el ciclo pasado',
   ];
-  const ANTES: Record<string, string[]> = {
+  const ANTES: Record<string, (string | null)[]> = {
     '2026-10-07': ['Tienes S/ 427.00 por cobrar desde el 29 de septiembre.', ...COMUN],
     '2026-10-14': ['Tienes S/ 427.00 por cobrar desde el 6 de octubre.', ...COMUN],
     '2026-10-21': ['Tienes S/ 427.00 por cobrar desde el 13 de octubre.', ...COMUN],
