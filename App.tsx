@@ -9,15 +9,18 @@ import { NavigationContainer } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { CrecemosProvider } from '@context/CrecemosProvider';
 import { RootStack } from '@navigation/RootStack';
+import { ErrorDeCarga } from '@components/organisms/ErrorDeCarga';
 
 function App() {
   return (
     <SafeAreaProvider>
       <StatusBar barStyle="dark-content" />
       <CrecemosProvider>
-        <NavigationContainer>
-          <RootStack />
-        </NavigationContainer>
+        <ErrorDeCarga>
+          <NavigationContainer>
+            <RootStack />
+          </NavigationContainer>
+        </ErrorDeCarga>
       </CrecemosProvider>
     </SafeAreaProvider>
   );

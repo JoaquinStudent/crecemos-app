@@ -44,11 +44,15 @@ interface Estado {
   productos: Producto[];
   perfil: Perfil;
   cargando: boolean;
+  /** `true` si no se pudo leer lo guardado al abrir: la pantalla ofrece reintentar. */
+  error: boolean;
   semilla: EstadoSemilla;
 }
 
 type Accion =
   | { tipo: 'cargado'; cierres: Cierre[]; productos: Producto[]; perfil: Perfil }
+  | { tipo: 'falloLaCarga' }
+  | { tipo: 'reintentando' }
   | { tipo: 'semilla'; estado: EstadoSemilla }
   | { tipo: 'semillaLista'; cierres: Cierre[]; productos: Producto[] }
   | { tipo: 'cobrado'; ids: string[]; fecha: string }
@@ -62,6 +66,7 @@ const estadoInicial: Estado = {
   productos: [],
   perfil: PERFIL_POR_DEFECTO,
   cargando: true,
+  error: false,
   semilla: 'ninguna',
 };
 
@@ -73,8 +78,13 @@ const reducer = (estado: Estado, accion: Accion): Estado => {
         productos: accion.productos,
         perfil: accion.perfil,
         cargando: false,
+        error: false,
         semilla: 'ninguna',
       };
+    case 'falloLaCarga':
+      return { ...estado, cargando: false, error: true };
+    case 'reintentando':
+      return { ...estado, cargando: true, error: false };
     case 'semilla':
       return { ...estado, semilla: accion.estado };
     case 'semillaLista':
@@ -108,6 +118,8 @@ const reducer = (estado: Estado, accion: Accion): Estado => {
 };
 
 interface ContextoCrecemos extends Estado {
+  /** Vuelve a leer lo guardado después de un error al abrir. */
+  reintentar: () => Promise<void>;
   /** Valida, arma y guarda el cierre del día. Devuelve los errores si no pasa. */
   guardarDia: (datos: DatosCierre) => Promise<ResultadoValidacion>;
   /** Borra el cierre con ese id. */
@@ -179,23 +191,35 @@ export const CrecemosProvider = ({ children }: { children: React.ReactNode }) =>
     }
   }, []);
 
-  useEffect(() => {
-    montado.current = true;
-    (async () => {
+  // La app queda lista apenas lee lo guardado. Si la lectura falla, se muestra el error (con
+  // "Reintentar") en vez de dejar la pantalla en blanco para siempre.
+  const cargar = useCallback(async (): Promise<void> => {
+    try {
       const [cierres, productos, perfil] = await Promise.all([
         listarCierres(),
         listarProductos(),
         obtenerPerfil(),
       ]);
       if (!montado.current) return;
-      // La app queda lista ya: la semilla, si hace falta, llega después y en segundo plano.
       dispatch({ tipo: 'cargado', cierres, productos, perfil: perfil ?? PERFIL_POR_DEFECTO });
       // La demostración es voluntaria: solo se descarga cuando se toca el botón.
-    })();
+    } catch {
+      if (montado.current) dispatch({ tipo: 'falloLaCarga' });
+    }
+  }, []);
+
+  useEffect(() => {
+    montado.current = true;
+    cargar();
     return () => {
       montado.current = false;
     };
-  }, [descargarSemilla]);
+  }, [cargar]);
+
+  const reintentar = useCallback(async (): Promise<void> => {
+    dispatch({ tipo: 'reintentando' });
+    await cargar();
+  }, [cargar]);
 
   const guardarDia = useCallback(
     async (datos: DatosCierre): Promise<ResultadoValidacion> => {
@@ -328,6 +352,7 @@ export const CrecemosProvider = ({ children }: { children: React.ReactNode }) =>
   const valor = useMemo(
     () => ({
       ...estado,
+      reintentar,
       guardarDia,
       eliminarDia,
       guardarPerfil,
@@ -342,6 +367,7 @@ export const CrecemosProvider = ({ children }: { children: React.ReactNode }) =>
     }),
     [
       estado,
+      reintentar,
       guardarDia,
       eliminarDia,
       guardarPerfil,

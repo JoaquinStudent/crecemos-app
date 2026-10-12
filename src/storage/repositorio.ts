@@ -13,6 +13,8 @@ import type {
   SemillaMaterializada,
 } from '@dominio/tipos';
 
+const PREFIJO_CLAVE = '@crecemos/';
+const PREFIJO_RESPALDO = '@crecemos/respaldo-';
 const CLAVE_CIERRES = '@crecemos/cierres';
 const CLAVE_PRODUCTOS = '@crecemos/productos';
 const CLAVE_PERFIL = '@crecemos/perfil';
@@ -24,9 +26,18 @@ const CLAVE_SEED = '@crecemos/seed';
 const base = () => createAsyncStorage('crecemos');
 
 // T es el valor completo guardado: un arreglo (cierres, productos) o un objeto (perfil).
+// Si lo guardado está corrupto no se tira ni se pisa: se respalda tal cual bajo
+// `@crecemos/respaldo-<clave>` y se devuelve `null`, como si nunca se hubiera guardado.
+// Si el respaldo mismo falla, el error sube: mejor no arrancar que perder el original.
 const leer = async <T>(clave: string): Promise<T | null> => {
   const json = await base().getItem(clave);
-  return json === null ? null : (JSON.parse(json) as T);
+  if (json === null) return null;
+  try {
+    return JSON.parse(json) as T;
+  } catch {
+    await base().setItem(`${PREFIJO_RESPALDO}${clave.replace(PREFIJO_CLAVE, '')}`, json);
+    return null;
+  }
 };
 
 export const listarCierres = async (): Promise<Cierre[]> =>
