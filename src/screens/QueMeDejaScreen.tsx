@@ -12,8 +12,6 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import {
   Calculator,
   Lightbulb,
-  Minus,
-  Plus,
   RotateCcw,
   TriangleAlert,
 } from 'lucide-react-native';
@@ -45,6 +43,9 @@ import type { Cierre, GananciaProducto, Producto } from '@dominio/tipos';
 import { cantidadConUnidad } from '@dominio/unidades';
 import { useCrecemos } from '@context/CrecemosProvider';
 import type { RootStackParamList } from '@navigation/RootStack';
+
+/** Ancho mínimo de cada botón de subir/bajar: dos caben en 360 dp; con fuente grande se apilan. */
+const BOTON_PASO_MINIMO = 120;
 
 /** El periodo que mira la pantalla: los últimos 30 días, contando el día 30. */
 const DIAS_DEL_PERIODO = 30;
@@ -286,8 +287,11 @@ const SimuladorPrecio = ({
         </Text>
       </View>
       {candidatos.length > 1 ? (
+        // Una sola fila que se desliza hasta el borde de la tarjeta: ningún nombre se corta ni se apila.
         <ChipGroup
           label="Producto"
+          layout="scroll"
+          style={styles.chipsProducto}
           options={candidatos.map(p => ({ value: p.id, label: p.nombre }))}
           value={producto.id}
           onChange={elegir}
@@ -309,7 +313,6 @@ const SimuladorPrecio = ({
         <Button
           title={`Bajar ${paso}`}
           variant="outline"
-          leftIcon={Minus}
           disabled={delta <= 0}
           style={styles.botonPaso}
           testID="queme-sim-bajar"
@@ -318,7 +321,6 @@ const SimuladorPrecio = ({
         <Button
           title={`Subir ${paso}`}
           variant="outline"
-          leftIcon={Plus}
           disabled={delta >= MAXIMO_AUMENTO}
           style={styles.botonPaso}
           testID="queme-sim-subir"
@@ -420,8 +422,11 @@ const styles = StyleSheet.create({
   },
   nombre: { flex: 1 },
   filaTitulo: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  filaBotones: { flexDirection: 'row', gap: spacing.md },
-  botonPaso: { flex: 1 },
+  // Lado a lado y a partes iguales; si ni así caben (fuente muy grande) el segundo baja a su fila.
+  filaBotones: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md },
+  botonPaso: { flex: 1, minWidth: BOTON_PASO_MINIMO },
+  // La fila de productos llega al borde de la tarjeta (su relleno es spacing.lg) y se desliza.
+  chipsProducto: { marginHorizontal: -spacing.lg },
   alineadoIzquierda: { alignSelf: 'flex-start' },
   bloqueBarra: { gap: spacing.xs },
   filaBarra: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, minHeight: 28 },

@@ -199,7 +199,15 @@ export const Button = ({
             {leftIcon ? (
               <Icon icon={leftIcon} size={s.icon} color={fg} style={styles.leftIcon} />
             ) : null}
-            <Text variant={s.text} color={fg} numberOfLines={1}>
+            {/* El título cede y se achica antes de salirse del botón (fuente grande, 360 dp). */}
+            <Text
+              variant={s.text}
+              color={fg}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.8}
+              style={styles.titulo}
+            >
               {title}
             </Text>
             {rightIcon ? (
@@ -215,7 +223,8 @@ export const Button = ({
 const styles = StyleSheet.create({
   base: { alignSelf: 'flex-start' },
   fullWidth: { alignSelf: 'stretch' },
-  content: { flexDirection: 'row', alignItems: 'center' },
+  content: { flexDirection: 'row', alignItems: 'center', flexShrink: 1, minWidth: 0 },
+  titulo: { flexShrink: 1 },
   leftIcon: { marginRight: spacing.sm },
   rightIcon: { marginLeft: spacing.sm },
 });
