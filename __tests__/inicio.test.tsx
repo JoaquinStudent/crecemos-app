@@ -296,7 +296,7 @@ describe('Inicio: tarjeta del ciclo de compra', () => {
     expect(colorDe('inicio-ciclo-vendiste')).toBe(colors.success);
     expect(textoDe('inicio-ciclo-gastaste')).toBe('− S/ 318.00');
     expect(colorDe('inicio-ciclo-gastaste')).toBe(colors.danger);
-    expect(textos()).toContain('Resultado registrado');
+    expect(textos()).toContain('Tu último día');
     expect(textos()).toContain('Vendiste');
     expect(textos()).toContain('Gastaste');
   });
@@ -307,7 +307,8 @@ describe('Inicio: tarjeta del ciclo de compra', () => {
     const { textoDe, textos } = await montarApp();
 
     expect(textoDe('inicio-te-queda')).toBe('S/ 168.00');
-    expect(textos()).toContain('Tu último día · Martes 6 de octubre');
+    expect(textos()).toContain('Tu último día');
+    expect(textos()).toContain('Martes 6 de octubre');
   });
 
   it('con el capital recuperado, la barra va llena y verde, con el texto en letra oscura', async () => {
@@ -811,7 +812,7 @@ describe('Inicio: el orden de las tarjetas', () => {
     const { textos, tamanoDe, existe } = await montarApp();
 
     expect(textos().filter(t => t === 'Te queda en este ciclo')).toHaveLength(1);
-    expect(textos().filter(t => t === 'Resultado registrado')).toHaveLength(1);
+    expect(textos().filter(t => t === 'Tu último día')).toHaveLength(1);
     expect(tamanoDe('inicio-ciclo-te-queda')).toBeGreaterThanOrEqual(44);
     expect(tamanoDe('inicio-te-queda')).toBeLessThan(tamanoDe('inicio-ciclo-te-queda'));
     expect(existe('inicio-ultimo-dia')).toBe(true);
@@ -825,7 +826,7 @@ describe('Inicio: el orden de las tarjetas', () => {
     // El último día cerrado es el de hace 9 días: 20 anticuchos + 100 pancitas + 26 rachis.
     // Venta S/ 200.00 + S/ 900.00 + S/ 234.00 = S/ 1,334.00 − S/ 100.00 de mercadería.
     expect(textoDe('inicio-te-queda')).toBe('S/ 1,234.00');
-    expect(textos().some(t => t.startsWith('Tu último día · '))).toBe(true);
+    expect(textos().some(t => t === 'Tu último día')).toBe(true);
   });
 
   it('el botón principal sigue siendo uno solo: "Cerrar mi día"', async () => {

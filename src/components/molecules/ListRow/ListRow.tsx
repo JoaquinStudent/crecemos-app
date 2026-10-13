@@ -1,10 +1,9 @@
 // src/components/molecules/ListRow/ListRow.tsx
 // Fila de lista (DESIGN.md, 6): ícono en círculo, título, subtítulo y algo a la derecha (un
-// monto, una etiqueta). Mínimo 72dp. Por dentro usa el ListItem de React Native Elements.
+// monto, una etiqueta). Mínimo 72dp. Es un View/Pressable simple (el ListItem de RNE metía relleno y flex propios).
 // Si tiene `onPress`, es UN solo botón para el lector de pantalla.
 import { ReactNode } from 'react';
-import { StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
-import { ListItem } from '@rneui/themed';
+import { Pressable, StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
 import type { LucideIcon } from 'lucide-react-native';
 import { border, colors, spacing } from '@theme';
 import { Text } from '@components/atoms/Text';
@@ -40,37 +39,52 @@ export const ListRow = ({
   divider = true,
   style,
   testID,
-}: ListRowProps) => (
-  <ListItem
-    onPress={onPress}
-    accessible={onPress ? true : undefined}
-    accessibilityRole={onPress ? 'button' : undefined}
-    accessibilityLabel={onPress ? accessibilityLabel ?? title : undefined}
-    accessibilityHint={onPress ? accessibilityHint : undefined}
-    containerStyle={[styles.fila, divider && styles.divisor, style]}
-    testID={testID}
-  >
-    {icon ? (
-      <View style={styles.circulo}>
-        <Icon icon={icon} color="text" size="md" />
-      </View>
-    ) : null}
-    <View style={styles.textos}>
-      <Text variant="bodyStrong" numberOfLines={2}>
-        {title}
-      </Text>
-      {subtitle ? (
-        <Text variant="caption" color="textMuted" numberOfLines={2}>
-          {subtitle}
-        </Text>
+}: ListRowProps) => {
+  const contenido = (
+    <>
+      {icon ? (
+        <View style={styles.circulo}>
+          <Icon icon={icon} color="text" size="md" />
+        </View>
       ) : null}
+      <View style={styles.textos}>
+        <Text variant="bodyStrong" numberOfLines={2}>
+          {title}
+        </Text>
+        {subtitle ? (
+          <Text variant="caption" color="textMuted" numberOfLines={2}>
+            {subtitle}
+          </Text>
+        ) : null}
+      </View>
+      {trailing ? <View style={styles.derecha}>{trailing}</View> : null}
+    </>
+  );
+  const estilos = [styles.fila, divider && styles.divisor, style];
+  // View y Pressable simples: sin el relleno ni el flex propios de ListItem, que apretaban el texto.
+  return onPress ? (
+    <Pressable
+      onPress={onPress}
+      accessible
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel ?? title}
+      accessibilityHint={accessibilityHint}
+      style={estilos}
+      testID={testID}
+    >
+      {contenido}
+    </Pressable>
+  ) : (
+    <View style={estilos} testID={testID}>
+      {contenido}
     </View>
-    {trailing ? <View style={styles.derecha}>{trailing}</View> : null}
-  </ListItem>
-);
+  );
+};
 
 const styles = StyleSheet.create({
   fila: {
+    flexDirection: 'row',
+    alignItems: 'center',
     minHeight: ALTO_MINIMO_FILA,
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
@@ -79,6 +93,7 @@ const styles = StyleSheet.create({
   },
   divisor: { borderBottomWidth: border.thin, borderBottomColor: colors.border },
   circulo: {
+    flexShrink: 0,
     width: DIAMETRO_ICONO_FILA,
     height: DIAMETRO_ICONO_FILA,
     borderRadius: DIAMETRO_ICONO_FILA / 2,
@@ -88,6 +103,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  textos: { flex: 1, gap: spacing.xxs },
-  derecha: { flexShrink: 0, maxWidth: '45%', alignItems: 'flex-end' },
+  textos: { flex: 1, minWidth: 0, gap: spacing.xxs },
+  derecha: { flexShrink: 0, alignItems: 'flex-end' },
 });

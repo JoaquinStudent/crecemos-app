@@ -355,8 +355,8 @@ const UltimoDia = ({ fecha, teQueda }: { fecha: string; teQueda: number }) => (
   <Card variant="bordered" flush testID="inicio-ultimo-dia">
     <ListRow
       icon={CalendarDays}
-      title={`Tu último día · ${formatoFecha(fecha)}`}
-      subtitle="Resultado registrado"
+      title="Tu último día"
+      subtitle={formatoFecha(fecha)}
       divider={false}
       trailing={
         <Text
@@ -364,6 +364,8 @@ const UltimoDia = ({ fecha, teQueda }: { fecha: string; teQueda: number }) => (
           color={teQueda < 0 ? 'danger' : 'success'}
           testID="inicio-te-queda"
           numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.7}
         >
           {formatoSoles(teQueda)}
         </Text>

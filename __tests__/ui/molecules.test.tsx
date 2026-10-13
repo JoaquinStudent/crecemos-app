@@ -1,4 +1,4 @@
-import { Text as RNText } from 'react-native';
+import { StyleSheet, Text as RNText } from 'react-native';
 import { act } from 'react-test-renderer';
 import { ArrowUp, Info } from 'lucide-react-native';
 import { Callout, ANCHO_BORDE_CALLOUT } from '@components/molecules/Callout';
@@ -193,6 +193,34 @@ describe('ListRow', () => {
     expect(textos).toEqual(expect.arrayContaining(['Anticucho', 'Hoy, 9:40 p. m.', '+ S/ 120.00']));
     const alto = hostPorTestID(r, 'fila').findAll(n => typeof n.type === 'string' && estilo(n).minHeight >= 72);
     expect(alto.length).toBeGreaterThan(0);
+    await desmontar(r);
+  });
+
+  it('reparte el ancho: ícono fijo, texto flexible que puede encoger, monto que no se recorta', async () => {
+    const r = await montar(
+      <ListRow
+        title="Tu último día"
+        subtitle="Martes 6 de octubre"
+        icon={ArrowUp}
+        trailing={<MoneyText monto={180} variant="h3" testID="monto" />}
+        testID="fila"
+      />,
+    );
+    const fila = estilo(hostPorTestID(r, 'fila'));
+    expect(fila).toMatchObject({ flexDirection: 'row', alignItems: 'center', gap: 12 });
+    const estilos = hostPorTestID(r, 'fila')
+      .findAll(n => (n.type as unknown) === 'View')
+      .map(n => StyleSheet.flatten(n.props.style) ?? {});
+    // Ícono: tamaño fijo y no se achica.
+    expect(estilos).toContainEqual(expect.objectContaining({ width: 44, height: 44, flexShrink: 0 }));
+    // Texto: ocupa lo que sobra y puede encoger (minWidth 0).
+    expect(estilos).toContainEqual(expect.objectContaining({ flex: 1, minWidth: 0 }));
+    // Monto: no encoge ni tiene un tope porcentual que lo trunque.
+    const derecha = estilos.find(e => e.flexShrink === 0 && e.alignItems === 'flex-end');
+    expect(derecha).toBeDefined();
+    expect(derecha?.maxWidth).toBeUndefined();
+    const titulo = r.root.findAll(n => (n.type as unknown) === 'Text' && texto(n) === 'Tu último día')[0];
+    expect(titulo.props.numberOfLines).toBe(2);
     await desmontar(r);
   });
 
