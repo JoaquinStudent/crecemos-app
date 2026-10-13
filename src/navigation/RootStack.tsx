@@ -39,6 +39,9 @@ export type RootStackParamList = {
   MiMeta: undefined;
 };
 
+/** Las pantallas que se abren desde las opciones del menú de Perfil. */
+export type SeccionPerfil = Exclude<Extract<keyof RootStackParamList, `Perfil${string}`>, 'Perfil'>;
+
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export const RootStack = () => (

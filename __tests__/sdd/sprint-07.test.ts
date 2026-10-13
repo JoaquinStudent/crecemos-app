@@ -221,6 +221,7 @@ describe('SPEC-07: Foto de perfil y reporte en PDF', () => {
       expect(hay('inicio-avatar-foto')).toBe(false);
 
       await tocar('abrir-perfil');
+      await tocar('perfil-camara');
       await tocar('perfil-foto-galeria');
       expect((await obtenerPerfil())?.fotoUri).toBe(esperada);
     } finally {

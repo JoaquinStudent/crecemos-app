@@ -105,6 +105,13 @@ const abrirPerfil = async (perfil: Perfil) => {
   await tocar('abrir-perfil');
 };
 
+/** La hoja está abierta si su vista nativa existe (el Modal no dibuja nada cerrado). */
+const hojaAbierta = (): boolean =>
+  raiz().findAll(n => (n.type as unknown) === 'View' && n.props.testID === 'perfil-foto-hoja').length > 0;
+
+/** Abre la hoja de la foto con el botón de cámara que está sobre el avatar. */
+const abrirHoja = () => tocar('perfil-camara');
+
 describe('Foto de perfil en pantalla', () => {
   beforeEach(() => {
     clearAllMockStorages();
@@ -117,29 +124,91 @@ describe('Foto de perfil en pantalla', () => {
     await desmontarApp();
   });
 
-  describe('sin foto', () => {
-    it('el Perfil ofrece "Elegir de la galería" y "Tomar foto", con texto', async () => {
+  describe('el botón de cámara', () => {
+    it('es un botón con ícono sobre la esquina inferior derecha de la foto, sin los botones de antes', async () => {
       await abrirPerfil(perfilDe());
 
-      expect(existe('perfil-foto-galeria')).toBe(true);
-      expect(existe('perfil-foto-camara')).toBe(true);
+      const boton = raiz().findAll(n => n.props.testID === 'perfil-camara' && n.props.accessibilityRole)[0];
+      expect(boton.props.accessibilityRole).toBe('button');
+      expect(boton.props.accessibilityLabel).toBe('Cambiar foto');
+      const estilo = aplanarEstilo(boton.props.style({ pressed: false }));
+      expect(estilo).toMatchObject({ position: 'absolute' });
+      expect(Number(estilo.right)).toBeLessThanOrEqual(0);
+      expect(Number(estilo.bottom)).toBeLessThanOrEqual(0);
+      // Sin la hoja abierta no hay ningún texto de las opciones en la pantalla.
+      expect(existe('perfil-foto-galeria')).toBe(false);
+      expect(existe('perfil-foto-camara')).toBe(false);
+      expect(textos()).not.toContain('Elegir de la galería');
+      expect(textos()).not.toContain('Tomar foto');
+      expect(textos()).not.toContain('Quitar foto');
+    });
+
+    it('se ve de 40 dp y con el margen táctil se toca en 48 dp', async () => {
+      await abrirPerfil(perfilDe());
+      const boton = raiz().findAll(n => n.props.testID === 'perfil-camara' && n.props.accessibilityRole)[0];
+      const estilo = aplanarEstilo(boton.props.style({ pressed: false }));
+      expect(estilo.width).toBe(40);
+      expect(estilo.height).toBe(40);
+      const slop = boton.props.hitSlop;
+      const extra = typeof slop === 'number' ? slop : Math.min(slop.top, slop.bottom, slop.left, slop.right);
+      expect(40 + 2 * extra).toBeGreaterThanOrEqual(48);
+    });
+
+    it('al tocarlo abre la hoja con las opciones con texto: sin foto, galería, cámara y cancelar', async () => {
+      await abrirPerfil(perfilDe());
+      expect(hojaAbierta()).toBe(false);
+
+      await abrirHoja();
+
+      expect(hojaAbierta()).toBe(true);
       expect(tituloDelBoton('perfil-foto-galeria')).toBe('Elegir de la galería');
       expect(tituloDelBoton('perfil-foto-camara')).toBe('Tomar foto');
-      expect(existe('perfil-foto-cambiar')).toBe(false);
+      expect(tituloDelBoton('perfil-foto-cancelar')).toBe('Cancelar');
       expect(existe('perfil-foto-quitar')).toBe(false);
-      // Sin foto: la inicial de siempre, con su testID de siempre.
+    });
+
+    it('con foto, la hoja suma "Quitar foto"', async () => {
+      await abrirPerfil(perfilDe({ fotoUri: FOTO_A }));
+      await abrirHoja();
+
+      expect(tituloDelBoton('perfil-foto-galeria')).toBe('Elegir de la galería');
+      expect(tituloDelBoton('perfil-foto-camara')).toBe('Tomar foto');
+      expect(tituloDelBoton('perfil-foto-quitar')).toBe('Quitar foto');
+      expect(tituloDelBoton('perfil-foto-cancelar')).toBe('Cancelar');
+    });
+
+    it('"Cancelar" cierra la hoja sin abrir ningún selector ni cambiar nada', async () => {
+      await abrirPerfil(perfilDe({ fotoUri: FOTO_A }));
+      const antes = await guardadoCrudo();
+      await abrirHoja();
+
+      await tocar('perfil-foto-cancelar');
+
+      expect(hojaAbierta()).toBe(false);
+      expect(galeria).not.toHaveBeenCalled();
+      expect(camara).not.toHaveBeenCalled();
+      expect(await guardadoCrudo()).toBe(antes);
+    });
+  });
+
+  describe('sin foto', () => {
+    it('sin foto se ve la inicial de siempre, con su testID de siempre', async () => {
+      await abrirPerfil(perfilDe());
+
       expect(textoDe('perfil-iniciales')).toBe('F');
       expect(existe('perfil-avatar-foto')).toBe(false);
     });
 
-    it('elegir de la galería guarda la foto al instante y cambia el avatar sin salir', async () => {
+    it('elegir de la galería guarda la foto al instante, cierra la hoja y cambia el avatar sin salir', async () => {
       galeria.mockResolvedValueOnce({ assets: [{ base64: BASE64_A, type: 'image/jpg' }] });
       await abrirPerfil(perfilDe());
+      await abrirHoja();
 
       await tocar('perfil-foto-galeria');
 
       expect(galeria).toHaveBeenCalledTimes(1);
       expect(camara).not.toHaveBeenCalled();
+      expect(hojaAbierta()).toBe(false);
       expect(existe('perfil-avatar-foto')).toBe(true);
       expect(existe('perfil-iniciales')).toBe(false);
       expect(imagenDe('perfil-avatar-foto').props.source).toEqual({ uri: FOTO_A });
@@ -150,6 +219,7 @@ describe('Foto de perfil en pantalla', () => {
     it('tomar foto guarda la foto de la cámara', async () => {
       camara.mockResolvedValueOnce({ assets: [{ base64: BASE64_A, type: 'image/jpg' }] });
       await abrirPerfil(perfilDe());
+      await abrirHoja();
 
       await tocar('perfil-foto-camara');
 
@@ -163,7 +233,9 @@ describe('Foto de perfil en pantalla', () => {
       await abrirPerfil(perfilDe());
       const antes = await guardadoCrudo();
 
+      await abrirHoja();
       await tocar('perfil-foto-galeria');
+      await abrirHoja();
       await tocar('perfil-foto-camara');
 
       expect(galeria).toHaveBeenCalledTimes(1);
@@ -200,6 +272,7 @@ describe('Foto de perfil en pantalla', () => {
         await abrirPerfil(perfilDe());
         const antes = await guardadoCrudo();
 
+        await abrirHoja();
         await tocar(origen === 'camara' ? 'perfil-foto-camara' : 'perfil-foto-galeria');
 
         expect(textoDe('perfil-foto-error')).toBe(texto);
@@ -214,6 +287,7 @@ describe('Foto de perfil en pantalla', () => {
     it('un selector que rechaza muestra el mensaje amable', async () => {
       galeria.mockRejectedValueOnce(new Error('boom'));
       await abrirPerfil(perfilDe());
+      await abrirHoja();
 
       await tocar('perfil-foto-galeria');
 
@@ -225,6 +299,7 @@ describe('Foto de perfil en pantalla', () => {
         assets: [{ base64: base64DeBytes(FOTO_MAX_BYTES + 1), type: 'image/jpeg' }],
       });
       await abrirPerfil(perfilDe());
+      await abrirHoja();
 
       await tocar('perfil-foto-galeria');
 
@@ -238,21 +313,24 @@ describe('Foto de perfil en pantalla', () => {
       galeria.mockResolvedValueOnce({ assets: [{ base64: BASE64_A, type: 'image/jpg' }] });
       await abrirPerfil(perfilDe());
 
+      await abrirHoja();
       await tocar('perfil-foto-galeria');
       expect(existe('perfil-foto-error')).toBe(true);
+      await abrirHoja();
       await tocar('perfil-foto-galeria');
 
       expect(existe('perfil-foto-error')).toBe(false);
       expect(existe('perfil-avatar-foto')).toBe(true);
     });
 
-    it('un error se va si la siguiente vez se cancela', async () => {
+    it('un error se va apenas se vuelve a abrir la hoja', async () => {
       galeria.mockRejectedValueOnce(new Error('boom'));
       await abrirPerfil(perfilDe());
 
+      await abrirHoja();
       await tocar('perfil-foto-galeria');
       expect(existe('perfil-foto-error')).toBe(true);
-      await tocar('perfil-foto-galeria'); // cancela (mock por defecto)
+      await abrirHoja();
 
       expect(existe('perfil-foto-error')).toBe(false);
     });
@@ -266,6 +344,7 @@ describe('Foto de perfil en pantalla', () => {
           }),
       );
       await abrirPerfil(perfilDe());
+      await abrirHoja();
 
       // Se toca sin esperar (como dos toques seguidos) y luego se resuelve el primero.
       await act(async () => {
@@ -287,6 +366,7 @@ describe('Foto de perfil en pantalla', () => {
         terminar({ didCancel: true });
       });
       // Libre otra vez.
+      await abrirHoja();
       await tocar('perfil-foto-galeria');
       expect(galeria).toHaveBeenCalledTimes(2);
     });
@@ -295,54 +375,24 @@ describe('Foto de perfil en pantalla', () => {
   describe('con foto', () => {
     const conFoto = () => perfilDe({ fotoUri: FOTO_A });
 
-    it('el Perfil ofrece "Cambiar foto" y "Quitar foto", con texto', async () => {
-      await abrirPerfil(conFoto());
-
-      expect(tituloDelBoton('perfil-foto-cambiar')).toBe('Cambiar foto');
-      expect(tituloDelBoton('perfil-foto-quitar')).toBe('Quitar foto');
-      expect(existe('perfil-foto-galeria')).toBe(false);
-      expect(existe('perfil-foto-camara')).toBe(false);
-      expect(existe('perfil-avatar-foto')).toBe(true);
-      expect(existe('perfil-iniciales')).toBe(false);
-    });
-
-    it('"Cambiar foto" abre una elección en línea (sin Modal) y "Cancelar" la cierra', async () => {
-      await abrirPerfil(conFoto());
-      expect(existe('perfil-foto-cambiar-galeria')).toBe(false);
-
-      await tocar('perfil-foto-cambiar');
-
-      expect(tituloDelBoton('perfil-foto-cambiar-galeria')).toBe('Elegir de la galería');
-      expect(tituloDelBoton('perfil-foto-cambiar-camara')).toBe('Tomar foto');
-      expect(tituloDelBoton('perfil-foto-cambiar-cancelar')).toBe('Cancelar');
-      expect(raiz().findAll(n => (n.type as unknown) === 'Modal')).toHaveLength(0);
-
-      await tocar('perfil-foto-cambiar-cancelar');
-
-      expect(existe('perfil-foto-cambiar-galeria')).toBe(false);
-      expect(existe('perfil-foto-cambiar')).toBe(true);
-      expect(galeria).not.toHaveBeenCalled();
-      expect((await obtenerPerfil())?.fotoUri).toBe(FOTO_A);
-    });
-
-    it('cambiar la foto desde la galería reemplaza la anterior y cierra la elección', async () => {
+    it('cambiar la foto desde la galería reemplaza la anterior y cierra la hoja', async () => {
       galeria.mockResolvedValueOnce({ assets: [{ base64: BASE64_B, type: 'image/jpg' }] });
       await abrirPerfil(conFoto());
 
-      await tocar('perfil-foto-cambiar');
-      await tocar('perfil-foto-cambiar-galeria');
+      await abrirHoja();
+      await tocar('perfil-foto-galeria');
 
       expect(imagenDe('perfil-avatar-foto').props.source).toEqual({ uri: FOTO_B });
       expect((await obtenerPerfil())?.fotoUri).toBe(FOTO_B);
-      expect(existe('perfil-foto-cambiar-galeria')).toBe(false);
+      expect(hojaAbierta()).toBe(false);
     });
 
     it('cambiar la foto con la cámara también reemplaza la anterior', async () => {
       camara.mockResolvedValueOnce({ assets: [{ base64: BASE64_B, type: 'image/jpg' }] });
       await abrirPerfil(conFoto());
 
-      await tocar('perfil-foto-cambiar');
-      await tocar('perfil-foto-cambiar-camara');
+      await abrirHoja();
+      await tocar('perfil-foto-camara');
 
       expect((await obtenerPerfil())?.fotoUri).toBe(FOTO_B);
     });
@@ -350,8 +400,8 @@ describe('Foto de perfil en pantalla', () => {
     it('si al cambiar se cancela el selector, se queda la foto de antes', async () => {
       await abrirPerfil(conFoto());
 
-      await tocar('perfil-foto-cambiar');
-      await tocar('perfil-foto-cambiar-galeria');
+      await abrirHoja();
+      await tocar('perfil-foto-galeria');
 
       expect(existe('perfil-foto-error')).toBe(false);
       expect(imagenDe('perfil-avatar-foto').props.source).toEqual({ uri: FOTO_A });
@@ -362,8 +412,8 @@ describe('Foto de perfil en pantalla', () => {
       camara.mockResolvedValueOnce({ errorCode: 'permission' });
       await abrirPerfil(conFoto());
 
-      await tocar('perfil-foto-cambiar');
-      await tocar('perfil-foto-cambiar-camara');
+      await abrirHoja();
+      await tocar('perfil-foto-camara');
 
       expect(textoDe('perfil-foto-error')).toBe(
         'Para tomar una foto necesito permiso de la cámara. Lo activas en Ajustes.',
@@ -371,8 +421,9 @@ describe('Foto de perfil en pantalla', () => {
       expect((await obtenerPerfil())?.fotoUri).toBe(FOTO_A);
     });
 
-    it('"Quitar foto" pide confirmar diciendo la consecuencia, en línea', async () => {
+    it('"Quitar foto" pide confirmar diciendo la consecuencia, dentro de la hoja', async () => {
       await abrirPerfil(conFoto());
+      await abrirHoja();
       expect(existe('perfil-foto-quitar-si')).toBe(false);
 
       await tocar('perfil-foto-quitar');
@@ -380,20 +431,20 @@ describe('Foto de perfil en pantalla', () => {
       expect(textos()).toContain('¿Quitar tu foto? Se va a ver tu inicial.');
       expect(tituloDelBoton('perfil-foto-quitar-si')).toBe('Sí, quitar');
       expect(tituloDelBoton('perfil-foto-quitar-no')).toBe('No, dejarla');
-      expect(raiz().findAll(n => (n.type as unknown) === 'Modal')).toHaveLength(0);
       // Todavía no cambió nada.
       expect((await obtenerPerfil())?.fotoUri).toBe(FOTO_A);
       expect(existe('perfil-avatar-foto')).toBe(true);
     });
 
-    it('"No, dejarla" no cambia nada y cierra la pregunta', async () => {
+    it('"No, dejarla" no cambia nada y cierra la hoja', async () => {
       await abrirPerfil(conFoto());
       const antes = await guardadoCrudo();
 
+      await abrirHoja();
       await tocar('perfil-foto-quitar');
       await tocar('perfil-foto-quitar-no');
 
-      expect(existe('perfil-foto-quitar-si')).toBe(false);
+      expect(hojaAbierta()).toBe(false);
       expect(textos()).not.toContain('¿Quitar tu foto? Se va a ver tu inicial.');
       expect(existe('perfil-avatar-foto')).toBe(true);
       expect(await guardadoCrudo()).toBe(antes);
@@ -402,14 +453,13 @@ describe('Foto de perfil en pantalla', () => {
     it('"Sí, quitar" vuelve a la inicial y borra fotoUri del perfil guardado', async () => {
       await abrirPerfil(conFoto());
 
+      await abrirHoja();
       await tocar('perfil-foto-quitar');
       await tocar('perfil-foto-quitar-si');
 
       expect(existe('perfil-avatar-foto')).toBe(false);
       expect(textoDe('perfil-iniciales')).toBe('F');
-      // Vuelven los botones de "sin foto" y se va la pregunta.
-      expect(existe('perfil-foto-galeria')).toBe(true);
-      expect(existe('perfil-foto-quitar-si')).toBe(false);
+      expect(hojaAbierta()).toBe(false);
       const guardado = await obtenerPerfil();
       expect(guardado).not.toBeNull();
       expect('fotoUri' in (guardado as Perfil)).toBe(false);
@@ -417,26 +467,48 @@ describe('Foto de perfil en pantalla', () => {
       // Lo demás del perfil sigue igual.
       expect(guardado?.nombre).toBe('Freddy');
       expect(guardado?.negocio).toBe('Anticuchos Freddy');
+      // Sin foto, la hoja ya no ofrece quitar.
+      await abrirHoja();
+      expect(existe('perfil-foto-quitar')).toBe(false);
+    });
+
+    it('si quitar falla, lo dice dentro de la hoja y no cambia nada', async () => {
+      await abrirPerfil(conFoto());
+      await abrirHoja();
+      await tocar('perfil-foto-quitar');
+      const setItem = jest
+        .spyOn(createAsyncStorage('crecemos'), 'setItem')
+        .mockRejectedValue(new Error('disco lleno'));
+
+      await tocar('perfil-foto-quitar-si');
+      setItem.mockRestore();
+
+      expect(textoDe('perfil-foto-quitar-error')).toBe('No pudimos quitar tu foto. Inténtalo otra vez.');
+      expect(hojaAbierta()).toBe(true);
+      expect((await obtenerPerfil())?.fotoUri).toBe(FOTO_A);
     });
 
     it('quitar la foto y elegir otra después funciona', async () => {
       galeria.mockResolvedValueOnce({ assets: [{ base64: BASE64_B, type: 'image/jpg' }] });
       await abrirPerfil(conFoto());
 
+      await abrirHoja();
       await tocar('perfil-foto-quitar');
       await tocar('perfil-foto-quitar-si');
+      await abrirHoja();
       await tocar('perfil-foto-galeria');
 
       expect((await obtenerPerfil())?.fotoUri).toBe(FOTO_B);
     });
 
-    it('un error anterior no se queda en pantalla al pedir quitar la foto', async () => {
+    it('un error anterior no se queda en pantalla al abrir la hoja otra vez', async () => {
       camara.mockResolvedValueOnce({ errorCode: 'permission' });
       await abrirPerfil(conFoto());
-      await tocar('perfil-foto-cambiar');
-      await tocar('perfil-foto-cambiar-camara');
+      await abrirHoja();
+      await tocar('perfil-foto-camara');
       expect(existe('perfil-foto-error')).toBe(true);
 
+      await abrirHoja();
       await tocar('perfil-foto-quitar');
 
       expect(existe('perfil-foto-error')).toBe(false);
@@ -447,11 +519,13 @@ describe('Foto de perfil en pantalla', () => {
     it('la foto persiste tras reiniciar la app', async () => {
       galeria.mockResolvedValueOnce({ assets: [{ base64: BASE64_A, type: 'image/jpg' }] });
       await abrirPerfil(perfilDe());
+      await abrirHoja();
       await tocar('perfil-foto-galeria');
       await desmontarApp();
 
       await montarApp();
       await tocar('abrir-perfil');
+      await abrirHoja();
 
       expect(imagenDe('perfil-avatar-foto').props.source).toEqual({ uri: FOTO_A });
       expect(tituloDelBoton('perfil-foto-quitar')).toBe('Quitar foto');
@@ -473,6 +547,7 @@ describe('Foto de perfil en pantalla', () => {
 
     it('Inicio vuelve a la inicial tras quitar la foto', async () => {
       await abrirPerfil(perfilDe({ fotoUri: FOTO_A }));
+      await abrirHoja();
       await tocar('perfil-foto-quitar');
       await tocar('perfil-foto-quitar-si');
       await tocar('perfil-atras');
@@ -484,6 +559,7 @@ describe('Foto de perfil en pantalla', () => {
     it('la foto elegida en Perfil se ve en Inicio al volver, sin reiniciar', async () => {
       galeria.mockResolvedValueOnce({ assets: [{ base64: BASE64_A, type: 'image/jpg' }] });
       await abrirPerfil(perfilDe());
+      await abrirHoja();
       await tocar('perfil-foto-galeria');
       await tocar('perfil-atras');
 
@@ -501,8 +577,10 @@ describe('Foto de perfil en pantalla', () => {
 
       expect(textoDe('perfil-iniciales')).toBe('F');
       expect(existe('perfil-avatar-foto')).toBe(false);
-      // Sin foto válida se ofrecen los botones de "sin foto".
+      // Sin foto válida la hoja no ofrece quitar.
+      await abrirHoja();
       expect(existe('perfil-foto-galeria')).toBe(true);
+      expect(existe('perfil-foto-quitar')).toBe(false);
     });
 
     it('una foto demasiado pesada ya guardada también cae a la inicial', async () => {
@@ -558,13 +636,14 @@ describe('Foto de perfil en pantalla', () => {
       expect(estilo.height).toBe(48);
     });
 
-    it('sin foto, ningún texto de la pantalla es técnico', async () => {
+    it('ningún texto de la pantalla ni de la hoja es técnico', async () => {
       await abrirPerfil(perfilDe());
-
+      for (const t of textos()) expect(palabrasTecnicas.test(t)).toBe(false);
+      await abrirHoja();
       for (const t of textos()) expect(palabrasTecnicas.test(t)).toBe(false);
     });
 
-    it('todos los botones de la foto miden al menos 48 dp', async () => {
+    it('todos los botones de la hoja miden al menos 48 dp', async () => {
       // El alto sale del estilo ya resuelto del botón (el de la vista nativa con ese testID).
       const alto = (id: string): number => {
         const alturas = raiz()
@@ -581,14 +660,16 @@ describe('Foto de perfil en pantalla', () => {
         if (alturas.length === 0) throw new Error(`No hay alto para "${id}"`);
         return Math.max(...alturas);
       };
-      await abrirPerfil(perfilDe());
-      expect(alto('perfil-foto-galeria')).toBeGreaterThanOrEqual(48);
-      expect(alto('perfil-foto-camara')).toBeGreaterThanOrEqual(48);
-      await desmontarApp();
-
       await abrirPerfil(perfilDe({ fotoUri: FOTO_A }));
-      expect(alto('perfil-foto-cambiar')).toBeGreaterThanOrEqual(48);
-      expect(alto('perfil-foto-quitar')).toBeGreaterThanOrEqual(48);
+      await abrirHoja();
+      for (const id of [
+        'perfil-foto-galeria',
+        'perfil-foto-camara',
+        'perfil-foto-quitar',
+        'perfil-foto-cancelar',
+      ]) {
+        expect(alto(id)).toBeGreaterThanOrEqual(48);
+      }
       await tocar('perfil-foto-quitar');
       expect(alto('perfil-foto-quitar-si')).toBeGreaterThanOrEqual(48);
       expect(alto('perfil-foto-quitar-no')).toBeGreaterThanOrEqual(48);
