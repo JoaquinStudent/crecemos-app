@@ -10,6 +10,7 @@ import type { NavigatorScreenParams } from '@react-navigation/native';
 import { PerfilScreen } from '@screens/PerfilScreen';
 import { PerfilDatosScreen } from '@screens/PerfilDatosScreen';
 import { PerfilPagosScreen } from '@screens/PerfilPagosScreen';
+import { PerfilRecordatorioScreen } from '@screens/PerfilRecordatorioScreen';
 import { CerrarDiaScreen } from '@screens/CerrarDiaScreen';
 import { MiMetaScreen } from '@screens/MiMetaScreen';
 import { MiReporteScreen } from '@screens/MiReporteScreen';
@@ -25,6 +26,7 @@ export type RootStackParamList = {
   /** Las pantallas que se abren desde las opciones del Perfil; "Atrás" vuelve a él. */
   PerfilDatos: undefined;
   PerfilPagos: undefined;
+  PerfilRecordatorio: undefined;
   QueMeDeja: undefined;
   MiReporte: undefined;
   /** La alcancía de la cuota del préstamo. */
@@ -40,6 +42,7 @@ export const RootStack = () => (
     <Stack.Screen name="Perfil" component={PerfilScreen} />
     <Stack.Screen name="PerfilDatos" component={PerfilDatosScreen} />
     <Stack.Screen name="PerfilPagos" component={PerfilPagosScreen} />
+    <Stack.Screen name="PerfilRecordatorio" component={PerfilRecordatorioScreen} />
     <Stack.Screen name="QueMeDeja" component={QueMeDejaScreen} />
     <Stack.Screen name="MiReporte" component={MiReporteScreen} />
     <Stack.Screen name="MiMeta" component={MiMetaScreen} />

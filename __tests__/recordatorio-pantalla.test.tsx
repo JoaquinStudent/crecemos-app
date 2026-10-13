@@ -231,6 +231,7 @@ describe('Perfil: Recordatorio diario', () => {
   const irAPerfil = async () => {
     const app = await montarApp();
     await app.tocar('abrir-perfil');
+    await app.tocar('perfil-opcion-recordatorio');
     return app;
   };
 
@@ -245,6 +246,14 @@ describe('Perfil: Recordatorio diario', () => {
     expect(existe('recordatorio-permiso-explicacion')).toBe(false);
     expect((await obtenerPerfil())?.recordatorioActivo).toBe(true);
     expect(existe('recordatorio-hora-21:30')).toBe(true);
+  });
+
+  it('el menú del Perfil resume el recordatorio con la hora y se actualiza al volver', async () => {
+    const { textoDe, tocar, cambiarInterruptor } = await irAPerfil();
+    await cambiarInterruptor('switch-recordatorio', true);
+    await tocar('recordatorio-hora-22:30');
+    await tocar('seccion-atras');
+    expect(textoDe('perfil-opcion-recordatorio-resumen')).toBe('Activado · 10:30 p. m.');
   });
 
   it('elegir otra hora la guarda', async () => {

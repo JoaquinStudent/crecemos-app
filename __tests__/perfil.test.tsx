@@ -102,6 +102,7 @@ describe('Perfil y hoja "Cambiar precio"', () => {
     expect(etiquetaDe('inicio-avatar-iniciales-sin-foto')).toBe('Sin foto');
     await tocar('abrir-perfil');
     expect(etiquetaDe('perfil-iniciales-sin-foto')).toBe('Sin foto');
+    await tocar('perfil-opcion-recordatorio');
     expect(estiloDeVista('recordatorio-tarjeta').paddingVertical).toBe(12);
   });
 
@@ -400,6 +401,7 @@ describe('Perfil y hoja "Cambiar precio"', () => {
   it.each([
     ['perfil-opcion-datos', 'perfil-datos'],
     ['perfil-opcion-pagos', 'perfil-pagos'],
+    ['perfil-opcion-recordatorio', 'perfil-recordatorio'],
   ])('guarda: la pantalla de %s se hace sitio sobre el teclado', async (fila, pantalla) => {
     const { tocar, buscar } = await montarApp();
     await tocar('abrir-perfil');
