@@ -48,6 +48,10 @@ interface RecorridoContexto {
   repetir: () => Promise<void>;
   comenzar: () => Promise<void>;
   autoRevisado: MutableRefObject<boolean>;
+  /** Un `PasoGuia` cambió de tamaño o de lugar: si es el paso activo, se vuelve a medir. */
+  avisarLayout: (nombre: string) => void;
+  /** Vuelve a medir el paso activo (cuando el hueco ya se dibujó o lo señalado se movió). */
+  remedir: () => Promise<void>;
 }
 
 const sinEfecto = () => undefined;
@@ -58,6 +62,8 @@ const contextoVacio: RecorridoContexto = {
   repetir: () => Promise.resolve(),
   comenzar: () => Promise.resolve(),
   autoRevisado: { current: true },
+  avisarLayout: sinEfecto,
+  remedir: () => Promise.resolve(),
 };
 
 const RecorridoContext = createContext<RecorridoContexto>(contextoVacio);
@@ -66,6 +72,14 @@ const RecorridoContext = createContext<RecorridoContexto>(contextoVacio);
 const POSICION_AL_TRAER = 96;
 /** Reserva abajo para la barra de navegación (un paso que queda tapado por ella no está a la vista). */
 const RESERVA_BARRA = 100;
+
+/** Diferencia (en puntos) a partir de la cual se considera que lo señalado se movió. */
+const TOLERANCIA = 1;
+const mismoRect = (a: Rect, b: Rect) =>
+  Math.abs(a.x - b.x) <= TOLERANCIA &&
+  Math.abs(a.y - b.y) <= TOLERANCIA &&
+  Math.abs(a.width - b.width) <= TOLERANCIA &&
+  Math.abs(a.height - b.height) <= TOLERANCIA;
 
 const estaALaVista = (r: Rect, alto: number, tope: number) =>
   r.y >= tope && r.y + r.height <= alto - RESERVA_BARRA;
@@ -162,6 +176,31 @@ export const RecorridoProvider = ({ children }: { children: ReactNode }) => {
     iniciar();
   }, [iniciar]);
 
+  /**
+   * Vuelve a medir el paso activo. Se llama cuando el hueco ya se dibujó (onLayout) y cuando lo
+   * señalado cambia de tamaño o de lugar (onLayout de PasoGuia): así el hueco sigue a lo señalado
+   * aunque estuviera animándose o su pantalla recién se hubiera acomodado. Sin temporizadores:
+   * cada medición la dispara un evento de diseño, y si no hubo cambio no hay nada que actualizar.
+   */
+  const remedir = useCallback(async () => {
+    if (faseRef.current !== 'activo') return;
+    const paso = lista.current[indiceRef.current];
+    if (!paso) return;
+    const miToken = token.current;
+    const medida = await paso.medir();
+    if (miToken !== token.current || !medida) return;
+    setRect(previo => (previo && mismoRect(previo, medida) ? previo : medida));
+  }, []);
+
+  const avisarLayout = useCallback(
+    (nombre: string) => {
+      if (faseRef.current !== 'activo') return;
+      if (lista.current[indiceRef.current]?.nombre !== nombre) return;
+      remedir().catch(() => undefined);
+    },
+    [remedir],
+  );
+
   const siguiente = useCallback(async () => {
     const resultado = await mostrar(indiceRef.current + 1, 1);
     if (resultado === 'agotado') cerrar();
@@ -187,8 +226,8 @@ export const RecorridoProvider = ({ children }: { children: ReactNode }) => {
   }, [fase, atras]);
 
   const valor = useMemo<RecorridoContexto>(
-    () => ({ registrar, fase, iniciar, repetir, comenzar, autoRevisado }),
-    [registrar, fase, iniciar, repetir, comenzar],
+    () => ({ registrar, fase, iniciar, repetir, comenzar, autoRevisado, avisarLayout, remedir }),
+    [registrar, fase, iniciar, repetir, comenzar, avisarLayout, remedir],
   );
 
   const activo = fase === 'activo' && rect !== null;
@@ -214,6 +253,7 @@ export const RecorridoProvider = ({ children }: { children: ReactNode }) => {
             alSiguiente={siguiente}
             alAtras={atras}
             alSaltar={cerrar}
+            alRemedir={remedir}
           />
         ) : null}
       </View>
@@ -225,6 +265,9 @@ const styles = StyleSheet.create({ raiz: { flex: 1 } });
 
 /** Para `PasoGuia`: cómo registrarse. */
 export const useRegistroDePasos = () => useContext(RecorridoContext).registrar;
+
+/** Para `PasoGuia`: avisar que su pedazo de pantalla cambió de tamaño o de lugar. */
+export const useAvisoDeLayout = () => useContext(RecorridoContext).avisarLayout;
 
 /** Lo que usan las pantallas: arrancar el recorrido, repetirlo y saber si está en marcha. */
 export const useRecorrido = () => {

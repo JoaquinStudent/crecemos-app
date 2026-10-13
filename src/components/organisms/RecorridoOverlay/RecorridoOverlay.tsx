@@ -23,6 +23,8 @@ import type { Rect } from '@components/molecules/PasoGuia';
 
 /** Aire entre lo señalado y el borde del hueco. */
 const MARGEN_HUECO = spacing.sm;
+/** Más justo para lo que está en la barra de abajo: no debe cubrir las etiquetas vecinas. */
+const MARGEN_HUECO_BARRA = spacing.xs;
 /** Separación entre el hueco y la tarjeta. */
 const SEPARACION = spacing.md;
 /** La tarjeta nunca se achica de esto (aunque haya poco espacio), con scroll adentro. */
@@ -38,6 +40,8 @@ export interface RecorridoOverlayProps {
   alSiguiente: () => void;
   alAtras: () => void;
   alSaltar: () => void;
+  /** El hueco se dibujó o cambió: pide medir otra vez lo señalado. */
+  alRemedir?: () => void;
 }
 
 export const RecorridoOverlay = ({
@@ -49,6 +53,7 @@ export const RecorridoOverlay = ({
   alSiguiente,
   alAtras,
   alSaltar,
+  alRemedir,
 }: RecorridoOverlayProps) => {
   const { width: ancho, height: alto } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -65,10 +70,13 @@ export const RecorridoOverlay = ({
     }
   }, [indice]);
 
-  const x = Math.max(0, rect.x - MARGEN_HUECO);
-  const y = Math.max(0, rect.y - MARGEN_HUECO);
-  const derecha = Math.min(ancho, rect.x + rect.width + MARGEN_HUECO);
-  const abajoDelHueco = Math.min(alto, rect.y + rect.height + MARGEN_HUECO);
+  // Lo que llega hasta la barra de abajo lleva un margen más justo; el hueco siempre cabe en la ventana.
+  const enBarra = rect.y + rect.height >= alto - insets.bottom - size.touch;
+  const margen = enBarra ? MARGEN_HUECO_BARRA : MARGEN_HUECO;
+  const x = Math.min(ancho, Math.max(0, rect.x - margen));
+  const y = Math.min(alto, Math.max(0, rect.y - margen));
+  const derecha = Math.max(x, Math.min(ancho, rect.x + rect.width + margen));
+  const abajoDelHueco = Math.max(y, Math.min(alto, rect.y + rect.height + margen));
   const anchoHueco = derecha - x;
   const altoHueco = abajoDelHueco - y;
 
@@ -96,6 +104,7 @@ export const RecorridoOverlay = ({
         pointerEvents="none"
         style={[styles.marco, { top: y, left: x, width: anchoHueco, height: altoHueco }]}
         testID="recorrido-marco"
+        onLayout={alRemedir}
       />
 
       <View

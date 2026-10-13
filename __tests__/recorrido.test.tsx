@@ -187,6 +187,64 @@ describe('recorrido guiado: pasos', () => {
   });
 });
 
+describe('recorrido guiado: medir otra vez', () => {
+  const marcoTop = () => StyleSheet.flatten(porId('recorrido-marco')!.props.style).top;
+  const MOVIDO: Rect = { ...ARRIBA, y: ARRIBA.y + 100 };
+
+  it('al dibujarse el hueco (onLayout) vuelve a medir y sigue a lo señalado', async () => {
+    await montar(<Pantalla listo />);
+    await act(async () => {});
+    expect(marcoTop()).toBe(ARRIBA.y - 8);
+    mockMedidas = { ...mockMedidas, a: MOVIDO }; // el hero cambió de alto/lugar mientras tanto
+    await act(async () => {
+      porId('recorrido-marco')!.props.onLayout();
+    });
+    expect(marcoTop()).toBe(MOVIDO.y - 8);
+  });
+
+  it('cuando lo señalado cambia de tamaño (onLayout del PasoGuia) mide otra vez', async () => {
+    await montar(<Pantalla listo />);
+    await act(async () => {});
+    mockMedidas = { ...mockMedidas, a: MOVIDO };
+    const guia = raiz().findAll(
+      n => typeof n.type === 'string' && n.props.collapsable === false && typeof n.props.onLayout === 'function',
+    )[0];
+    await act(async () => {
+      guia.props.onLayout();
+    });
+    expect(marcoTop()).toBe(MOVIDO.y - 8);
+  });
+
+  it('al cambiar de paso mide el nuevo; el aviso de un paso que no es el activo se ignora', async () => {
+    await montar(<Pantalla listo />);
+    await act(async () => {});
+    await tocar('recorrido-siguiente');
+    expect(marcoTop()).toBe(MEDIO.y - 8);
+    mockMedidas = { ...mockMedidas, a: MOVIDO, b: { ...MEDIO, y: 560 } };
+    const guias = raiz().findAll(
+      n => typeof n.type === 'string' && n.props.collapsable === false && typeof n.props.onLayout === 'function',
+    );
+    await act(async () => {
+      guias[0].props.onLayout(); // paso A: no es el activo
+    });
+    expect(marcoTop()).toBe(MEDIO.y - 8);
+    await act(async () => {
+      guias[1].props.onLayout(); // paso B: sí
+    });
+    expect(marcoTop()).toBe(560 - 8);
+  });
+
+  it('si la medida no cambió no vuelve a dibujar el hueco', async () => {
+    await montar(<Pantalla listo />);
+    await act(async () => {});
+    const antes = porId('recorrido-marco')!.props.style;
+    await act(async () => {
+      porId('recorrido-marco')!.props.onLayout();
+    });
+    expect(porId('recorrido-marco')!.props.style).toEqual(antes);
+  });
+});
+
 describe('recorrido guiado: botón Atrás del teléfono', () => {
   const capturar = () => {
     const manejadores: Array<() => boolean | null | undefined> = [];
@@ -374,6 +432,43 @@ describe('recorrido guiado: accesibilidad y diseño', () => {
     expect(marco.left).toBeLessThanOrEqual(MEDIO.x);
     expect(marco.top! + marco.height!).toBeGreaterThanOrEqual(MEDIO.y + MEDIO.height);
     expect(porId('recorrido-overlay')!.props.onStartShouldSetResponder()).toBe(true);
+  });
+
+  it('tocar el velo fuera de la tarjeta no hace nada: solo los botones cierran o avanzan', async () => {
+    await montar(<Pantalla listo />);
+    await act(async () => {});
+    const conToque = porId('recorrido-overlay')!.findAll(n => typeof n.props.onPress === 'function');
+    const ids = conToque.map(n => n.props.testID).filter(Boolean);
+    expect(new Set(ids)).toEqual(new Set(['recorrido-siguiente', 'recorrido-saltar']));
+    // Ni el overlay ni los velos reaccionan al soltar el dedo: solo absorben el toque.
+    const overlay = porId('recorrido-overlay')!;
+    expect(overlay.props.onResponderRelease).toBeUndefined();
+    expect(overlay.props.onPress).toBeUndefined();
+    expect(hay('recorrido-overlay')).toBe(true);
+    expect(textoDe('recorrido-contador')).toBe('Paso 1 de 3');
+    expect(await recorridoVisto()).toBe(false);
+  });
+
+  it('lo señalado en la barra de abajo lleva un hueco más justo que el resto', async () => {
+    const BARRA: Rect = { x: 200, y: 1250, width: 80, height: 70 };
+    await abrir(BARRA);
+    const barra = StyleSheet.flatten(porId('recorrido-marco')!.props.style);
+    expect(BARRA.y - barra.top!).toBe(4);
+    await act(async () => montada!.unmount());
+    montada = null;
+    await abrir(MEDIO);
+    const medio = StyleSheet.flatten(porId('recorrido-marco')!.props.style);
+    expect(MEDIO.y - medio.top!).toBe(8);
+  });
+
+  it('el hueco nunca se sale de la ventana', async () => {
+    const { width, height } = Dimensions.get('window');
+    await abrir({ x: -30, y: -20, width: width + 80, height: height + 100 });
+    const m = StyleSheet.flatten(porId('recorrido-marco')!.props.style);
+    expect(m.left).toBe(0);
+    expect(m.top).toBe(0);
+    expect(m.left! + m.width!).toBeLessThanOrEqual(width);
+    expect(m.top! + m.height!).toBeLessThanOrEqual(height);
   });
 
   it('nada avanza solo: sin botones tocados el paso no cambia', async () => {

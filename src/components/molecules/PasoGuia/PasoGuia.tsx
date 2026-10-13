@@ -10,7 +10,7 @@
 // (para elegir entre dos candidatos al mismo paso) sin desmontar a los hijos.
 import React, { ComponentRef, ReactNode, useContext, useEffect, useRef } from 'react';
 import { StyleProp, View, ViewStyle } from 'react-native';
-import { useRegistroDePasos } from '@context/RecorridoProvider';
+import { useAvisoDeLayout, useRegistroDePasos } from '@context/RecorridoProvider';
 import { medirVista } from './medir';
 import { DesplazamientoGuiaContext } from './ScrollGuiado';
 
@@ -39,6 +39,7 @@ export const PasoGuia = ({
 }: PasoGuiaProps) => {
   const ref = useRef<ComponentRef<typeof View>>(null);
   const registrar = useRegistroDePasos();
+  const avisarLayout = useAvisoDeLayout();
   const desplazamiento = useContext(DesplazamientoGuiaContext);
   const desplazamientoActual = useRef(desplazamiento);
   desplazamientoActual.current = desplazamiento;
@@ -58,7 +59,7 @@ export const PasoGuia = ({
   }, [activo, nombre, orden, titulo, texto, registrar]);
 
   return (
-    <View ref={ref} collapsable={false} style={style}>
+    <View ref={ref} collapsable={false} style={style} onLayout={() => avisarLayout(nombre)}>
       {children}
     </View>
   );
