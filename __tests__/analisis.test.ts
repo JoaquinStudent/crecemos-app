@@ -268,13 +268,13 @@ describe('insight', () => {
 
   it('el artículo sale del nombre: termina en "a" es "la", si no "el"', () => {
     expect(insight([g('Anticucho', 400, 1), g('Chicha', 100, 3.5)])).toBe(
-      'El anticucho se vende más. La diferencia estimada por unidad de la chicha es S/ 2.50 mayor (precio menos costo estimado).',
+      'El anticucho se vende más, pero la chicha te deja S/ 2.50 más por cada uno.',
     );
   });
 
   it('ignora a los productos sin ventas', () => {
     expect(insight([g('Pancita', 400, 1), g('Rachi', 0, 0), g('Anticucho', 100, 1.8)])).toBe(
-      'La pancita se vende más. La diferencia estimada por unidad del anticucho es S/ 0.80 mayor (precio menos costo estimado).',
+      'La pancita se vende más, pero el anticucho te deja S/ 0.80 más por cada uno.',
     );
     expect(insight([g('Pancita', 400, 1), g('Rachi', 0, 5)])).toBeNull();
   });
@@ -381,7 +381,7 @@ describe('regla precio', () => {
     ];
     const ctx = ctxDe(cierres, [producto('Anticucho', 10, 8.8)]);
     expect(regla('precio').mensaje(ctx)).toBe(
-      'La diferencia estimada por unidad de Anticucho bajó S/ 0.60 desde julio (precio menos costo estimado). Revisa el precio.',
+      'Lo que te deja el anticucho por porción bajó S/ 0.60 desde julio. Revisa el precio.',
     );
   });
 
@@ -403,7 +403,7 @@ describe('regla precio', () => {
     ];
     const productos = [producto('Pancita', 9, 8.7), producto('Anticucho', 10, 8.8)]; // cae 0.70 y 0.60
     expect(regla('precio').mensaje(ctxDe(cierres, productos))).toContain(
-      'La diferencia estimada por unidad de Pancita bajó S/ 0.70',
+      'Lo que te deja la pancita por porción bajó S/ 0.70',
     );
   });
 

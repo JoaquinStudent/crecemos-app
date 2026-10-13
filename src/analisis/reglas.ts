@@ -6,9 +6,9 @@ import { totalPorCobrar } from '@dominio/cobro';
 import { diasEntre, diaSemana } from '@dominio/fecha';
 import { formatoFechaCorta, formatoSoles, nombreMes, redondearSoles } from '@dominio/formato';
 import { teDeja } from '@dominio/producto';
-import { unidadSegunCantidad } from '@dominio/unidades';
+import { singularUnidad, unidadSegunCantidad } from '@dominio/unidades';
 import type { Ciclo, ContextoAnalisis, Producto, Recomendacion } from '@dominio/tipos';
-import { compararCiclos, gananciaDelDia } from './metricas';
+import { articulo, compararCiclos, gananciaDelDia } from './metricas';
 import { planificarManana } from './planificador';
 
 /** Más de este monto por cobrar y la regla `cobro` salta (S/). */
@@ -78,6 +78,8 @@ export const cobroMensaje = (ctx: ContextoAnalisis): string => {
 
 export interface CaidaDePrecio {
   nombre: string;
+  /** La unidad de venta del producto ("porcion", "vaso"…), tal como la escribió la persona. */
+  unidad: string;
   caida: number;
   mes: string;
   /** El "te deja" por porción de la línea de referencia: de lo que se mide la caída. */
@@ -100,6 +102,7 @@ export const caidaDePrecio = (ctx: ContextoAnalisis, p: Producto): CaidaDePrecio
     ? null
     : {
         nombre: p.nombre,
+        unidad: p.unidad,
         caida,
         mes: nombreMes(referencia.fecha),
         margenAnterior: referencia.margen,
@@ -342,9 +345,9 @@ export const REGLAS: Regla[] = [
       const m = mayorCaidaDePrecio(ctx);
       return m === null
         ? ''
-        : `La diferencia estimada por unidad de ${m.nombre} bajó ${formatoSoles(m.caida)} desde ${
-            m.mes
-          } (precio menos costo estimado). Revisa el precio.`;
+        : `Lo que te deja ${articulo(m.nombre)} ${m.nombre.toLowerCase()} por ${singularUnidad(
+            m.unidad,
+          )} bajó ${formatoSoles(m.caida)} desde ${m.mes}. Revisa el precio.`;
     },
   },
   {

@@ -520,7 +520,7 @@ describe('productoQueMasDeja y productoQueMasSeVende', () => {
   it('el que más deja, con la ganancia por porción y en total', () => {
     const h = responderConsulta(consultaDe('productoQueMasDeja'), ctxDe(octubre));
     expect(h.frase).toBe(
-      'El anticucho tiene la mayor diferencia estimada entre precio y costo: S/ 1.80 por porción, S/ 486.00 en total.',
+      'El anticucho es el que más te deja: S/ 1.80 por porción, S/ 486.00 en total.',
     );
     expect(h.cifras).toEqual(['1.80', '486.00']);
   });
@@ -547,7 +547,7 @@ describe('productoQueMasDeja y productoQueMasSeVende', () => {
       'La chicha es la que más se vende: 300 vasos en los últimos 30 días.',
     );
     expect(frase(consultaDe('productoQueMasDeja'), ctxDe(cierres, productos))).toBe(
-      'El anticucho tiene la mayor diferencia estimada entre precio y costo: S/ 1.80 por porción, S/ 36.00 en total.',
+      'El anticucho es el que más te deja: S/ 1.80 por porción, S/ 36.00 en total.',
     );
   });
 
@@ -594,7 +594,7 @@ describe('productoQueMasDeja y productoQueMasSeVende', () => {
       }),
     ];
     expect(frase(consultaDe('productoQueMasDeja'), ctxDe(cierres))).toBe(
-      'El anticucho tiene la mayor diferencia estimada entre precio y costo: S/ 2.00 por porción, S/ 200.00 en total.',
+      'El anticucho es el que más te deja: S/ 2.00 por porción, S/ 200.00 en total.',
     );
     expect(frase(consultaDe('productoQueMasSeVende'), ctxDe(cierres))).toBe(
       'El anticucho es el que más se vende: 100 porciones en los últimos 30 días.',
@@ -817,7 +817,7 @@ describe('revisarPrecio', () => {
     const ctx = ctxDe(cierres, [producto('Anticucho', 10, 8.8)]);
     const h = responderConsulta(consultaDe('revisarPrecio', { producto: 'p-anticucho' }), ctx);
     expect(h.frase).toBe(
-      'La diferencia estimada por unidad de Anticucho bajó S/ 0.60 desde julio (precio menos costo estimado). Revisa el precio.',
+      'Lo que te deja el anticucho por porción bajó S/ 0.60 desde julio. Revisa el precio.',
     );
     expect(h.cifras).toEqual(['0.60']);
     expect(h.frase).toBe(evaluarReglas(ctx).find(r => r.reglaId === 'precio')?.mensaje);
@@ -834,12 +834,12 @@ describe('revisarPrecio', () => {
     expect(
       frase(consultaDe('revisarPrecio', { producto: 'p-anticucho' }), ctxDe(cierres, productos)),
     ).toBe(
-      'El precio del anticucho no muestra una caída: diferencia estimada S/ 1.80 por porción.',
+      'El precio del anticucho no muestra una caída: te deja S/ 1.80 por porción.',
     );
     expect(
       frase(consultaDe('revisarPrecio', { producto: 'p-pancita' }), ctxDe(cierres, productos)),
     ).toBe(
-      'La diferencia estimada por unidad de Pancita bajó S/ 2.00 desde julio (precio menos costo estimado). Revisa el precio.',
+      'Lo que te deja la pancita por porción bajó S/ 2.00 desde julio. Revisa el precio.',
     );
   });
 
@@ -850,7 +850,7 @@ describe('revisarPrecio', () => {
       ctxDe(cierres, [producto('Anticucho', 10, 8.2)]),
     );
     expect(h.frase).toBe(
-      'El precio del anticucho no muestra una caída: diferencia estimada S/ 1.80 por porción.',
+      'El precio del anticucho no muestra una caída: te deja S/ 1.80 por porción.',
     );
     expect(h.cifras).toEqual(['1.80']);
   });
@@ -861,7 +861,7 @@ describe('revisarPrecio', () => {
         consultaDe('revisarPrecio', { producto: 'p-chicha' }),
         ctxDe([], [producto('Chicha', 2, 1.6, { unidad: 'vaso' })]),
       ),
-    ).toBe('El precio de la chicha no muestra una caída: diferencia estimada S/ 0.40 por vaso.');
+    ).toBe('El precio de la chicha no muestra una caída: te deja S/ 0.40 por vaso.');
   });
 
   it('una caída menor a S/ 0.30 no cuenta', () => {
@@ -872,7 +872,7 @@ describe('revisarPrecio', () => {
         ctxDe(cierres, [producto('Anticucho', 10, 8.4)]),
       ),
     ).toBe(
-      'El precio del anticucho no muestra una caída: diferencia estimada S/ 1.60 por porción.',
+      'El precio del anticucho no muestra una caída: te deja S/ 1.60 por porción.',
     );
   });
 
@@ -1060,7 +1060,7 @@ describe('no mutan lo que reciben', () => {
 describe('la regla del día flojo no cambió al compartir su medición', () => {
   // Resultado de cada regla (null = no aplica) con la semilla real; conserva cifras y orden.
   const COMUN: (string | null)[] = [
-    'La diferencia estimada por unidad de Anticucho bajó S/ 0.40 desde julio (precio menos costo estimado). Revisa el precio.',
+    'Lo que te deja el anticucho por porción bajó S/ 0.40 desde julio. Revisa el precio.',
     // Con la semilla, "Para mañana" ya sugiere una cantidad de Rachi: la regla preparar calla para no
     // contradecirla (antes decía "Prepara 10 porciones menos").
     null,

@@ -225,7 +225,7 @@ describe('Qué me deja cada uno', () => {
 
     expect(app.existe('queme-insight')).toBe(true);
     expect(app.textoDe('queme-insight-texto')).toBe(
-      'La pancita se vende más. La diferencia estimada por unidad del anticucho es S/ 0.80 mayor (precio menos costo estimado).',
+      'La pancita se vende más, pero el anticucho te deja S/ 0.80 más por cada uno.',
     );
     expect(app.tamanoDe('queme-insight-texto')).toBe(18);
     expect(app.colorDe('queme-insight-texto')).not.toBe('#FFA400');

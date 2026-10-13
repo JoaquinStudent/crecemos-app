@@ -775,7 +775,7 @@ const sembrarDosCiclosSinAlertas = async () => {
 };
 
 const FRASE_DEL_INSIGHT =
-  'La pancita se vende más. La diferencia estimada por unidad del anticucho es S/ 0.80 mayor (precio menos costo estimado).';
+  'La pancita se vende más, pero el anticucho te deja S/ 0.80 más por cada uno.';
 
 describe('Inicio: el orden de las tarjetas', () => {
   beforeEach(() => {
@@ -1031,7 +1031,7 @@ describe('Inicio: las recomendaciones', () => {
       /^Tienes S\/ 120\.00 por cobrar desde el \d+ de \w+\.$/,
     );
     expect(textoDe('inicio-recomendacion-precio-texto')).toMatch(
-      /^La diferencia estimada por unidad de Anticucho bajó S\/ 1\.40 desde \w+ \(precio menos costo estimado\)\. Revisa el precio\.$/,
+      /^Lo que te deja el anticucho por porción bajó S\/ 1\.40 desde \w+\. Revisa el precio\.$/,
     );
   });
 

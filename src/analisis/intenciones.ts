@@ -9,7 +9,7 @@ import { totalPorCobrar } from '@dominio/cobro';
 import { diaSemana, restarDias } from '@dominio/fecha';
 import { formatoFecha, formatoSoles, redondearSoles } from '@dominio/formato';
 import { teDeja } from '@dominio/producto';
-import { unidadSegunCantidad } from '@dominio/unidades';
+import { singularUnidad, unidadSegunCantidad } from '@dominio/unidades';
 import type {
   Cierre,
   Consulta,
@@ -296,7 +296,7 @@ const productoQueMasDeja = (ctx: ContextoAnalisis): Hecho => {
   const porUnidad = cantidad(1, unidadDe(ctx, p.productoId)).replace(/^1 /, '');
   return hecho(
     'productoQueMasDeja',
-    `${conArticulo(nombre)} tiene la mayor diferencia estimada entre precio y costo: ${formatoSoles(
+    `${conArticulo(nombre)} es ${articulo(nombre) === 'la' ? 'la' : 'el'} que más te deja: ${formatoSoles(
       p.teDeja,
     )} por ${porUnidad}, ${formatoSoles(p.ganancia)} en total.`,
   );
@@ -376,16 +376,16 @@ const revisarPrecio = (consulta: Consulta, ctx: ContextoAnalisis): Hecho => {
   if (caida !== null) {
     return hecho(
       'revisarPrecio',
-      `La diferencia estimada por unidad de ${producto.nombre} bajó ${formatoSoles(
-        caida.caida,
-      )} desde ${caida.mes} (precio menos costo estimado). Revisa el precio.`,
+      `Lo que te deja ${articulo(producto.nombre)} ${producto.nombre.toLowerCase()} por ${singularUnidad(
+        producto.unidad,
+      )} bajó ${formatoSoles(caida.caida)} desde ${caida.mes}. Revisa el precio.`,
     );
   }
   const nombre = producto.nombre.toLowerCase();
   const del = articulo(nombre) === 'la' ? 'de la' : 'del';
   return hecho(
     'revisarPrecio',
-    `El precio ${del} ${nombre} no muestra una caída: diferencia estimada ${formatoSoles(
+    `El precio ${del} ${nombre} no muestra una caída: te deja ${formatoSoles(
       teDeja(producto).monto,
     )} por ${cantidad(1, producto.unidad).replace(/^1 /, '')}.`,
   );

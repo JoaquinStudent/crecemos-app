@@ -488,7 +488,7 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
     const hecho = responderConsulta(consulta, ctxDe(cierres));
 
     expect(hecho.frase).toBe(
-      'El anticucho tiene la mayor diferencia estimada entre precio y costo: S/ 1.80 por porción, S/ 486.00 en total.',
+      'El anticucho es el que más te deja: S/ 1.80 por porción, S/ 486.00 en total.',
     );
     expect(hecho.intencion).toBe('productoQueMasDeja');
   });

@@ -112,7 +112,7 @@ describe('Semilla de 75 cierres para el reporte', () => {
       expect(precio).toBeDefined();
       if (dia === 7) {
         expect(precio?.mensaje).toBe(
-          'La diferencia estimada por unidad de Anticucho bajó S/ 0.40 desde julio (precio menos costo estimado). Revisa el precio.',
+          'Lo que te deja el anticucho por porción bajó S/ 0.40 desde julio. Revisa el precio.',
         );
       }
     },

@@ -95,11 +95,9 @@ export const insight = (g: GananciaProducto[]): string | null => {
   const vendido = masVendido.nombre.toLowerCase();
   const deja = masDeja.nombre.toLowerCase();
   const inicio = `${articulo(vendido)} ${vendido}`;
-  return `${inicio.charAt(0).toUpperCase()}${inicio.slice(
-    1,
-  )} se vende más. La diferencia estimada por unidad ${
-    articulo(deja) === 'el' ? 'del' : 'de la'
-  } ${deja} es ${formatoSoles(diferencia)} mayor (precio menos costo estimado).`;
+  return `${inicio.charAt(0).toUpperCase()}${inicio.slice(1)} se vende más, pero ${articulo(deja)} ${deja} te deja ${formatoSoles(
+    diferencia,
+  )} más por cada uno.`;
 };
 
 /**
