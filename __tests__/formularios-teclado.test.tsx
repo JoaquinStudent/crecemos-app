@@ -31,21 +31,90 @@ const vistaDeKav = (app: Awaited<ReturnType<typeof montarApp>>) =>
   kavDe(app).findAll(n => typeof n.type === 'string' && typeof n.props.onLayout === 'function')[0];
 const paddingBottomDe = (n: ReactTestInstance) => StyleSheet.flatten(n.props.style)?.paddingBottom;
 
+/** Abre un marco de 800 dp para que el KeyboardAvoidingView sepa cuánto se solapa con el teclado. */
+const darMarco = async (app: Awaited<ReturnType<typeof montarApp>>) =>
+  act(async () => {
+    vistaDeKav(app).props.onLayout({
+      persist: () => undefined,
+      nativeEvent: { layout: { x: 0, y: 0, width: 360, height: 800 } },
+    });
+  });
+
+/** El pie fijo de la sección: sube con el teclado, el scroll no cuenta el teclado otra vez. */
+const comprobarPie = async (
+  app: Awaited<ReturnType<typeof montarApp>>,
+  teclado: ReturnType<typeof crearTecladoSimulado>,
+  pantalla: string,
+  botones: string[],
+) => {
+  const kav = kavDe(app);
+  expect(kav.props.behavior).toBe('padding');
+  expect(kav.props.keyboardVerticalOffset).toBe(0);
+  await darMarco(app);
+  expect(paddingBottomDe(vistaDeKav(app)) ?? 0).toBe(0);
+
+  // El pie está FUERA del scroll y sus botones dentro del pie.
+  const scroll = app.buscar(n => n.props.testID === `${pantalla}-scroll` && typeof n.type === 'string')[0];
+  const pie = app.buscar(n => n.props.testID === `${pantalla}-pie` && typeof n.type === 'string')[0];
+  expect(pie).toBeDefined();
+  for (const id of botones) {
+    expect(scroll.findAll(n => n.props.testID === id)).toHaveLength(0);
+    expect(pie.findAll(n => n.props.testID === id).length).toBeGreaterThan(0);
+  }
+
+  await teclado.abrir(312, 528);
+  expect(paddingBottomDe(vistaDeKav(app))).toBe(800 - 528);
+  const contenido = StyleSheet.flatten(app.propsDe(`${pantalla}-scroll`).contentContainerStyle);
+  expect(contenido.paddingBottom).toBeUndefined();
+  expect(contenido.padding).toBe(spacing.lg);
+  // Con el teclado abierto los botones siguen en el árbol, dentro del pie.
+  for (const id of botones) expect(app.existe(id)).toBe(true);
+
+  await teclado.cerrar();
+  expect(paddingBottomDe(vistaDeKav(app)) ?? 0).toBe(0);
+};
+
 describe('Mis productos > Agregar producto', () => {
-  it('el formulario vive en un ScrollConTeclado: con el teclado abierto suma su alto', async () => {
+  it('la lista no tiene pie; el formulario sí, con Guardar y Cancelar sobre el teclado', async () => {
     const teclado = crearTecladoSimulado();
     const app = await montarApp();
     await app.tocar('abrir-perfil');
     await app.tocar('perfil-opcion-productos');
-    await app.tocar('agregar-producto');
-
+    expect(kavDe(app)).toBeUndefined();
     const relleno = () =>
       StyleSheet.flatten(app.propsDe('perfil-productos-scroll').contentContainerStyle).paddingBottom;
-    expect(relleno()).toBe(spacing.xxl);
     await teclado.abrir(312, 528);
     expect(relleno()).toBe(312 + spacing.lg);
     await teclado.cerrar();
-    expect(relleno()).toBe(spacing.xxl);
+
+    await app.tocar('agregar-producto');
+    await comprobarPie(app, teclado, 'perfil-productos', ['guardar-producto', 'cancelar-producto']);
+  });
+});
+
+describe('Mis datos', () => {
+  it('Guardar y Cancelar viven en un pie que sube con el teclado', async () => {
+    const teclado = crearTecladoSimulado();
+    const app = await montarApp();
+    await app.tocar('abrir-perfil');
+    await app.tocar('perfil-opcion-datos');
+    await comprobarPie(app, teclado, 'perfil-datos', ['guardar-datos', 'cancelar-datos']);
+  });
+});
+
+describe('Cómo me pagan (sin pie)', () => {
+  it('sigue con ScrollConTeclado con relleno y sin KeyboardAvoidingView', async () => {
+    const teclado = crearTecladoSimulado();
+    const app = await montarApp();
+    await app.tocar('abrir-perfil');
+    await app.tocar('perfil-opcion-pagos');
+    expect(kavDe(app)).toBeUndefined();
+    expect(app.existe('perfil-pagos-pie')).toBe(false);
+    await teclado.abrir(312, 528);
+    expect(
+      StyleSheet.flatten(app.propsDe('perfil-pagos-scroll').contentContainerStyle).paddingBottom,
+    ).toBe(312 + spacing.lg);
+    await teclado.cerrar();
   });
 });
 

@@ -37,6 +37,27 @@ export const PerfilDatosScreen = () => {
       subtitle="Así te presentamos en tu perfil y en tu reporte"
       onBack={() => navigation.goBack()}
       testID="perfil-datos"
+      pie={
+        <>
+          <MensajeError mensaje={guardar.mensajeError} testID="error-guardar-datos" />
+          <View style={styles.acciones}>
+            <Button
+              title="Cancelar"
+              variant="ghost"
+              onPress={() => navigation.goBack()}
+              style={styles.cancelar}
+              testID="cancelar-datos"
+            />
+            <Button
+              title="Guardar"
+              loading={guardar.ejecutando}
+              onPress={() => guardar.ejecutar()}
+              style={styles.guardar}
+              testID="guardar-datos"
+            />
+          </View>
+        </>
+      }
     >
       <View style={styles.campos}>
         <Input
@@ -64,28 +85,14 @@ export const PerfilDatosScreen = () => {
           testID="input-ubicacion"
         />
       </View>
-      <MensajeError mensaje={guardar.mensajeError} testID="error-guardar-datos" />
-      <View style={styles.acciones}>
-        <Button
-          title="Guardar"
-          fullWidth
-          loading={guardar.ejecutando}
-          onPress={() => guardar.ejecutar()}
-          testID="guardar-datos"
-        />
-        <Button
-          title="Cancelar"
-          variant="ghost"
-          fullWidth
-          onPress={() => navigation.goBack()}
-          testID="cancelar-datos"
-        />
-      </View>
     </PantallaPerfilSeccion>
   );
 };
 
 const styles = StyleSheet.create({
   campos: { gap: spacing.lg },
-  acciones: { gap: spacing.sm },
+  // Cancelar y Guardar lado a lado: el pie mide una sola fila de botones.
+  acciones: { flexDirection: 'row', gap: spacing.sm },
+  cancelar: { flex: 1 },
+  guardar: { flex: 2 },
 });

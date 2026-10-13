@@ -12,15 +12,20 @@ import { ScrollRef, useScrollAlEnfocar } from './useScrollAlEnfocar';
 export interface ScrollConTecladoProps extends ScrollViewProps {
   /** Suma el alto del teclado al relleno inferior (por defecto sí). */
   conRelleno?: boolean;
+  /**
+   * Espacio que debe quedar libre entre el campo enfocado y el teclado (o el pie). Por defecto
+   * spacing.lg; se sube cuando bajo el campo hay botones que también deben verse.
+   */
+  margenInferior?: number;
 }
 
 export const ScrollConTeclado = forwardRef<ScrollRef, ScrollConTecladoProps>(
   (
-    { conRelleno = true, contentContainerStyle, onScroll, onContentSizeChange, onFocus, ...resto },
+    { conRelleno = true, margenInferior, contentContainerStyle, onScroll, onContentSizeChange, onFocus, ...resto },
     refExterna,
   ) => {
     const interna = useRef<ScrollRef | null>(null);
-    const { teclado, llevarCampoAlTeclado, alScrollear } = useScrollAlEnfocar(interna);
+    const { teclado, llevarCampoAlTeclado, alScrollear } = useScrollAlEnfocar(interna, margenInferior);
 
     const asignar = useCallback(
       (nodo: ScrollRef | null) => {

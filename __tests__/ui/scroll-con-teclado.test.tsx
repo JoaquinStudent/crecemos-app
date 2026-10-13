@@ -73,6 +73,11 @@ describe('desplazamientoParaVer (la cuenta)', () => {
     const d = desplazamientoParaVer({ ...base, campoArriba: 300, campoAlto: 900 });
     expect(300 - d).toBe(base.zonaArriba + base.margen);
   });
+  it('con margenAbajo deja ese espacio libre bajo el campo (para ver sus botones)', () => {
+    expect(
+      desplazamientoParaVer({ ...base, margenAbajo: 80, campoArriba: 700, campoAlto: 56 }),
+    ).toBe(36);
+  });
   it('sube si el campo quedó tapado por arriba', () => {
     expect(desplazamientoParaVer({ ...base, campoArriba: 60, campoAlto: 56 })).toBe(-64);
   });
@@ -123,6 +128,23 @@ describe('ScrollConTeclado: lleva el campo enfocado sobre el teclado', () => {
     expect(animated).toBe(false);
     expect(560 - y).toBeLessThanOrEqual(528 - spacing.lg);
     expect(y).toBe(560 - (528 - spacing.lg));
+    await desmontar(r);
+  });
+
+  it('con un pie bajo el scroll, el campo queda sobre el pie (la zona termina donde empieza el pie)', async () => {
+    // El pie sube con el teclado: la zona de scroll mide 80..400 y el teclado empieza en 528.
+    simularMedidas({ y: 80, alto: 320 }, { y: 380, alto: 56 });
+    const r = await montarScroll({ conRelleno: false });
+    await teclado.abrir(312, 528);
+    expect(scrollMock.scrollTo.mock.calls[0][0].y).toBe(436 - (400 - spacing.lg));
+    await desmontar(r);
+  });
+
+  it('con margenInferior deja ese espacio bajo el campo, sobre el teclado', async () => {
+    simularMedidas({ y: 80, alto: 760 }, { y: 440, alto: 56 });
+    const r = await montarScroll({ margenInferior: 80 });
+    await teclado.abrir(312, 528);
+    expect(scrollMock.scrollTo.mock.calls[0][0].y).toBe(496 - (528 - 80));
     await desmontar(r);
   });
 

@@ -1,22 +1,32 @@
 // src/components/organisms/PantallaPerfilSeccion/PantallaPerfilSeccion.tsx
 // El marco común de cada pantalla que se abre desde el Perfil (Mis datos, Cómo me pagan...): zona
 // segura arriba, encabezado con "Atrás" y título, y un ScrollConTeclado que el teclado no tapa.
-// Con borde a borde en Android 16 `adjustResize` se ignora y el teclado se dibuja ENCIMA: el
-// ScrollConTeclado suma el alto del teclado al relleno inferior y lleva el campo enfocado sobre él,
-// así el campo y el botón "Guardar" quedan alcanzables. UN solo mecanismo: sin KeyboardAvoidingView.
+// Con borde a borde en Android 16 `adjustResize` se ignora y el teclado se dibuja ENCIMA. Dos modos:
+//  - Con `pie` (las acciones principales del formulario): mismo patrón que "Cerrar mi día". Un
+//    KeyboardAvoidingView sube el pie con el teclado y la zona de scroll termina sobre él, así que el
+//    scroll NO suma el teclado otra vez (`conRelleno={false}`); el campo enfocado se lleva sobre el pie.
+//  - Sin `pie`: el ScrollConTeclado suma el alto del teclado a su relleno y deja espacio libre bajo
+//    el campo para que se vean los botones que lo siguen (p. ej. "Guardar" de un dato editable).
 import { ReactNode } from 'react';
-import { StyleSheet } from 'react-native';
+import { KeyboardAvoidingView, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, spacing } from '@theme';
 import { ScreenHeader } from '@components/molecules/ScreenHeader';
 import { ScrollConTeclado } from '@components/molecules/ScrollConTeclado';
+import { StickyFooter } from '@components/molecules/StickyFooter';
+import { useTecladoVisible } from '@hooks/useTecladoVisible';
+
+/** Alto de un botón en línea (48) más su separación: lo que debe verse bajo el campo enfocado. */
+const BOTONES_BAJO_EL_CAMPO = 48 + spacing.sm;
 
 export interface PantallaPerfilSeccionProps {
   title: string;
   subtitle?: string;
   onBack: () => void;
   children: ReactNode;
-  /** Prefijo de los testID: `${testID}-scroll`, `${testID}-titulo`. */
+  /** Acciones principales: van en un pie fijo FUERA del scroll que sube con el teclado. */
+  pie?: ReactNode;
+  /** Prefijo de los testID: `${testID}-scroll`, `${testID}-titulo`, `${testID}-pie`. */
   testID?: string;
 }
 
@@ -25,27 +35,64 @@ export const PantallaPerfilSeccion = ({
   subtitle,
   onBack,
   children,
+  pie,
   testID,
-}: PantallaPerfilSeccionProps) => (
-  <SafeAreaView style={styles.pantalla} edges={['top']} testID={testID}>
-    <ScrollConTeclado
-      keyboardShouldPersistTaps="handled"
-      contentContainerStyle={styles.contenido}
-      testID={testID ? `${testID}-scroll` : undefined}
-    >
-      <ScreenHeader
-        title={title}
-        subtitle={subtitle}
-        onBack={onBack}
-        backTestID="seccion-atras"
-        titleTestID={testID ? `${testID}-titulo` : undefined}
-      />
-      {children}
-    </ScrollConTeclado>
-  </SafeAreaView>
-);
+}: PantallaPerfilSeccionProps) => {
+  const teclado = useTecladoVisible();
+  const encabezado = (
+    <ScreenHeader
+      title={title}
+      subtitle={subtitle}
+      onBack={onBack}
+      backTestID="seccion-atras"
+      titleTestID={testID ? `${testID}-titulo` : undefined}
+    />
+  );
+  const idScroll = testID ? `${testID}-scroll` : undefined;
+
+  if (pie) {
+    return (
+      <SafeAreaView style={styles.pantalla} edges={['top']} testID={testID}>
+        <KeyboardAvoidingView style={styles.pantalla} behavior="padding" keyboardVerticalOffset={0}>
+          <ScrollConTeclado
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={styles.contenidoConPie}
+            conRelleno={false}
+            testID={idScroll}
+          >
+            {encabezado}
+            {children}
+          </ScrollConTeclado>
+          {/* Con el teclado abierto el margen del gesto del sistema ya no hace falta. */}
+          <StickyFooter
+            style={teclado.visible ? styles.pieConTeclado : undefined}
+            testID={testID ? `${testID}-pie` : undefined}
+          >
+            {pie}
+          </StickyFooter>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    );
+  }
+
+  return (
+    <SafeAreaView style={styles.pantalla} edges={['top']} testID={testID}>
+      <ScrollConTeclado
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={styles.contenido}
+        margenInferior={spacing.lg + BOTONES_BAJO_EL_CAMPO}
+        testID={idScroll}
+      >
+        {encabezado}
+        {children}
+      </ScrollConTeclado>
+    </SafeAreaView>
+  );
+};
 
 const styles = StyleSheet.create({
   pantalla: { flex: 1, backgroundColor: colors.background },
   contenido: { padding: spacing.lg, paddingBottom: spacing.xxl, gap: spacing.lg },
+  contenidoConPie: { padding: spacing.lg, gap: spacing.lg },
+  pieConTeclado: { paddingBottom: spacing.sm },
 });

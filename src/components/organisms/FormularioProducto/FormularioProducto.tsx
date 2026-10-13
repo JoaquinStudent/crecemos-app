@@ -1,7 +1,7 @@
 // src/components/organisms/FormularioProducto/FormularioProducto.tsx
-// Los cuatro campos de un producto (nombre, unidad, precio y costo) con "Guardar producto" y
-// "Cancelar". El estado y el guardado viven en `useFormularioProducto`; aquí solo se dibuja.
-import { StyleSheet } from 'react-native';
+// Los cuatro campos de un producto (nombre, unidad, precio y costo) y, aparte, sus acciones
+// ("Guardar producto" y "Cancelar") para el pie fijo de la pantalla. El estado y el guardado viven en `useFormularioProducto`; aquí solo se dibuja.
+import { StyleSheet, View } from 'react-native';
 import { spacing } from '@theme';
 import { Text } from '@components/atoms/Text';
 import { Button } from '@components/atoms/Button';
@@ -47,17 +47,35 @@ export const FormularioProducto = ({ formulario: f }: FormularioProductoProps) =
       keyboardType="decimal-pad"
       testID="producto-costo"
     />
-    <MensajeError mensaje={f.guardar.mensajeError} testID="error-guardar-producto" />
-    <Button
-      title="Guardar producto"
-      loading={f.guardar.ejecutando}
-      onPress={() => f.guardar.ejecutar()}
-      testID="guardar-producto"
-    />
-    <Button title="Cancelar" variant="ghost" onPress={f.cerrar} testID="cancelar-producto" />
   </Card>
+);
+
+/** "Guardar producto" y "Cancelar": van en el pie fijo de la pantalla, no dentro del scroll. */
+export const AccionesFormularioProducto = ({ formulario: f }: FormularioProductoProps) => (
+  <>
+    <MensajeError mensaje={f.guardar.mensajeError} testID="error-guardar-producto" />
+    <View style={styles.acciones}>
+      <Button
+        title="Cancelar"
+        variant="ghost"
+        onPress={f.cerrar}
+        style={styles.cancelar}
+        testID="cancelar-producto"
+      />
+      <Button
+        title="Guardar producto"
+        loading={f.guardar.ejecutando}
+        onPress={() => f.guardar.ejecutar()}
+        style={styles.guardar}
+        testID="guardar-producto"
+      />
+    </View>
+  </>
 );
 
 const styles = StyleSheet.create({
   contenido: { gap: spacing.sm },
+  acciones: { flexDirection: 'row', gap: spacing.sm },
+  cancelar: { flex: 1 },
+  guardar: { flex: 2 },
 });

@@ -402,11 +402,11 @@ describe('Perfil y hoja "Cambiar precio"', () => {
     expect(despues?.yapeParentesco).toBe('hermana');
   });
 
-  // Jest no ve el teclado: con uno simulado se comprueba que el ScrollConTeclado suma su alto al
-  // relleno (UN solo mecanismo: sin KeyboardAvoidingView, que contaría el teclado dos veces).
+  // Las secciones SIN pie de acciones: Jest no ve el teclado; con uno simulado se comprueba que el
+  // ScrollConTeclado suma su alto al relleno (UN solo mecanismo: sin KeyboardAvoidingView, que
+  // contaría el teclado dos veces). Las que tienen pie (Mis datos) se prueban en formularios-teclado.
   // Que el campo quede sobre el teclado se comprueba a mano en el teléfono.
   it.each([
-    ['perfil-opcion-datos', 'perfil-datos'],
     ['perfil-opcion-pagos', 'perfil-pagos'],
     ['perfil-opcion-recordatorio', 'perfil-recordatorio'],
   ])('guarda: la pantalla de %s se hace sitio sobre el teclado sin contarlo dos veces', async (fila, pantalla) => {

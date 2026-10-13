@@ -15,7 +15,7 @@ import { BotonCargarEjemplo } from '@components/molecules/BotonCargarEjemplo';
 import { Card } from '@components/molecules/Card';
 import { TarjetaProducto } from '@components/molecules/TarjetaProducto';
 import { CambiarPrecioSheet } from '@components/organisms/CambiarPrecioSheet';
-import { FormularioProducto } from '@components/organisms/FormularioProducto';
+import { AccionesFormularioProducto, FormularioProducto } from '@components/organisms/FormularioProducto';
 import { PantallaPerfilSeccion } from '@components/organisms/PantallaPerfilSeccion';
 import { fechaLocal } from '@dominio/fecha';
 import type { Producto } from '@dominio/tipos';
@@ -41,6 +41,7 @@ export const PerfilProductosScreen = () => {
       subtitle="Lo que vendes y cuánto te deja cada uno"
       onBack={() => navigation.goBack()}
       testID="perfil-productos"
+      pie={formulario.abierto ? <AccionesFormularioProducto formulario={formulario} /> : undefined}
     >
       {formulario.abierto ? (
         <FormularioProducto formulario={formulario} />

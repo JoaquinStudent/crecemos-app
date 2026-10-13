@@ -27,10 +27,12 @@ export const desplazamientoParaVer = (medidas: {
   /** Abajo de la zona visible: el menor entre el teclado y el borde del scroll. */
   zonaAbajo: number;
   margen: number;
+  /** Margen de abajo si debe ser distinto (p. ej. para que se vean también los botones bajo el campo). */
+  margenAbajo?: number;
 }): number => {
-  const { campoArriba, campoAlto, zonaArriba, zonaAbajo, margen } = medidas;
+  const { campoArriba, campoAlto, zonaArriba, zonaAbajo, margen, margenAbajo = margen } = medidas;
   const campoAbajo = campoArriba + campoAlto;
-  const limite = zonaAbajo - margen;
+  const limite = zonaAbajo - margenAbajo;
   if (campoAbajo > limite) {
     // Si el campo es más alto que la zona, manda su borde de arriba (no se pierde el inicio).
     return Math.min(campoAbajo - limite, campoArriba - (zonaArriba + margen));
@@ -39,7 +41,10 @@ export const desplazamientoParaVer = (medidas: {
   return 0;
 };
 
-export const useScrollAlEnfocar = (scrollRef: React.RefObject<ScrollRef | null>) => {
+export const useScrollAlEnfocar = (
+  scrollRef: React.RefObject<ScrollRef | null>,
+  margenInferior: number = spacing.lg,
+) => {
   const teclado = useTecladoVisible();
   const tecladoRef = useRef<EstadoTeclado>(teclado);
   tecladoRef.current = teclado;
@@ -59,6 +64,7 @@ export const useScrollAlEnfocar = (scrollRef: React.RefObject<ScrollRef | null>)
           zonaArriba: zonaY,
           zonaAbajo: Math.min(tecladoArriba, zonaY + zonaAlto),
           margen: spacing.lg,
+          margenAbajo: margenInferior,
         });
         if (delta === 0) return;
         const y = Math.max(0, desplazado.current + delta);
@@ -66,7 +72,7 @@ export const useScrollAlEnfocar = (scrollRef: React.RefObject<ScrollRef | null>)
         scroll.scrollTo?.({ y, animated: false });
       });
     });
-  }, [scrollRef]);
+  }, [scrollRef, margenInferior]);
 
   // Al abrirse el teclado (o cambiar de alto) se revisa el campo que tenga el foco.
   useEffect(() => {
