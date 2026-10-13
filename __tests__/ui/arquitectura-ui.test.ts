@@ -42,6 +42,15 @@ describe('arquitectura de UI', () => {
     expect(culpables).toEqual([]);
   });
 
+  it('las pantallas del Perfil se mantienen chicas: la lógica vive en hooks y componentes', () => {
+    const pantallas = archivos(path.join(SRC, 'screens')).filter(f => /Perfil\w*Screen\.tsx$/.test(f));
+    expect(pantallas.length).toBeGreaterThanOrEqual(7);
+    const largas = pantallas
+      .filter(f => fs.readFileSync(f, 'utf8').split('\n').length > 250)
+      .map(f => path.relative(SRC, f));
+    expect(largas).toEqual([]);
+  });
+
   it('nada usa react-native-vector-icons', () => {
     const culpables = archivos(SRC).filter(f =>
       /react-native-vector-icons/.test(fs.readFileSync(f, 'utf8')),

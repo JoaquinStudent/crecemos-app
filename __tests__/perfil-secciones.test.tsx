@@ -103,3 +103,85 @@ describe('Mis productos', () => {
     expect(app.existe('cargar-ejemplo-perfil')).toBe(true);
   });
 });
+
+const FILAS = [
+  ['perfil-opcion-datos', 'Mis datos', 'perfil-datos'],
+  ['perfil-opcion-pagos', 'Cómo me pagan', 'perfil-pagos'],
+  ['perfil-opcion-recordatorio', 'Recordatorio diario', 'perfil-recordatorio'],
+  ['perfil-opcion-productos', 'Mis productos', 'perfil-productos'],
+  ['perfil-opcion-borrar', 'Borrar datos', 'perfil-borrar'],
+  ['perfil-opcion-ayuda', 'Ayuda', 'perfil-ayuda'],
+] as const;
+
+describe('Perfil: menú de opciones', () => {
+  it('muestra las seis opciones en orden, cada una como un botón con "<título>. <resumen>"', async () => {
+    const app = await montarApp();
+    await app.tocar('abrir-perfil');
+
+    expect(app.enOrden(FILAS.map(f => f[0] + '-titulo'))).toEqual(FILAS.map(f => f[0] + '-titulo'));
+    for (const [id, titulo] of FILAS) {
+      expect(app.textoDe(`${id}-titulo`)).toBe(titulo);
+      const props = app.propsDe(id);
+      expect(props.accessibilityRole).toBe('button');
+      expect(props.accessibilityLabel).toBe(`${titulo}. ${app.textoDe(`${id}-resumen`)}`);
+    }
+  });
+
+  it('los resúmenes salen de los datos reales', async () => {
+    const app = await montarApp();
+    await app.tocar('abrir-perfil');
+    expect(app.textoDe('perfil-opcion-datos-resumen')).toBe('Completa tus datos');
+    expect(app.textoDe('perfil-opcion-pagos-resumen')).toBe('Yape activado · sin número');
+    expect(app.textoDe('perfil-opcion-recordatorio-resumen')).toBe('Apagado');
+    expect(app.textoDe('perfil-opcion-productos-resumen')).toBe('Sin productos activos');
+    expect(app.textoDe('perfil-opcion-borrar-resumen')).toBe('No hay datos de ejemplo');
+    expect(app.textoDe('perfil-opcion-ayuda-resumen')).toBe('Ver el recorrido');
+  });
+
+  it('la pantalla principal no tiene formularios ni interruptores', async () => {
+    const app = await montarApp();
+    await app.tocar('abrir-perfil');
+
+    const nativos = (tipo: string) => app.buscar(n => (n.type as unknown) === tipo);
+    expect(nativos('TextInput')).toHaveLength(0);
+    expect(nativos('RCTSwitch').length + nativos('Switch').length).toBe(0);
+    expect(app.buscar(n => n.props.accessibilityRole === 'switch')).toHaveLength(0);
+    expect(app.existe('switch-acepta-yape')).toBe(false);
+    expect(app.existe('guardar-datos')).toBe(false);
+    expect(app.existe('agregar-producto')).toBe(false);
+  });
+
+  it.each(FILAS)('«%s» abre su pantalla y "Atrás" vuelve al Perfil', async (fila, titulo, pantalla) => {
+    const app = await montarApp();
+    await app.tocar('abrir-perfil');
+
+    await app.tocar(fila);
+    expect(app.existe(`${pantalla}-scroll`)).toBe(true);
+    expect(app.textoDe(`${pantalla}-titulo`)).toBe(titulo);
+
+    await app.tocar('seccion-atras');
+    expect(app.existe(`${pantalla}-scroll`)).toBe(false);
+    expect(app.existe('perfil-menu')).toBe(true);
+  });
+});
+
+describe('Cómo me pagan: el resumen sigue al interruptor', () => {
+  it('Yape activado / Solo efectivo', async () => {
+    const app = await montarApp();
+    await app.tocar('abrir-perfil');
+    await app.tocar('perfil-opcion-pagos');
+    await app.cambiarInterruptor('switch-acepta-yape', false);
+    await app.tocar('seccion-atras');
+    expect(app.textoDe('perfil-opcion-pagos-resumen')).toBe('Solo efectivo');
+  });
+});
+
+describe('Ayuda', () => {
+  it('explica en palabras simples qué hace la app y ofrece el recorrido', async () => {
+    const app = await montarApp();
+    await app.tocar('abrir-perfil');
+    await app.tocar('perfil-opcion-ayuda');
+    expect(app.textos()).toContain('¿Qué hace Crecemos?');
+    expect(app.existe('ver-recorrido')).toBe(true);
+  });
+});

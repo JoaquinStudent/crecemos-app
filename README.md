@@ -31,11 +31,12 @@ Freddy compra mercadería cada 2 días y razona por ciclos: "el primer día es p
 | Qué me deja cada uno          | Contrasta unidades vendidas y diferencia estimada por unidad (precio menos costo estimado).                                                      |
 | Simulador de precio           | Prueba "¿y si subo el precio?" y muestra la diferencia estimada, sin tocar tus datos.                                                            |
 | Mi cuota (meta de ahorro)     | Una alcancía con la cuota que quieres juntar y un aporte diario sugerido; cada aporte se anota y se suma.                                        |
-| Mis productos                 | Permite crear, renombrar, editar, desactivar y reactivar productos desde Perfil.                                                                  |
+| Perfil                        | Un menú limpio de seis opciones (Mis datos, Cómo me pagan, Recordatorio diario, Mis productos, Borrar datos y Ayuda), cada una con un resumen en vivo y su propia pantalla. La foto se cambia con el botón de cámara sobre el avatar: elegir de la galería, tomar foto o quitarla. |
+| Mis productos                 | Permite crear, renombrar, editar, desactivar y reactivar productos desde Perfil → Mis productos.                                                  |
 | Recomendaciones               | Seis reglas fijas (cobro, precio, cuánto preparar, cuánto retirar, día flojo, comparación con el ciclo anterior). Muestra las 2 más importantes. |
 | Mi reporte y pasaporte para la entidad financiera | Totales con venta y ganancia promedio mensual, una **cuota mensual de referencia** y una constancia de registro con código QR generado en el teléfono, en texto o en PDF. Es una referencia, no una aprobación ni una calificación: la entidad decide con su propio análisis, y el código no reemplaza su verificación. Se comparte solo si la persona lo decide. |
 | Asistente (Preguntarle a mis datos) | Pregunta con sus palabras ("¿qué día me va peor?"). **Funciona también sin internet**: el teléfono clasifica la pregunta y responde con las mismas frases fijas. Con internet, además, puede dar un semáforo. Ver [El asistente](#el-chat-preguntarle-a-mis-datos). |
-| Datos de ejemplo              | Se cargan y se **borran** desde Perfil, para probar la app sin registrar nada propio.                                                            |
+| Datos de ejemplo              | Se cargan y se **borran** desde Perfil → Borrar datos, para probar la app sin registrar nada propio.                                                            |
 
 La interfaz usa React Native Elements con un tema propio y las fuentes Inter (cuerpo y montos) y Outfit (títulos).
 
@@ -106,7 +107,7 @@ Para usar tu propio servidor, sigue los pasos de [`servidor/README.md`](servidor
 Una instalación nueva empieza con el catálogo vacío. Si la persona toca **«Cargar datos de ejemplo»**, la app descarga `seed/semilla.json` desde GitHub (unos 34 KB, 75 cierres de día en unos 90 días, con 4 productos). Su dirección está en `src/config.ts`.
 
 - Sin señal, abre vacía y ofrece reintentar la carga voluntaria. Nunca muestra un error técnico.
-- **Para volver a empezar la demostración:** Perfil → «Borrar datos de ejemplo» → «Cargar datos de ejemplo». Borrar quita solo lo marcado como ejemplo (días y productos); los datos propios, la meta «Mi cuota» y los yapes anotados no se tocan, y cargar el ejemplo no crea ni meta ni yapes.
+- **Para volver a empezar la demostración:** Perfil → «Borrar datos» → «Borrar datos de ejemplo» y, cuando no queda nada, «Cargar datos de ejemplo». Borrar quita solo lo marcado como ejemplo (días y productos); los datos propios, la meta «Mi cuota» y los yapes anotados no se tocan, y cargar el ejemplo no crea ni meta ni yapes.
 - No reemplaza productos ni cierres propios. Las instalaciones anteriores conservan su catálogo y sus importes históricos.
 - Las fechas se corren para que cada cierre caiga en el mismo día de la semana en que se pensó, sea cual sea el día en que se abre la app.
 - Se regenera con `npm run semilla`. Es determinista: el mismo comando da siempre los mismos bytes.
@@ -173,7 +174,7 @@ src/
   storage/      Repositorio sobre AsyncStorage (guarda en SQLite por dentro): escrituras en cola y versión del esquema.
   context/      Estado de la app: un solo proveedor.
   navigation/   Pestañas y pantallas apiladas.
-  screens/      Inicio, Cerrar mi día, Historial, Resumen, Qué me deja cada uno, Mi cuota, Perfil, Mi reporte, Asistente.
+  screens/      Inicio, Cerrar mi día, Historial, Resumen, Qué me deja cada uno, Mi cuota, Perfil (y sus seis pantallas: Mis datos, Cómo me pagan, Recordatorio diario, Mis productos, Borrar datos y Ayuda), Mi reporte, Asistente.
   hooks/        Derivados compartidos (ciclos), recordatorio, conteo animado y acciones seguras.
   components/   Átomos, moléculas y organismos reutilizables.
   services/     La red (seed.ts y jev.ts), la hoja de compartir, la foto y el PDF.
