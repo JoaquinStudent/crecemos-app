@@ -39,6 +39,7 @@ import { fechaLocal } from '@dominio/fecha';
 import type { Consulta, Semaforo } from '@dominio/tipos';
 import { useCrecemos } from '@context/CrecemosProvider';
 import { consultar, MAX_CARACTERES_PREGUNTA } from '@services/jev';
+import { useMedidasBarra } from '@hooks/useMedidasBarra';
 import type { TabsParamList } from '@navigation/Tabs';
 import { JEV_URL } from '../config';
 
@@ -69,6 +70,7 @@ export const PreguntarScreen = () => {
   const { cierres, productos, perfil } = useCrecemos();
   const navigation = useNavigation<BottomTabNavigationProp<TabsParamList, 'Asistente'>>();
   const route = useRoute<RouteProp<TabsParamList, 'Asistente'>>();
+  const { alturaTotal } = useMedidasBarra();
 
   const [mensajes, setMensajes] = useState<Mensaje[]>([]);
   const [texto, setTexto] = useState('');
@@ -184,7 +186,7 @@ export const PreguntarScreen = () => {
   };
 
   return (
-    <SafeAreaView style={styles.pantalla} edges={['top', 'bottom']} testID="preguntar-pantalla">
+    <SafeAreaView style={styles.pantalla} edges={['top']} testID="preguntar-pantalla">
       <KeyboardAvoidingView
         style={styles.pantalla}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -265,7 +267,8 @@ export const PreguntarScreen = () => {
         </ScrollView>
 
         {/* Las sugeridas, el campo y el botón viven FUERA del scroll, en un pie fijo: siempre a la mano. */}
-        <View style={styles.pie}>
+        {/* La barra es una capa encima: el pie se sube lo que ella ocupa (con su círculo). */}
+        <View style={[styles.pie, { paddingBottom: alturaTotal + spacing.sm }]}>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -336,7 +339,6 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.sm,
-    paddingBottom: spacing.sm,
     borderTopWidth: 1,
     borderTopColor: colors.border,
     backgroundColor: colors.background,

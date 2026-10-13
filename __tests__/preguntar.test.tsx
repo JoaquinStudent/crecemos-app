@@ -15,6 +15,7 @@ import { createAsyncStorage } from '@react-native-async-storage/async-storage';
 import { clearAllMockStorages } from '@react-native-async-storage/async-storage/jest';
 import App from '../App';
 import { colors } from '@theme';
+import { medidasBarra } from '@navigation/medidasBarra';
 import { PREGUNTAS_SUGERIDAS } from '@analisis/intenciones';
 import { materializarSemilla, validarSemilla } from '@dominio/semilla';
 import { importarSemilla } from '@storage/repositorio';
@@ -831,14 +832,15 @@ describe('Chat "Preguntarle a mis datos": los accesos', () => {
     expect(p.textosEn('tab-asistente')).toEqual(['Asistente']);
   });
 
-  it('sin botón flotante, el scroll de Inicio no deja espacio extra al final', async () => {
+  it('sin botón flotante, el scroll de Inicio deja solo el sitio de la barra al final', async () => {
     ponerRed({});
     await prepararDemostracion();
     const p = await montarApp();
 
     const scroll = p.app.root.findAll(n => esHost(n, 'RCTScrollView'))[0];
     const estilo = StyleSheet.flatten(scroll.props.contentContainerStyle);
-    expect(estilo.paddingBottom ?? estilo.padding).toBeLessThanOrEqual(24);
+    // La barra es una capa encima: el relleno es justo el de la barra (no un colchón de más).
+    expect(estilo.paddingBottom).toBe(medidasBarra(0).rellenoContenido);
     expect(p.existe('inicio-cerrar-dia-rapido')).toBe(true);
   });
 

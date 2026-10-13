@@ -4,7 +4,7 @@
 // y NO es una pestaña (abre el formulario encima de todo). Ningún ícono va solo: cada ranura lleva
 // su etiqueta de texto de 14 px o más (UX, regla 1) y todo lo tocable mide 48 dp o más (regla 10).
 import React from 'react';
-import { Platform, Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CommonActions } from '@react-navigation/native';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
@@ -16,26 +16,20 @@ import { PASOS, PasoGuia } from '@components/molecules/PasoGuia';
 import { Icon } from '@components/atoms/Icon';
 import { fechaLocal } from '@dominio/fecha';
 import { useCrecemos } from '@context/CrecemosProvider';
+import { useTecladoVisible } from '@hooks/useTecladoVisible';
+import {
+  AIRE_ETIQUETA,
+  ALTO_RANURA,
+  DIAMETRO_CENTRO,
+  rellenoInferior,
+  SALIENTE,
+} from '@navigation/medidasBarra';
 
-/** Diámetro del círculo central. */
-export const DIAMETRO_CENTRO = 64;
-/** Alto de las ranuras normales. */
-const ALTO_RANURA = 68;
-/** Alto de la línea de la etiqueta (14 px de fuente, 20 de interlínea). */
-const ALTO_ETIQUETA = 20;
-/** Aire entre la etiqueta y el borde inferior de la barra (todas las etiquetas comparten fila). */
-const AIRE_ETIQUETA = spacing.sm;
-/** Cuánto sobresale el círculo por encima de la barra: lo que la ranura central tiene de más. */
-const SALIENTE = DIAMETRO_CENTRO + spacing.xs + ALTO_ETIQUETA + AIRE_ETIQUETA - ALTO_RANURA;
+// Las medidas viven en @navigation/medidasBarra (las pantallas las leen con useMedidasBarra).
+export { DIAMETRO_CENTRO, rellenoInferior };
+
 /** La ranura central es un poco más ancha: "Cerrar día" cabe entera a 14 px en 360 dp. */
 const PESO_CENTRO = 1.2;
-
-/**
- * Relleno inferior de la barra: el inset del sistema (barra de gestos). En Android, además, nunca
- * menos de spacing.sm, aunque el sistema reporte 0, para que las etiquetas no toquen la píldora.
- */
-export const rellenoInferior = (insetInferior: number, os: string = Platform.OS) =>
-  os === 'android' ? Math.max(insetInferior, spacing.sm) : insetInferior;
 
 export const ETIQUETA_CERRAR = 'Cerrar día';
 export const ETIQUETA_CERRADO = 'Hoy ✓';
@@ -60,6 +54,9 @@ export const BarraNavegacion = ({ state, navigation }: BottomTabBarProps) => {
   const insets = useSafeAreaInsets();
   const { cierres } = useCrecemos();
   const hoyCerrado = cierres.some(c => c.fecha === fechaLocal(new Date()));
+  // Con el teclado abierto la barra se esconde: en Android con borde a borde el teclado se dibuja
+  // encima de la app y la barra (una capa absoluta) quedaría tapada o flotando sobre el formulario.
+  const teclado = useTecladoVisible();
 
   const irA = (nombre: string, clave: string) => {
     const evento = navigation.emit({ type: 'tabPress', target: clave, canPreventDefault: true });
@@ -117,8 +114,14 @@ export const BarraNavegacion = ({ state, navigation }: BottomTabBarProps) => {
   const [inicio, historial, resumen, asistente] = state.routes.map(r => r.key);
   const etiquetaCentro = hoyCerrado ? ETIQUETA_CERRADO : ETIQUETA_CERRAR;
 
+  if (teclado.visible) return null;
+
   return (
-    <View style={[styles.barra, { paddingBottom: rellenoInferior(insets.bottom) }]} testID="barra-navegacion">
+    <View
+      style={[styles.barra, { paddingBottom: rellenoInferior(insets.bottom) }]}
+      pointerEvents="box-none"
+      testID="barra-navegacion"
+    >
       <View style={styles.fondo} pointerEvents="none" />
       {pestana(inicio)}
       {pestana(historial)}
@@ -155,8 +158,19 @@ export const BarraNavegacion = ({ state, navigation }: BottomTabBarProps) => {
 };
 
 const styles = StyleSheet.create({
-  barra: { flexDirection: 'row', alignItems: 'flex-end', paddingHorizontal: spacing.xs },
-  // El fondo arranca por debajo del tope del círculo: el círculo "sobresale" de la barra.
+  // La barra es una CAPA sobre el contenido (absoluta, pegada abajo) y su propio fondo es
+  // transparente: la zona de arriba, donde solo sobresale el círculo, deja ver el contenido que
+  // sigue pasando por debajo. Las pantallas le dejan sitio con useMedidasBarra.
+  barra: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    paddingHorizontal: spacing.xs,
+  },
+  // El único fondo sólido: arranca por debajo del tope del círculo ("sobresale" de la barra).
   fondo: {
     position: 'absolute',
     left: 0,

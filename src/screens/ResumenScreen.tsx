@@ -28,6 +28,7 @@ import type { Ciclo, Producto, ResumenCiclo } from '@dominio/tipos';
 import { unidadSegunCantidad } from '@dominio/unidades';
 import { useCrecemos } from '@context/CrecemosProvider';
 import { useDerivados } from '@hooks/useDerivados';
+import { useMedidasBarra } from '@hooks/useMedidasBarra';
 import type { RootStackParamList } from '@navigation/RootStack';
 import type { TabsParamList } from '@navigation/Tabs';
 
@@ -51,11 +52,12 @@ export const ResumenScreen = () => {
   const { productos, cargando } = useCrecemos();
   const { cicloActual: actual, cicloAnterior: anterior, resumenActual, resumenAnterior } = useDerivados();
   const navigation = useNavigation<ResumenNavigation>();
+  const { rellenoContenido } = useMedidasBarra();
 
 
   return (
     <SafeAreaView style={styles.pantalla} edges={['top']}>
-      <ScrollView contentContainerStyle={styles.contenido}>
+      <ScrollView contentContainerStyle={[styles.contenido, { paddingBottom: rellenoContenido }]}>
         <Text variant="h1" accessibilityRole="header">
           Resumen
         </Text>

@@ -121,7 +121,11 @@ export const montarApp = async () => {
       .findAll(n => esHost(n, 'Text') && String(n.props.testID ?? '').startsWith('dia-titulo-'))
       .map(textoCompleto);
 
+  // Todos los nodos del árbol que cumplen el predicado.
+  const buscar = (predicado: (n: ReactTestInstance) => boolean) => app.root.findAll(predicado);
+
   return {
+    buscar,
     tocar,
     escribir,
     cambiarInterruptor,

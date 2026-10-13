@@ -67,6 +67,7 @@ import { useAccionSegura } from '@hooks/useAccionSegura';
 import { useDerivados } from '@hooks/useDerivados';
 import { useAhora } from '@hooks/useAhora';
 import { useConteo } from '@hooks/useConteo';
+import { useMedidasBarra } from '@hooks/useMedidasBarra';
 import { useRecordatorio } from '@hooks/useRecordatorio';
 import { useCrecemos, type EstadoSemilla } from '@context/CrecemosProvider';
 import { useRecorridoAutomatico } from '@context/RecorridoProvider';
@@ -96,6 +97,7 @@ export const InicioScreen = () => {
   const { cierres, productos, perfil, meta, cargando, error, semilla, cargarDatosDeEjemplo, marcarCobrado } =
     useCrecemos();
   const navigation = useNavigation<InicioNavigation>();
+  const { rellenoContenido } = useMedidasBarra();
   const ahora = useAhora();
   const hoy = fechaLocal(ahora);
   const [anotandoYape, setAnotandoYape] = useState(false);
@@ -132,7 +134,7 @@ export const InicioScreen = () => {
 
   return (
     <SafeAreaView style={styles.pantalla} edges={['top']}>
-      <ScrollGuiado contentContainerStyle={styles.contenido}>
+      <ScrollGuiado contentContainerStyle={[styles.contenido, { paddingBottom: rellenoContenido }]}>
         <View style={styles.encabezado}>
           <View style={styles.saludo}>
             <Text variant="h2" testID="inicio-saludo">

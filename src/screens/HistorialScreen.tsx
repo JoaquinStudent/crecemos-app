@@ -35,6 +35,7 @@ import { formatoSoles } from '@dominio/formato';
 import { armarHistorial, resumenDelMes } from '@dominio/historial';
 import type { Cierre, FiltroHistorial, GrupoDia, Movimiento } from '@dominio/tipos';
 import { useCrecemos } from '@context/CrecemosProvider';
+import { useMedidasBarra } from '@hooks/useMedidasBarra';
 import type { RootStackParamList } from '@navigation/RootStack';
 import type { TabsParamList } from '@navigation/Tabs';
 
@@ -80,6 +81,7 @@ export const tipoDe = (m: Movimiento): 'Ingreso' | 'Gasto' | 'Por cobrar' =>
 export const HistorialScreen = () => {
   const { cierres, cargando } = useCrecemos();
   const navigation = useNavigation<HistorialNavigation>();
+  const { rellenoContenido } = useMedidasBarra();
   const [filtro, setFiltro] = useState<FiltroHistorial>('todo');
   // La hoja conserva el día aunque se cierre (para que no se vacíe mientras baja).
   const [enHoja, setEnHoja] = useState<Cierre | null>(null);
@@ -149,7 +151,7 @@ export const HistorialScreen = () => {
           sections={secciones}
           stickySectionHeadersEnabled
           keyExtractor={item => item.id}
-          contentContainerStyle={styles.lista}
+          contentContainerStyle={{ paddingBottom: rellenoContenido }}
           testID="historial-lista"
           renderSectionHeader={({ section }) => (
             <View style={styles.diaEncabezado} testID={`dia-${section.cierreId}`}>
@@ -290,7 +292,6 @@ const styles = StyleSheet.create({
   },
   resumenTexto: { flex: 1 },
   resumenMonto: { flexDirection: 'row', alignItems: 'baseline', flexWrap: 'wrap', gap: spacing.sm },
-  lista: { paddingBottom: spacing.xl },
   // Fondo sólido: el encabezado queda fijo y las filas pasan por debajo.
   diaEncabezado: {
     flexDirection: 'row',
