@@ -335,6 +335,16 @@ describe('Historial', () => {
     expect(colorDe('dia-neto-c-2026-10-06')).toBe(colors.success);
   });
 
+  it('el encabezado de cada día centra el título y la píldora del neto en la misma línea', async () => {
+    await sembrarTresDias();
+    const { tocar, estiloDe } = await montarApp();
+    await tocar('tab-historial');
+
+    expect(estiloDe('dia-c-2026-10-06')).toMatchObject({ alignItems: 'center', flexDirection: 'row' });
+    expect(estiloDe('dia-c-2026-10-06').minHeight).toBeGreaterThanOrEqual(48);
+    expect(estiloDe('pastilla-neto-c-2026-10-06').alignSelf).toBe('center');
+  });
+
   it('arriba resume el mes: "Este mes · + S/ X ganados", sin contar otros meses', async () => {
     const hoy = fechaLocal(new Date());
     await sembrar(hoy, {

@@ -1,4 +1,5 @@
 /** Fase 4c: "Cuéntame tu día" llena el formulario para que se revise; nunca guarda ni sale a internet. */
+import { StyleSheet } from 'react-native';
 import { clearAllMockStorages } from '@react-native-async-storage/async-storage/jest';
 import { PRODUCTOS_POR_DEFECTO } from '@dominio/productosPorDefecto';
 import { guardarProducto, listarCierres } from '@storage/repositorio';
@@ -20,6 +21,17 @@ describe('Cerrar mi día: Cuéntame tu día', () => {
     await app.tocar('tab-cerrar-dia');
     return app;
   };
+
+  it('deja aire entre la pista del micrófono y el botón "Llenar mi cierre"', async () => {
+    const app = await abrir();
+    let nodo: ReturnType<typeof app.botonDe> | null = app.botonDe('cuentame-llenar');
+    let margen = 0;
+    while (nodo && margen === 0) {
+      margen = StyleSheet.flatten(nodo.props.style)?.marginTop ?? 0;
+      nodo = nodo.parent;
+    }
+    expect(margen).toBeGreaterThanOrEqual(8);
+  });
 
   it('muestra el campo, la pista con texto y un botón secundario con nombre', async () => {
     const app = await abrir();

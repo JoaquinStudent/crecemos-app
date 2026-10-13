@@ -48,7 +48,11 @@ export const MiMetaScreen = () => {
 
   return (
     <SafeAreaView style={styles.pantalla} edges={['top']}>
-      <ScrollView contentContainerStyle={styles.contenido} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        contentContainerStyle={[styles.contenido, formulario && styles.contenidoConTeclado]}
+        keyboardShouldPersistTaps="handled"
+        testID="meta-scroll"
+      >
         <ScreenHeader
           title="Mi cuota"
           subtitle="Junta de a poquito para llegar tranquilo al día de pago"
@@ -167,10 +171,7 @@ const VistaMeta = ({
         </Text>
       </Card>
 
-      <Card variant="bordered" testID="meta-hoy">
-        <Text variant="h3" accessibilityRole="header">
-          Hoy
-        </Text>
+      <Card variant="bordered" style={styles.centrado} testID="meta-hoy">
         <Text variant="bodyStrong" testID="meta-hoy-mensaje">
           {mensajeHoy}
         </Text>
@@ -306,7 +307,7 @@ const VistaMeta = ({
         ) : (
           <Button
             title="Borrar mi meta"
-            variant="ghost"
+            variant="dangerGhost"
             fullWidth
             onPress={() => setConfirmando(true)}
             testID="meta-borrar"
@@ -458,6 +459,8 @@ const FormularioMeta = ({ meta, alTerminar }: { meta: Meta | null; alTerminar: (
 const styles = StyleSheet.create({
   pantalla: { flex: 1, backgroundColor: colors.background },
   contenido: { padding: spacing.lg, gap: spacing.xl },
+  // Con el formulario abierto el teclado tapa el pie: este relleno deja subir "Guardar mi meta" por encima de él.
+  contenidoConTeclado: { paddingBottom: spacing.xxl * 10 },
   centrado: { alignItems: 'stretch', gap: spacing.md },
   bloque: { gap: spacing.md },
   aporte: {

@@ -3,7 +3,7 @@
  * y el aporte desde la pantalla de éxito de "Cerrar mi día". La app real, por testID.
  */
 import { createElement } from 'react';
-import { AccessibilityInfo } from 'react-native';
+import { AccessibilityInfo, StyleSheet } from 'react-native';
 import ReactTestRenderer, { act } from 'react-test-renderer';
 import { createAsyncStorage } from '@react-native-async-storage/async-storage';
 import { clearAllMockStorages } from '@react-native-async-storage/async-storage/jest';
@@ -11,6 +11,7 @@ import { CrecemosProvider, useCrecemos } from '@context/CrecemosProvider';
 import { nuevoCierre } from '@dominio/cierre';
 import { fechaLocal, restarDias } from '@dominio/fecha';
 import { Meta } from '@dominio/meta';
+import { colors } from '@theme';
 import { PRODUCTOS_POR_DEFECTO } from '@dominio/productosPorDefecto';
 import {
   borrarDatosDeEjemplo,
@@ -61,6 +62,47 @@ beforeEach(async () => {
 afterEach(async () => {
   jest.restoreAllMocks();
   await desmontarApp();
+});
+
+describe('Mi cuota: pulido de la pantalla', () => {
+  const estiloDeProps = (props: { style?: unknown }) => StyleSheet.flatten(props.style as never);
+
+  it('la tarjeta de hoy no repite el título "Hoy" y separa la frase de los botones', async () => {
+    await guardarMeta(metaGuardada());
+    const app = await montarApp();
+    await app.tocar('inicio-ver-meta');
+
+    expect(app.textos()).not.toContain('Hoy');
+    expect(app.textoDe('meta-hoy-mensaje')).toBe('Hoy separa S/ 20.00 y llegas a tiempo');
+    expect(estiloDeProps(app.propsDe('meta-hoy')).gap).toBeGreaterThanOrEqual(12);
+  });
+
+  it('"Borrar mi meta" va en rojo y "Cambiar monto o fecha" no', async () => {
+    await guardarMeta(metaGuardada());
+    const app = await montarApp();
+    await app.tocar('inicio-ver-meta');
+
+    const colorDelBoton = (testID: string) =>
+      app
+        .botonDe(testID)
+        .findAll(n => (n.type as unknown) === 'Text')
+        .map(n => estiloDeProps(n.props).color)[0];
+    expect(colorDelBoton('meta-borrar')).toBe(colors.danger);
+    expect(colorDelBoton('meta-editar')).not.toBe(colors.danger);
+  });
+
+  it('con el formulario abierto el scroll deja espacio para llegar a "Guardar mi meta" con el teclado', async () => {
+    const app = await montarApp();
+    await app.tocar('inicio-crear-meta');
+    expect(app.propsDe('meta-scroll').keyboardShouldPersistTaps).toBe('handled');
+    expect(estiloDeProps({ style: app.propsDe('meta-scroll').contentContainerStyle }).paddingBottom).toBeUndefined();
+    await app.tocar('meta-crear');
+
+    expect(app.existe('meta-guardar')).toBe(true);
+    expect(
+      estiloDeProps({ style: app.propsDe('meta-scroll').contentContainerStyle }).paddingBottom,
+    ).toBeGreaterThanOrEqual(300);
+  });
 });
 
 describe('Mi cuota: crear la meta', () => {

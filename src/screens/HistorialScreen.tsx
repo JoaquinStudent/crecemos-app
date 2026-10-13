@@ -165,6 +165,8 @@ export const HistorialScreen = () => {
               <Badge
                 label={conSigno(section.neto)}
                 tone={tonoDe(section.neto)}
+                style={styles.diaNeto}
+                testID={`pastilla-neto-${section.cierreId}`}
                 labelTestID={`dia-neto-${section.cierreId}`}
               />
             </View>
@@ -295,11 +297,14 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     gap: spacing.md,
-    minHeight: 44,
+    minHeight: 48,
+    paddingVertical: spacing.xs,
     paddingHorizontal: spacing.lg,
     backgroundColor: colors.surface,
   },
   diaTitulo: { flex: 1 },
+  // La píldora (alignSelf: flex-start por defecto) se centra con el título del día.
+  diaNeto: { alignSelf: 'center' },
   fila: {
     flexDirection: 'row',
     alignItems: 'center',

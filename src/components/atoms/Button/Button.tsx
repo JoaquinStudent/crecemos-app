@@ -19,7 +19,7 @@ import { Text } from '@components/atoms/Text';
 import { Icon, IconSize } from '@components/atoms/Icon';
 import { useMovimientoReducido } from '@hooks/useMovimientoReducido';
 
-export type ButtonVariant = 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger';
+export type ButtonVariant = 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger' | 'dangerGhost';
 export type ButtonSize = 'sm' | 'md' | 'lg';
 
 export interface ButtonProps extends Omit<PressableProps, 'children' | 'style'> {
@@ -68,6 +68,14 @@ const variants: Record<ButtonVariant, VariantTokens> = {
     bg: 'transparent',
     bgPressed: 'surface',
     fg: 'primary',
+    border: 'transparent',
+    filled: false,
+  },
+  // Acción destructiva que no es la principal de la pantalla: texto rojo, sin relleno.
+  dangerGhost: {
+    bg: 'transparent',
+    bgPressed: 'surface',
+    fg: 'danger',
     border: 'transparent',
     filled: false,
   },

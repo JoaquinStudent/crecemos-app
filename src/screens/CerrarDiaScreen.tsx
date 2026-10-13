@@ -420,6 +420,7 @@ export const CerrarDiaScreen = () => {
               title="Llenar mi cierre"
               variant="outline"
               fullWidth
+              style={styles.llenar}
               disabled={relato.trim() === ''}
               accessibilityLabel="Llenar mi cierre con lo que me contaste"
               onPress={llenarConRelato}
@@ -652,6 +653,7 @@ const styles = StyleSheet.create({
   bloque: { gap: spacing.md },
   tarjeta: { padding: spacing.md, gap: spacing.sm },
   relato: { minHeight: 96 },
+  llenar: { marginTop: spacing.sm },
   fila: { flexDirection: 'row', gap: spacing.md },
   columna: { flex: 1 },
   gasto: {

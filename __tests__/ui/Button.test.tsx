@@ -6,6 +6,20 @@ import { colors } from '@theme';
 import { contraste } from '../../testutils/contraste';
 import { desmontar, estilo, hostPorTestID, montar, texto, tocablePorTestID } from '../../testutils/componente';
 
+describe('Button dangerGhost', () => {
+  it('texto rojo legible sobre el fondo, sin relleno ni borde de color', async () => {
+    const r = await montar(<Button title="Borrar" variant="dangerGhost" testID="b" />);
+    const titulo = r.root.findAll(n => n.type === RNText && texto(n) === 'Borrar')[0];
+    expect(estilo(titulo).color).toBe(colors.danger);
+    expect(contraste(colors.danger, colors.background)).toBeGreaterThanOrEqual(4.5);
+    const rellenos = r.root.findAll(
+      n => typeof n.type === 'string' && estilo(n).backgroundColor === colors.danger,
+    );
+    expect(rellenos).toHaveLength(0);
+    await desmontar(r);
+  });
+});
+
 describe('Button (sobre RNE)', () => {
   it('conserva rol, label, testID y dispara onPress', async () => {
     const onPress = jest.fn();
