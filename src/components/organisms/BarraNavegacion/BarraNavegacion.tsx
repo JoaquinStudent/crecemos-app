@@ -4,7 +4,7 @@
 // y NO es una pestaña (abre el formulario encima de todo). Ningún ícono va solo: cada ranura lleva
 // su etiqueta de texto de 14 px o más (UX, regla 1) y todo lo tocable mide 48 dp o más (regla 10).
 import React from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CommonActions } from '@react-navigation/native';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
@@ -19,10 +19,23 @@ import { useCrecemos } from '@context/CrecemosProvider';
 
 /** Diámetro del círculo central. */
 export const DIAMETRO_CENTRO = 64;
-/** Cuánto sobresale el círculo por encima de la barra. */
-const SALIENTE = 24;
 /** Alto de las ranuras normales. */
 const ALTO_RANURA = 68;
+/** Alto de la línea de la etiqueta (14 px de fuente, 20 de interlínea). */
+const ALTO_ETIQUETA = 20;
+/** Aire entre la etiqueta y el borde inferior de la barra (todas las etiquetas comparten fila). */
+const AIRE_ETIQUETA = spacing.sm;
+/** Cuánto sobresale el círculo por encima de la barra: lo que la ranura central tiene de más. */
+const SALIENTE = DIAMETRO_CENTRO + spacing.xs + ALTO_ETIQUETA + AIRE_ETIQUETA - ALTO_RANURA;
+/** La ranura central es un poco más ancha: "Cerrar día" cabe entera a 14 px en 360 dp. */
+const PESO_CENTRO = 1.2;
+
+/**
+ * Relleno inferior de la barra: el inset del sistema (barra de gestos). En Android, además, nunca
+ * menos de spacing.sm, aunque el sistema reporte 0, para que las etiquetas no toquen la píldora.
+ */
+export const rellenoInferior = (insetInferior: number, os: string = Platform.OS) =>
+  os === 'android' ? Math.max(insetInferior, spacing.sm) : insetInferior;
 
 export const ETIQUETA_CERRAR = 'Cerrar día';
 export const ETIQUETA_CERRADO = 'Hoy ✓';
@@ -40,8 +53,8 @@ const RANURAS: Record<string, Ranura> = {
   Asistente: { etiqueta: 'Asistente', icono: Bot, testID: 'tab-asistente' },
 };
 
-/** Las etiquetas de la barra crecen poco con la fuente grande: cinco ranuras en 360 dp. */
-const ESCALA_MAXIMA = 1.2;
+/** Las etiquetas de la barra NO crecen con la fuente del sistema: cinco ranuras en 360 dp. */
+const ESCALA_MAXIMA = 1;
 
 export const BarraNavegacion = ({ state, navigation }: BottomTabBarProps) => {
   const insets = useSafeAreaInsets();
@@ -72,7 +85,7 @@ export const BarraNavegacion = ({ state, navigation }: BottomTabBarProps) => {
         accessibilityLabel={ranura.etiqueta}
         accessibilityState={{ selected: seleccionada }}
         onPress={() => irA(ruta.name, clave)}
-        style={styles.ranura}
+        style={[styles.ranura, ruta.name !== 'Asistente' && styles.ranuraSuelta]}
         testID={ranura.testID}
       >
         <Icon
@@ -105,11 +118,11 @@ export const BarraNavegacion = ({ state, navigation }: BottomTabBarProps) => {
   const etiquetaCentro = hoyCerrado ? ETIQUETA_CERRADO : ETIQUETA_CERRAR;
 
   return (
-    <View style={[styles.barra, { paddingBottom: insets.bottom }]} testID="barra-navegacion">
+    <View style={[styles.barra, { paddingBottom: rellenoInferior(insets.bottom) }]} testID="barra-navegacion">
       <View style={styles.fondo} pointerEvents="none" />
       {pestana(inicio)}
       {pestana(historial)}
-      <PasoGuia {...PASOS.cerrarDia} style={styles.guia}>
+      <PasoGuia {...PASOS.cerrarDia} style={styles.guiaCentro}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={hoyCerrado ? 'Hoy ya cerraste. Toca para editar tu día' : 'Cerrar día'}
@@ -142,7 +155,7 @@ export const BarraNavegacion = ({ state, navigation }: BottomTabBarProps) => {
 };
 
 const styles = StyleSheet.create({
-  barra: { flexDirection: 'row', alignItems: 'flex-end' },
+  barra: { flexDirection: 'row', alignItems: 'flex-end', paddingHorizontal: spacing.xs },
   // El fondo arranca por debajo del tope del círculo: el círculo "sobresale" de la barra.
   fondo: {
     position: 'absolute',
@@ -156,18 +169,24 @@ const styles = StyleSheet.create({
   },
   // El envoltorio del recorrido reparte el ancho igual que la ranura que envuelve.
   guia: { flex: 1 },
+  guiaCentro: { flex: PESO_CENTRO },
+  // Todas las ranuras anclan su contenido abajo con el mismo aire: la etiqueta de cada una cae en
+  // la misma fila, dentro de la barra y por encima del inset inferior.
   ranura: {
-    flex: 1,
     height: ALTO_RANURA,
     minHeight: size.touch,
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'flex-end',
+    paddingBottom: AIRE_ETIQUETA,
     gap: spacing.xxs,
   },
+  // Sin envoltorio del recorrido, la propia ranura reparte el ancho por igual.
+  ranuraSuelta: { flex: 1 },
+  // La central no es absoluta: está en la misma fila y solo su círculo sobresale hacia arriba.
   centro: {
-    flex: 1,
     alignItems: 'center',
-    paddingBottom: spacing.xs,
+    justifyContent: 'flex-end',
+    paddingBottom: AIRE_ETIQUETA,
     gap: spacing.xs,
   },
   circulo: {

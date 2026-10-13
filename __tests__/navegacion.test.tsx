@@ -12,6 +12,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { CrecemosProvider } from '@context/CrecemosProvider';
 import { TemaProvider } from '@components/organisms/TemaProvider';
 import { Tabs } from '@navigation/Tabs';
+import { rellenoInferior } from '@components/organisms/BarraNavegacion/BarraNavegacion';
 import { PRODUCTOS_POR_DEFECTO } from '@dominio/productosPorDefecto';
 import { guardarProducto, listarCierres } from '@storage/repositorio';
 import { desmontarApp, montarApp, textoCompleto } from '../testutils/app';
@@ -70,6 +71,44 @@ describe('BarraNavegacion', () => {
         .map(n => StyleSheet.flatten(n.props.style).fontSize);
       expect(texto.every(t => t >= 14)).toBe(true);
     }
+  });
+
+  it('las etiquetas no escalan con la fuente del sistema ni se truncan', async () => {
+    const app = await montarApp();
+    for (const testID of ['tab-inicio', 'tab-historial', 'tab-resumen', 'tab-asistente', 'tab-cerrar-dia']) {
+      const textos = app
+        .botonDe(testID)
+        .findAll(n => (n.type as unknown) === 'Text' && n.props.numberOfLines === 1);
+      expect(textos.length).toBeGreaterThan(0);
+      for (const t of textos) {
+        expect(t.props.maxFontSizeMultiplier).toBe(1);
+        expect(StyleSheet.flatten(t.props.style).fontSize).toBe(14);
+      }
+    }
+  });
+
+  it('la etiqueta central comparte fila con las demás: ninguna ranura es absoluta y todas anclan abajo', async () => {
+    const app = await montarApp();
+    const estilos = ['tab-inicio', 'tab-historial', 'tab-resumen', 'tab-asistente', 'tab-cerrar-dia'].map(
+      id => StyleSheet.flatten(app.botonDe(id).props.style),
+    );
+    for (const e of estilos) {
+      expect(e.position).toBeUndefined();
+      expect(e.justifyContent).toBe('flex-end');
+    }
+    // Mismo aire bajo la etiqueta en todas: la etiqueta cae en la misma fila.
+    expect(new Set(estilos.map(e => e.paddingBottom)).size).toBe(1);
+    const etiqueta = app
+      .botonDe('tab-cerrar-dia')
+      .findAll(n => n.props.testID === 'tab-cerrar-dia-etiqueta' && typeof n.type === 'string')[0];
+    expect(StyleSheet.flatten(etiqueta.props.style).position).toBeUndefined();
+  });
+
+  it('el relleno inferior respeta el inset y, en Android, nunca baja de spacing.sm', () => {
+    expect(rellenoInferior(34, 'android')).toBe(34);
+    expect(rellenoInferior(0, 'android')).toBe(8);
+    expect(rellenoInferior(34, 'ios')).toBe(34);
+    expect(rellenoInferior(0, 'ios')).toBe(0);
   });
 
   it('tocar Asistente abre el chat como pestaña: sin "Atrás" y sin botón flotante', async () => {
