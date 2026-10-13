@@ -7,7 +7,7 @@ import { Pressable, ScrollView, StatusBar, StyleSheet, View } from 'react-native
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { ChevronLeft, Clock, TriangleAlert, UserRound, Wallet, BellRing } from 'lucide-react-native';
+import { ChevronLeft, UserRound, Wallet, BellRing, Package } from 'lucide-react-native';
 import { colors, radius, spacing } from '@theme';
 import { Text } from '@components/atoms/Text';
 import { mensajeBorrarEjemplo } from '@dominio/origen';
@@ -15,38 +15,18 @@ import { MensajeError } from '@components/atoms/MensajeError';
 import { useAccionSegura } from '@hooks/useAccionSegura';
 import { Button } from '@components/atoms/Button';
 import { Icon } from '@components/atoms/Icon';
-import { Input } from '@components/atoms/Input';
 import { AvatarPerfil } from '@components/molecules/AvatarPerfil';
-import { Callout } from '@components/molecules/Callout';
-import { Card } from '@components/molecules/Card';
 import { OpcionPerfil } from '@components/molecules/OpcionPerfil';
-import { resumenDatos, resumenPagos, resumenRecordatorio } from '@dominio/perfilResumen';
-import { CambiarPrecioSheet } from '@components/organisms/CambiarPrecioSheet';
-import { fechaLocal } from '@dominio/fecha';
-import { formatoFechaCorta, formatoSoles } from '@dominio/formato';
+import { resumenDatos, resumenPagos, resumenProductos, resumenRecordatorio } from '@dominio/perfilResumen';
 import { avatarDe } from '@dominio/foto';
-import { requiereRevision, teDeja } from '@dominio/producto';
-import { singularUnidad } from '@dominio/unidades';
-import type { DatosProducto } from '@dominio/validacion';
-import type { Producto } from '@dominio/tipos';
 import { useRecorrido } from '@context/RecorridoProvider';
 import { useCrecemos } from '@context/CrecemosProvider';
 import { elegirFoto, mensajeFoto } from '@services/foto';
 import type { RootStackParamList } from '@navigation/RootStack';
 
 export const PerfilScreen = () => {
-  const { perfil, productos, guardarFoto, quitarFoto, crearProducto, editarProducto, establecerProductoActivo, cargarDatosDeEjemplo, semilla, datosDeEjemplo, borrarDatosDeEjemplo } = useCrecemos();
+  const { perfil, productos, guardarFoto, quitarFoto, datosDeEjemplo, borrarDatosDeEjemplo } = useCrecemos();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList, 'Perfil'>>();
-  const [enHoja, setEnHoja] = useState<Producto | null>(null);
-  const [hojaVisible, setHojaVisible] = useState(false);
-  const [productoEditado, setProductoEditado] = useState<Producto | null>(null);
-  const [formularioProducto, setFormularioProducto] = useState<DatosProducto | null>(null);
-  const [precioTexto, setPrecioTexto] = useState('');
-  const [costoTexto, setCostoTexto] = useState('');
-  const [erroresProducto, setErroresProducto] = useState<Record<string, string>>({});
-
-  const hoy = fechaLocal(new Date());
-
   // El encabezado de Perfil es magenta: con íconos oscuros la barra de estado no se lee. Mientras
   // esta pantalla está al frente se pide el estilo claro; al salir se restaura el oscuro de la app.
   useFocusEffect(
@@ -61,8 +41,6 @@ export const PerfilScreen = () => {
     await quitarFoto();
     setConfirmandoQuitar(false);
   }, 'No pudimos quitar tu foto. Inténtalo otra vez.');
-  // Guardar o editar un producto y activarlo o desactivarlo comparten el aviso de la sección.
-  const productoSeguro = useAccionSegura((tarea: () => Promise<void>) => tarea());
   // Borrar lo de ejemplo pide confirmar diciendo cuántos días se van (UX, regla 8).
   const [confirmandoBorrarEjemplo, setConfirmandoBorrarEjemplo] = useState(false);
   const borrarEjemploSeguro = useAccionSegura(async () => {
@@ -76,10 +54,6 @@ export const PerfilScreen = () => {
     navigation.navigate('Tabs', { screen: 'Inicio' });
   }, 'No pudimos abrir el recorrido. Inténtalo otra vez.');
   const hayEjemplo = datosDeEjemplo.dias > 0 || datosDeEjemplo.productos > 0;
-  const ejemploSeguro = useAccionSegura(
-    () => cargarDatosDeEjemplo(),
-    'No pudimos cargar los datos de ejemplo. Inténtalo otra vez.',
-  );
 
   // Foto de perfil: se guarda al elegirla. Los botones dependen de si ya hay una foto válida.
   const hayFoto = avatarDe(perfil).tipo === 'foto';
@@ -123,40 +97,6 @@ export const PerfilScreen = () => {
     setErrorFoto(null);
     setCambiandoFoto(false);
     setConfirmandoQuitar(true);
-  };
-
-  const abrirHoja = (producto: Producto) => {
-    setEnHoja(producto);
-    setHojaVisible(true);
-  };
-
-  const abrirFormularioProducto = (producto?: Producto) => {
-    productoSeguro.limpiarError();
-    setProductoEditado(producto ?? null);
-    setFormularioProducto(producto
-      ? { nombre: producto.nombre, unidad: producto.unidad, precioVenta: producto.precioVenta, costoUnitario: producto.costoUnitario }
-      : { nombre: '', unidad: 'unidad', precioVenta: 0, costoUnitario: 0 });
-    setErroresProducto({});
-    setPrecioTexto(producto ? String(producto.precioVenta) : '');
-    setCostoTexto(producto ? String(producto.costoUnitario) : '');
-  };
-
-  const guardarFormularioProducto = async () => {
-    if (!formularioProducto) return;
-    const datos = {
-      ...formularioProducto,
-      precioVenta: precioTexto.trim() ? Number(precioTexto.replace(',', '.')) : NaN,
-      costoUnitario: costoTexto.trim() ? Number(costoTexto.replace(',', '.')) : NaN,
-    };
-    const resultado = productoEditado
-      ? await editarProducto(productoEditado.id, datos)
-      : await crearProducto(datos);
-    if (!resultado.ok) {
-      setErroresProducto(resultado.errores);
-      return;
-    }
-    setFormularioProducto(null);
-    setProductoEditado(null);
   };
 
   return (
@@ -312,51 +252,16 @@ export const PerfilScreen = () => {
               title="Recordatorio diario"
               summary={resumenRecordatorio(perfil)}
               onPress={() => navigation.navigate('PerfilRecordatorio')}
-              divider={false}
               testID="perfil-opcion-recordatorio"
             />
-          </View>
-
-          <View style={styles.seccion}>
-            <View>
-              <Text variant="h3">Mis productos</Text>
-              <Text variant="caption" color="textMuted">
-                Lo que te deja cada producto es su precio de venta menos tu costo estimado.
-              </Text>
-            </View>
-            <Button title="Agregar producto" variant="outline" onPress={() => abrirFormularioProducto()} testID="agregar-producto" />
-            {productos.length === 0 ? (
-              <Card variant="bordered" style={styles.tarjetaProducto}>
-                <Text>Agrega lo que vendes para registrar tu día.</Text>
-                <Button title="Cargar datos de ejemplo" variant="ghost" onPress={() => ejemploSeguro.ejecutar()} disabled={semilla === 'cargando' || ejemploSeguro.ejecutando} testID="cargar-ejemplo-perfil" />
-                <MensajeError mensaje={ejemploSeguro.mensajeError} testID="error-cargar-ejemplo" />
-              </Card>
-            ) : null}
-            {formularioProducto ? (
-              <Card variant="bordered" style={styles.tarjetaProducto} testID="formulario-producto">
-                <Text variant="h3">{productoEditado ? 'Editar producto' : 'Nuevo producto'}</Text>
-                <Input label="Nombre" value={formularioProducto.nombre} onChangeText={nombre => setFormularioProducto({ ...formularioProducto, nombre })} error={erroresProducto.nombre} testID="producto-nombre" />
-                <Input label="Unidad de venta" value={formularioProducto.unidad} onChangeText={unidad => setFormularioProducto({ ...formularioProducto, unidad })} error={erroresProducto.unidad} testID="producto-unidad" />
-                <Input label="Precio de venta" value={precioTexto} onChangeText={setPrecioTexto} error={erroresProducto.precioVenta} keyboardType="decimal-pad" testID="producto-precio" />
-                <Input label="Costo estimado" value={costoTexto} onChangeText={setCostoTexto} error={erroresProducto.costoUnitario} keyboardType="decimal-pad" testID="producto-costo" />
-                <MensajeError mensaje={productoSeguro.mensajeError} testID="error-guardar-producto" />
-                <Button title="Guardar producto" onPress={() => productoSeguro.ejecutar(guardarFormularioProducto)} testID="guardar-producto" />
-                <Button title="Cancelar" variant="ghost" onPress={() => setFormularioProducto(null)} testID="cancelar-producto" />
-              </Card>
-            ) : null}
-            {formularioProducto ? null : (
-              <MensajeError mensaje={productoSeguro.mensajeError} testID="error-producto-seccion" />
-            )}
-            {productos.map(p => (
-                <TarjetaProducto
-                  key={p.id}
-                  producto={p}
-                  hoy={hoy}
-                  onCambiarPrecio={() => abrirHoja(p)}
-                  onEditar={() => abrirFormularioProducto(p)}
-                  onActivo={() => productoSeguro.ejecutar(() => establecerProductoActivo(p.id, !p.activo))}
-                />
-              ))}
+            <OpcionPerfil
+              icon={Package}
+              title="Mis productos"
+              summary={resumenProductos(productos)}
+              onPress={() => navigation.navigate('PerfilProductos')}
+              divider={false}
+              testID="perfil-opcion-productos"
+            />
           </View>
 
           {hayEjemplo ? (
@@ -424,101 +329,9 @@ export const PerfilScreen = () => {
           </View>
         </View>
       </ScrollView>
-
-      <CambiarPrecioSheet
-        producto={enHoja}
-        visible={hojaVisible}
-        onClose={() => setHojaVisible(false)}
-      />
     </View>
   );
 };
-
-const TarjetaProducto = ({
-  producto,
-  hoy,
-  onCambiarPrecio,
-  onEditar,
-  onActivo,
-}: {
-  producto: Producto;
-  hoy: string;
-  onCambiarPrecio: () => void;
-  onEditar: () => void;
-  onActivo: () => void;
-}) => {
-  const deja = teDeja(producto);
-  const revision = requiereRevision(producto, hoy);
-  return (
-    <Card
-      variant="bordered"
-      style={styles.tarjetaProducto}
-      wrapperStyle={styles.contenidoProducto}
-      testID={`producto-${producto.id}`}
-    >
-      <View style={styles.filaProducto}>
-        <Text
-          variant="bodyStrong"
-          numberOfLines={2}
-          style={styles.nombreProducto}
-          testID={`producto-nombre-${producto.id}`}
-        >
-          {producto.nombre}
-        </Text>
-        <Text variant="h3" numberOfLines={1} style={styles.precioProducto}>
-          {formatoSoles(producto.precioVenta)}
-        </Text>
-      </View>
-      {!producto.activo ? <Text color="textMuted">Inactivo</Text> : null}
-      <Text variant="bodySmall" color="textMuted">
-        Costo {formatoSoles(producto.costoUnitario)} ·{' '}
-        <Text variant="bodySmall" color={deja.monto < 0 ? 'danger' : 'success'}>
-          Te deja {formatoSoles(deja.monto)} por {singularUnidad(producto.unidad)}
-        </Text>
-      </Text>
-      <View style={styles.actualizado}>
-        <Icon icon={Clock} size="sm" color="textMuted" />
-        <Text variant="caption" color="textMuted" style={styles.actualizadoTexto}>
-          Precio actualizado el {formatoFechaCorta(producto.actualizadoEn)}
-        </Text>
-      </View>
-      {/* Tres botones con texto no caben en una fila a 360 dp: "Cambiar precio" va a todo el ancho y
-          los otros dos se reparten la fila de abajo, alineados y sin sangría. */}
-      <View style={styles.accionesProducto} testID={`acciones-producto-${producto.id}`}>
-        <Button
-          title="Cambiar precio"
-          variant="ghost"
-          fullWidth
-          onPress={onCambiarPrecio}
-          accessibilityLabel={`Cambiar precio de ${producto.nombre}`}
-          testID={`cambiar-precio-${producto.id}`}
-        />
-        <View style={styles.accionesSecundarias}>
-          <Button
-            title="Editar"
-            variant="ghost"
-            style={styles.accionIgual}
-            onPress={onEditar}
-            testID={`editar-producto-${producto.id}`}
-          />
-          <Button
-            title={producto.activo ? 'Desactivar' : 'Reactivar'}
-            variant="ghost"
-            style={styles.accionIgual}
-            onPress={onActivo}
-            testID={`activo-producto-${producto.id}`}
-          />
-        </View>
-      </View>
-      {revision.revisar ? (
-        <Callout icon={TriangleAlert} style={styles.aviso} testID={`aviso-precio-${producto.id}`}>
-          {revision.mensaje}
-        </Callout>
-      ) : null}
-    </Card>
-  );
-};
-
 const styles = StyleSheet.create({
   pantalla: { flex: 1, backgroundColor: colors.background },
   scroll: { paddingBottom: spacing.xxl },
@@ -574,19 +387,4 @@ const styles = StyleSheet.create({
   panelPermiso: { paddingVertical: spacing.md, gap: spacing.sm },
   // Padding propio de la tarjeta (spacing.md) y nada más; el aire entre líneas va en el contenedor interno.
   tarjetaProducto: { backgroundColor: colors.background, padding: spacing.md },
-  contenidoProducto: { gap: spacing.xs },
-  filaProducto: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: spacing.sm,
-  },
-  nombreProducto: { flex: 1 },
-  precioProducto: { flexShrink: 0 },
-  accionesProducto: { gap: spacing.sm },
-  accionesSecundarias: { flexDirection: 'row', gap: spacing.sm },
-  accionIgual: { flex: 1, alignSelf: 'stretch', minHeight: 48 },
-  actualizado: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
-  actualizadoTexto: { flex: 1 },
-  aviso: { marginTop: spacing.sm },
 });

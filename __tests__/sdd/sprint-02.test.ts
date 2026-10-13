@@ -250,9 +250,11 @@ describe('SPEC-02: Perfil y productos con precio vigente', () => {
 
     // Desde Inicio al Perfil, y ahí, el precio del anticucho a S/ 11.00.
     await tocar('abrir-perfil');
+    await tocar('perfil-opcion-productos');
     await tocar('cambiar-precio-p-anticucho');
     await escribir('precio-input', '11');
     await tocar('guardar-precio');
+    await tocar('seccion-atras');
     await tocar('perfil-atras');
 
     // Hoy: 10 anticuchos preparados, ninguno sobrante; la pantalla ya muestra el precio nuevo.

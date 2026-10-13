@@ -169,6 +169,7 @@ describe('Perfil y hoja "Cambiar precio"', () => {
 
     const { tocar, existe, textos } = await montarApp();
     await tocar('abrir-perfil');
+    await tocar('perfil-opcion-productos');
 
     expect(existe('aviso-precio-p-anticucho')).toBe(true);
     expect(textos().some(t => t.startsWith('No cambias este precio desde hace 3 meses'))).toBe(
@@ -182,6 +183,7 @@ describe('Perfil y hoja "Cambiar precio"', () => {
   it('cada producto muestra lo que cuesta y lo que deja, en soles y sin porcentaje', async () => {
     const { tocar, textos } = await montarApp();
     await tocar('abrir-perfil');
+    await tocar('perfil-opcion-productos');
 
     // Anticucho: S/ 10.00 − S/ 8.20 = S/ 1.80 por porción.
     expect(textos()).toContain('Costo S/ 8.20 · Te deja S/ 1.80 por porción');
@@ -195,6 +197,7 @@ describe('Perfil y hoja "Cambiar precio"', () => {
   it('un precio de cero muestra el error al pie del campo y no guarda', async () => {
     const { tocar, escribir, existe, textos } = await montarApp();
     await tocar('abrir-perfil');
+    await tocar('perfil-opcion-productos');
 
     await tocar('cambiar-precio-p-anticucho');
     await escribir('precio-input', '0');
@@ -210,6 +213,7 @@ describe('Perfil y hoja "Cambiar precio"', () => {
   it('la hoja trae los valores actuales, el aviso y el resultado en vivo', async () => {
     const { tocar, escribir, textos, existe } = await montarApp();
     await tocar('abrir-perfil');
+    await tocar('perfil-opcion-productos');
     await tocar('cambiar-precio-p-anticucho');
 
     expect(textos()).toContain('Precio actual: S/ 10.00 desde el 15 de julio');
@@ -231,6 +235,7 @@ describe('Perfil y hoja "Cambiar precio"', () => {
   it('guardar un precio nuevo cierra la hoja y la tarjeta muestra el precio y la fecha de hoy', async () => {
     const { tocar, escribir, existe, textos } = await montarApp();
     await tocar('abrir-perfil');
+    await tocar('perfil-opcion-productos');
     await tocar('cambiar-precio-p-anticucho');
     await escribir('precio-input', '11');
 
@@ -276,6 +281,7 @@ describe('Perfil y hoja "Cambiar precio"', () => {
   it('las acciones del producto van compactas: filas separadas por spacing.sm, botones de 48 y sin márgenes sueltos', async () => {
     const { tocar, estiloDeVista } = await montarApp();
     await tocar('abrir-perfil');
+    await tocar('perfil-opcion-productos');
     const id = PRODUCTOS_POR_DEFECTO[0].id;
     const acciones = estiloDeVista(`acciones-producto-${id}`);
     expect(acciones.gap).toBe(spacing.sm);

@@ -117,6 +117,7 @@ describe('desbordes a 360 dp', () => {
     await sembrarCiclo();
     const app = await montarApp();
     await app.tocar('abrir-perfil');
+    await app.tocar('perfil-opcion-productos');
 
     const nombre = app.estiloTextoDe('producto-nombre-p-anticucho');
     expect(nombre.flex).toBe(1);
@@ -133,6 +134,7 @@ describe('desbordes a 360 dp', () => {
     await sembrarCiclo();
     const app = await montarApp();
     await app.tocar('abrir-perfil');
+    await app.tocar('perfil-opcion-productos');
     await app.tocar('editar-producto-p-anticucho');
     await app.escribir('producto-unidad', 'palito');
 

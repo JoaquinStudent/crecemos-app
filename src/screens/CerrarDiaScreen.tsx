@@ -475,8 +475,8 @@ export const CerrarDiaScreen = () => {
             <Text variant="h3">¿Cuánto preparaste y cuánto te sobró?</Text>
             {activos.length === 0 ? (
               <Card style={styles.tarjeta}>
-                <Text>Agrega un producto activo en Perfil para registrar lo que vendes.</Text>
-                <Button title="Ir a mis productos" variant="outline" onPress={() => navigation.navigate('Perfil')} testID="cerrar-agregar-producto" />
+                <Text>Agrega un producto activo para registrar lo que vendes.</Text>
+                <Button title="Ir a mis productos" variant="outline" onPress={() => navigation.navigate('PerfilProductos')} testID="cerrar-agregar-producto" />
               </Card>
             ) : null}
             {activos.map(p => (
