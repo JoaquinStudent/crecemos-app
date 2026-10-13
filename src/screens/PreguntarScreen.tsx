@@ -50,8 +50,8 @@ const TEXTO_INVITACION =
 /** Cuando no se entendió la pregunta: dice con qué sí puede ayudar y manda a las sugeridas. */
 const TEXTO_NO_ENTENDI =
   'No entendí la pregunta. Puedo ayudarte con tus ventas, cobros pendientes y productos. Prueba con una de estas:';
-/** Ancho fijo del botón: no salta cuando la etiqueta cambia entre "Preguntar" y "Pensando…". */
-const ANCHO_BOTON = 140;
+/** Ancho mínimo del botón: cabe "Pensando…", así no salta cuando la etiqueta cambia entre estados. */
+const ANCHO_MINIMO_BOTON = 124;
 
 /** Una burbuja del historial. */
 interface Mensaje {
@@ -288,7 +288,7 @@ export const PreguntarScreen = () => {
           <View style={styles.filaCampo}>
             <Input
               containerStyle={styles.campo}
-              placeholder="Escribe tu pregunta"
+              placeholder="Tu pregunta"
               accessibilityLabel="Tu pregunta"
               value={texto}
               onChangeText={setTexto}
@@ -323,8 +323,9 @@ const styles = StyleSheet.create({
     padding: spacing.md,
   },
   privacidadTexto: { flex: 1 },
-  avisoCorto: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  avisoCortoTexto: { flex: 1 },
+  // Con fuente grande el enlace "Ver aviso" baja a su propia línea en vez de apretar el texto.
+  avisoCorto: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
+  avisoCortoTexto: { flexGrow: 1, flexShrink: 1 },
   alternarAviso: { minHeight: 48, minWidth: 48, justifyContent: 'center', alignItems: 'center' },
   chat: { flex: 1 },
   conversacion: { padding: spacing.lg, gap: spacing.md },
@@ -341,6 +342,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   filaCampo: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  campo: { flex: 1 },
-  enviar: { width: ANCHO_BOTON },
+  // El campo toma lo que sobra (nunca 50/50); el botón mide lo que su texto, con un mínimo fijo.
+  campo: { flex: 1, minWidth: 0 },
+  enviar: { minWidth: ANCHO_MINIMO_BOTON, flexShrink: 0 },
 });

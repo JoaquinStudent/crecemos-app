@@ -68,6 +68,15 @@ describe('desbordes a 360 dp', () => {
     expect(app.estiloTextoDe('resumen-ganancia').flexShrink).toBe(1);
   });
 
+  it('Resumen: "Ciclo actual" y su rango de fechas se parten en vez de recortarse', async () => {
+    await sembrarCiclo();
+    const app = await montarApp();
+    await app.tocar('tab-resumen');
+
+    expect(app.estiloDe('resumen-ciclo-fila')).toMatchObject({ flexDirection: 'row', flexWrap: 'wrap' });
+    expect(app.estiloTextoDe('resumen-rango').flexShrink).toBe(1);
+  });
+
   it('Qué me deja cada uno: la etiqueta va arriba a todo el ancho y no hay anchos fijos', async () => {
     await sembrarCiclo();
     const app = await montarApp();

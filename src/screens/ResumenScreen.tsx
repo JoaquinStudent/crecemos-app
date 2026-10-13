@@ -140,11 +140,11 @@ const CicloActual = ({
   return (
     <>
       <Card>
-        <View style={styles.filaEntre}>
+        <View style={styles.filaCiclo} testID="resumen-ciclo-fila">
           <Text variant="label" color="textMuted">
             Ciclo actual
           </Text>
-          <Text variant="label" color="textMuted" testID="resumen-rango">
+          <Text variant="label" color="textMuted" style={styles.rango} testID="resumen-rango">
             {rango(ciclo)}
           </Text>
         </View>
@@ -321,12 +321,15 @@ const styles = StyleSheet.create({
   comparacionTextos: { flex: 1 },
   separado: { marginTop: spacing.md },
   separadoChico: { marginTop: spacing.sm },
-  filaEntre: {
+  // El rango de fechas baja a otra línea (o se parte) en vez de recortarse con fuente grande.
+  filaCiclo: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'space-between',
     alignItems: 'center',
-    gap: spacing.md,
+    columnGap: spacing.sm,
   },
+  rango: { flexShrink: 1 },
   filaCapital: {
     flexDirection: 'row',
     flexWrap: 'wrap',

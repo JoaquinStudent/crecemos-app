@@ -647,11 +647,11 @@ describe('Chat "Preguntarle a mis datos": encabezado compacto, aviso plegado y s
       const boton = p.app.root.findAll(
         n => n.props.testID === 'preguntar-enviar' && esHost(n, 'View'),
       )[0];
-      // El ancho vive en el contenedor animado que envuelve al botón.
+      // El ancho mínimo vive en el contenedor animado que envuelve al botón.
       let nodo: ReactTestInstance | null = boton;
       while (nodo) {
         const estilo = StyleSheet.flatten(nodo.props.style);
-        if (estilo && typeof estilo === 'object' && 'width' in estilo) return estilo.width;
+        if (estilo && typeof estilo === 'object' && 'minWidth' in estilo) return estilo.minWidth;
         nodo = nodo.parent;
       }
       return undefined;
@@ -667,6 +667,20 @@ describe('Chat "Preguntarle a mis datos": encabezado compacto, aviso plegado y s
       soltar(respuestaJson(interpretacion('ventaDelDia', 'ayer')));
       await pendiente;
     });
+  });
+
+  it('el campo toma el ancho que sobra, con un texto corto, y el aviso puede partirse', async () => {
+    const p = await montarApp();
+    await p.abrirDesdeInicio();
+
+    const campo = p.app.root.findAll(n => esHost(n, 'TextInput') && n.props.testID === 'preguntar-campo')[0];
+    expect(campo.props.placeholder).toBe('Tu pregunta');
+    const contenedor = p.app.root.findAll(
+      n => typeof n.type !== 'string' && StyleSheet.flatten(n.props.style)?.minWidth === 0,
+    );
+    expect(contenedor.length).toBeGreaterThan(0);
+    const aviso = p.app.root.findAll(n => esHost(n, 'View') && n.props.testID === 'preguntar-aviso-compacto')[0];
+    expect(StyleSheet.flatten(aviso.props.style)).toMatchObject({ flexWrap: 'wrap' });
   });
 
   it('un 429 muestra una burbuja de aviso: "Hay muchas preguntas ahora. Prueba en un minuto."', async () => {
