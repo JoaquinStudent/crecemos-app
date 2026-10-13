@@ -104,7 +104,10 @@ const montarApp = async () => {
       .findAll(n => esHost(n, 'View') && String(n.props.testID ?? '').startsWith(prefijo))
       .map(n => String(n.props.testID));
 
+  const buscar = (p: (n: ReactTestInstance) => boolean) => app.root.findAll(p);
+
   return {
+    buscar,
     tocar,
     existe,
     textos,
@@ -263,11 +266,18 @@ describe('Inicio: saludo', () => {
     expect(textoDe('inicio-saludo')).toBe('Hola');
   });
 
-  it('el avatar "Mi perfil" sigue ahí, con su etiqueta de texto', async () => {
-    const { existe, textos } = await montarApp();
+  it('el avatar no lleva el rótulo "Mi perfil" a la vista (excepción pedida) pero sí su etiqueta de accesibilidad', async () => {
+    const { existe, textos, buscar } = await montarApp();
 
     expect(existe('abrir-perfil')).toBe(true);
-    expect(textos()).toContain('Mi perfil');
+    expect(textos()).not.toContain('Mi perfil');
+    const boton = buscar(n => n.props.testID === 'abrir-perfil' && typeof n.props.onPress === 'function')[0];
+    expect(boton.props.accessibilityLabel).toBe('Mi perfil');
+    expect(boton.props.accessibilityRole).toBe('button');
+    // El objetivo táctil sigue midiendo 48 dp o más.
+    const estilo = StyleSheet.flatten(boton.props.style);
+    expect(estilo.minWidth).toBeGreaterThanOrEqual(48);
+    expect(estilo.minHeight).toBeGreaterThanOrEqual(48);
   });
 });
 

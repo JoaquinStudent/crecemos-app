@@ -457,13 +457,14 @@ describe('Foto de perfil en pantalla', () => {
       expect(tituloDelBoton('perfil-foto-quitar')).toBe('Quitar foto');
     });
 
-    it('Inicio muestra la foto en el avatar y conserva su etiqueta "Mi perfil"', async () => {
+    it('Inicio muestra la foto en el avatar y conserva su etiqueta de accesibilidad "Mi perfil"', async () => {
       await guardarPerfil(perfilDe({ fotoUri: FOTO_A }));
       await montarApp();
 
       expect(imagenDe('inicio-avatar-foto').props.source).toEqual({ uri: FOTO_A });
       expect(existe('inicio-avatar-iniciales')).toBe(false);
-      expect(textos()).toContain('Mi perfil');
+      // Sin rótulo visible (excepción pedida por el usuario): la etiqueta vive en el botón.
+      expect(textos()).not.toContain('Mi perfil');
       const boton = raiz().findAll(
         n => n.props.testID === 'abrir-perfil' && typeof n.props.onPress === 'function',
       )[0];

@@ -144,7 +144,9 @@ export const InicioScreen = () => {
               {formatoFecha(fechaLocal(new Date()))}
             </Text>
           </View>
-          {/* El círculo nunca va solo: lleva debajo su etiqueta (UX, regla 1). */}
+          {/* EXCEPCIÓN pedida por el usuario a la regla 1 de UX (ícono siempre con texto visible): el
+              avatar va SIN el rótulo "Mi perfil". Lo dice la etiqueta de accesibilidad y el objetivo
+              táctil sigue siendo de 48 dp o más. */}
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Mi perfil"
@@ -158,9 +160,6 @@ export const InicioScreen = () => {
               testIDFoto="inicio-avatar-foto"
               testIDIniciales="inicio-avatar-iniciales"
             />
-            <Text variant="caption" color="primary">
-              Mi perfil
-            </Text>
           </Pressable>
         </View>
 

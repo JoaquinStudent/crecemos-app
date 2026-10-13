@@ -13,10 +13,15 @@
 // asistente caído).
 // El campo y el botón van FIJOS al pie, fuera del scroll y dentro de un KeyboardAvoidingView: con el
 // teclado abierto se ven y se pueden tocar (lección del Sprint-01, memory.md D27, y del Sprint-02).
+// En Android con borde a borde el sistema ya no redimensiona la ventana (`adjustResize` se ignora):
+// el teclado se dibuja ENCIMA. Por eso el KeyboardAvoidingView usa `padding` en las dos plataformas,
+// la barra inferior se esconde mientras el teclado está abierto (useTecladoVisible) y la
+// conversación baja hasta el último mensaje.
+// El botón de enviar es solo un ícono (avión de papel): excepción pedida por el usuario a la regla de
+// "ícono siempre con texto visible"; su etiqueta de accesibilidad es "Preguntar".
 import React, { useEffect, useRef, useState } from 'react';
 import {
   KeyboardAvoidingView,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -25,10 +30,10 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
-import { Lock } from 'lucide-react-native';
+import { Lock, Send } from 'lucide-react-native';
 import { colors, radius, spacing } from '@theme';
 import { Text } from '@components/atoms/Text';
-import { Button } from '@components/atoms/Button';
+import { BotonIcono } from '@components/atoms/BotonIcono';
 import { Icon } from '@components/atoms/Icon';
 import { Chip } from '@components/molecules/Chip';
 import { Input } from '@components/atoms/Input';
@@ -40,6 +45,7 @@ import type { Consulta, Semaforo } from '@dominio/tipos';
 import { useCrecemos } from '@context/CrecemosProvider';
 import { consultar, MAX_CARACTERES_PREGUNTA } from '@services/jev';
 import { useMedidasBarra } from '@hooks/useMedidasBarra';
+import { useTecladoVisible } from '@hooks/useTecladoVisible';
 import type { TabsParamList } from '@navigation/Tabs';
 import { JEV_URL } from '../config';
 
@@ -51,8 +57,6 @@ const TEXTO_INVITACION =
 /** Cuando no se entendió la pregunta: dice con qué sí puede ayudar y manda a las sugeridas. */
 const TEXTO_NO_ENTENDI =
   'No entendí la pregunta. Puedo ayudarte con tus ventas, cobros pendientes y productos. Prueba con una de estas:';
-/** Ancho mínimo del botón: cabe "Pensando…", así no salta cuando la etiqueta cambia entre estados. */
-const ANCHO_MINIMO_BOTON = 124;
 
 /** Una burbuja del historial. */
 interface Mensaje {
@@ -71,6 +75,7 @@ export const PreguntarScreen = () => {
   const navigation = useNavigation<BottomTabNavigationProp<TabsParamList, 'Asistente'>>();
   const route = useRoute<RouteProp<TabsParamList, 'Asistente'>>();
   const { alturaTotal } = useMedidasBarra();
+  const teclado = useTecladoVisible();
 
   const [mensajes, setMensajes] = useState<Mensaje[]>([]);
   const [texto, setTexto] = useState('');
@@ -167,6 +172,11 @@ export const PreguntarScreen = () => {
     preguntarRef.current(preguntaDeRuta).catch(() => undefined);
   }, [preguntaDeRuta, navigation]);
 
+  // Al abrirse el teclado el chat se encoge: se baja hasta el último mensaje para que se siga viendo.
+  useEffect(() => {
+    if (teclado.visible) scroll.current?.scrollToEnd?.({ animated: true });
+  }, [teclado.visible]);
+
   const ultimo = mensajes.length > 0 ? mensajes[mensajes.length - 1] : null;
   const conversando = ultimo !== null;
 
@@ -189,7 +199,8 @@ export const PreguntarScreen = () => {
     <SafeAreaView style={styles.pantalla} edges={['top']} testID="preguntar-pantalla">
       <KeyboardAvoidingView
         style={styles.pantalla}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior="padding"
+        keyboardVerticalOffset={0}
       >
         <View style={styles.cabecera}>
           {/* Es una pestaña: no lleva "Atrás". Una sola línea, para dejarle sitio al chat. */}
@@ -235,6 +246,10 @@ export const PreguntarScreen = () => {
           contentContainerStyle={styles.conversacion}
           keyboardShouldPersistTaps="handled"
           onContentSizeChange={acomodarScroll}
+          onLayout={() => {
+            // El alto del chat cambia cuando el teclado entra: recién ahí el final queda a la vista.
+            if (teclado.visible) scroll.current?.scrollToEnd?.({ animated: false });
+          }}
           testID="preguntar-chat"
         >
           {conversando ? null : (
@@ -268,7 +283,11 @@ export const PreguntarScreen = () => {
 
         {/* Las sugeridas, el campo y el botón viven FUERA del scroll, en un pie fijo: siempre a la mano. */}
         {/* La barra es una capa encima: el pie se sube lo que ella ocupa (con su círculo). */}
-        <View style={[styles.pie, { paddingBottom: alturaTotal + spacing.sm }]}>
+        {/* Con el teclado abierto la barra no está: el pie se apoya directamente sobre el teclado. */}
+        <View
+          style={[styles.pie, { paddingBottom: teclado.visible ? spacing.sm : alturaTotal + spacing.sm }]}
+          testID="preguntar-pie"
+        >
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -299,11 +318,11 @@ export const PreguntarScreen = () => {
               returnKeyType="done"
               testID="preguntar-campo"
             />
-            <Button
-              title={pensando ? 'Pensando…' : 'Preguntar'}
-              size="md"
-              style={styles.enviar}
-              disabled={pensando || texto.trim() === ''}
+            <BotonIcono
+              icon={Send}
+              accessibilityLabel="Preguntar"
+              loading={pensando}
+              disabled={texto.trim() === ''}
               onPress={() => preguntar(texto)}
               testID="preguntar-enviar"
             />
@@ -344,7 +363,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   filaCampo: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  // El campo toma lo que sobra (nunca 50/50); el botón mide lo que su texto, con un mínimo fijo.
+  // El campo toma todo lo que sobra; el botón de enviar es un círculo fijo de 48 dp.
   campo: { flex: 1, minWidth: 0 },
-  enviar: { minWidth: ANCHO_MINIMO_BOTON, flexShrink: 0 },
 });

@@ -134,6 +134,12 @@ const montarApp = async () => {
   const estadoDe = (testID: string) =>
     app.root.findAll(n => n.props.testID === testID && n.props.accessibilityState)[0]?.props
       .accessibilityState;
+  // Las props del primer nodo dibujado (host) con ese testID.
+  const propsDe = (testID: string) => {
+    const encontrado = app.root.findAll(n => n.props.testID === testID && typeof n.type === 'string')[0];
+    if (!encontrado) throw new Error(`No hay nada con testID "${testID}"`);
+    return encontrado.props;
+  };
   const valorDe = (testID: string) => nodo(testID, 'onChangeText').props.value;
   const estiloDe = (testID: string) => {
     const vista = app.root.findAll(n => esHost(n, 'View') && n.props.testID === testID)[0];
@@ -164,6 +170,7 @@ const montarApp = async () => {
     textosEn,
     textoDe,
     estadoDe,
+    propsDe,
     valorDe,
     estiloDe,
     letrasDelChat,
@@ -227,7 +234,7 @@ describe('Chat "Preguntarle a mis datos": lo que se envía y cuándo', () => {
     expect(p.estadoDe('preguntar-enviar')?.disabled).toBe(true);
   });
 
-  it('mientras espera dice "Pensando…" y un segundo toque no envía otra pregunta', async () => {
+  it('mientras espera el botón de enviar queda ocupado y un segundo toque no envía otra pregunta', async () => {
     let soltar!: (r: Response) => void;
     const espera = new Promise<Response>(resolver => {
       soltar = resolver;
@@ -237,12 +244,14 @@ describe('Chat "Preguntarle a mis datos": lo que se envía y cuándo', () => {
 
     await p.abrirDesdeInicio();
     await p.escribir('preguntar-campo', '¿cuánto vendí ayer?');
-    expect(p.textosEn('preguntar-pantalla')).toContain('Preguntar');
+    // Botón solo de ícono (excepción pedida): sin texto visible y con la etiqueta "Preguntar".
+    expect(p.textosEn('preguntar-enviar')).toEqual([]);
+    expect(p.propsDe('preguntar-enviar').accessibilityLabel).toBe('Preguntar');
+    expect(p.propsDe('preguntar-enviar').accessibilityRole).toBe('button');
     const { pendiente } = await p.tocarSinEsperar('preguntar-enviar');
 
-    // Pensando: el botón lo dice, está apagado y los toques de más no hacen nada.
-    expect(p.textosEn('preguntar-enviar')).toEqual(['Pensando…']);
-    expect(p.estadoDe('preguntar-enviar')?.disabled).toBe(true);
+    // Pensando: el botón queda ocupado y apagado, y los toques de más no hacen nada.
+    expect(p.estadoDe('preguntar-enviar')).toMatchObject({ disabled: true, busy: true });
     await p.tocar('preguntar-enviar');
     // Mientras espera, las sugeridas también están apagadas y se ve la burbuja de "pensando".
     expect(p.estadoDe('preguntar-sugerida-0')?.disabled).toBe(true);
@@ -250,12 +259,12 @@ describe('Chat "Preguntarle a mis datos": lo que se envía y cuándo', () => {
     expect(p.existe('chat-pensando')).toBe(true);
     expect(red.tipos()).toEqual(['interpretar']);
 
-    // Llega la respuesta: el botón vuelve a decir "Preguntar".
+    // Llega la respuesta: el botón vuelve a su estado normal (sin texto escrito sigue apagado, no ocupado).
     await act(async () => {
       soltar(respuestaJson(interpretacion('ventaDelDia', 'ayer')));
       await pendiente;
     });
-    expect(p.textosEn('preguntar-enviar')).toEqual(['Preguntar']);
+    expect(p.estadoDe('preguntar-enviar')).toMatchObject({ busy: false });
     expect(p.estadoDe('preguntar-sugerida-0')?.disabled).toBe(false);
     expect(p.existe('chat-pensando')).toBe(false);
   });
@@ -635,7 +644,7 @@ describe('Chat "Preguntarle a mis datos": encabezado compacto, aviso plegado y s
     expect(p.existe('chat-pensando')).toBe(false);
   });
 
-  it('el botón no cambia de ancho entre "Preguntar" y "Pensando…"', async () => {
+  it('el botón de enviar es un círculo de 48 dp que no cambia de tamaño mientras espera', async () => {
     let soltar!: (r: Response) => void;
     const espera = new Promise<Response>(resolver => {
       soltar = resolver;
@@ -644,25 +653,22 @@ describe('Chat "Preguntarle a mis datos": encabezado compacto, aviso plegado y s
     const p = await montarApp();
 
     await p.abrirDesdeInicio();
-    const ancho = () => {
+    const medida = () => {
       const boton = p.app.root.findAll(
         n => n.props.testID === 'preguntar-enviar' && esHost(n, 'View'),
       )[0];
-      // El ancho mínimo vive en el contenedor animado que envuelve al botón.
-      let nodo: ReactTestInstance | null = boton;
-      while (nodo) {
-        const estilo = StyleSheet.flatten(nodo.props.style);
-        if (estilo && typeof estilo === 'object' && 'minWidth' in estilo) return estilo.minWidth;
-        nodo = nodo.parent;
-      }
-      return undefined;
+      const estilo = StyleSheet.flatten(
+        typeof boton.props.style === 'function' ? boton.props.style({ pressed: false }) : boton.props.style,
+      );
+      return [estilo.width, estilo.height, estilo.borderRadius];
     };
-    const antes = ancho();
-    expect(antes).toBeGreaterThanOrEqual(120);
+    const antes = medida();
+    expect(antes.slice(0, 2)).toEqual([48, 48]);
+    expect(antes[2]).toBeGreaterThanOrEqual(24);
     await p.escribir('preguntar-campo', '¿cuánto vendí ayer?');
     const { pendiente } = await p.tocarSinEsperar('preguntar-enviar');
-    expect(p.textosEn('preguntar-enviar')).toEqual(['Pensando…']);
-    expect(ancho()).toBe(antes);
+    expect(p.textosEn('preguntar-enviar')).toEqual([]);
+    expect(medida()).toEqual(antes);
 
     await act(async () => {
       soltar(respuestaJson(interpretacion('ventaDelDia', 'ayer')));

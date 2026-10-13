@@ -90,7 +90,6 @@ describe('Perfil y hoja "Cambiar precio"', () => {
     await tocar('abrir-perfil');
 
     expect(textos()).toContain('Agrega tu nombre');
-    expect(textos()).toContain('Mi perfil');
     expect(textos()).not.toContain('?');
     expect(existe('perfil-iniciales-sin-foto')).toBe(true);
   });
