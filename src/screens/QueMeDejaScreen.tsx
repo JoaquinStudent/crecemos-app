@@ -40,7 +40,7 @@ import { alertaDeCostos } from '@dominio/estacionalidad';
 import { fechaLocal, restarDias } from '@dominio/fecha';
 import { formatoSoles } from '@dominio/formato';
 import type { Cierre, GananciaProducto, Producto } from '@dominio/tipos';
-import { cantidadConUnidad } from '@dominio/unidades';
+import { cantidadConUnidad, singularUnidad } from '@dominio/unidades';
 import { useCrecemos } from '@context/CrecemosProvider';
 import type { RootStackParamList } from '@navigation/RootStack';
 
@@ -101,7 +101,7 @@ export const QueMeDejaScreen = () => {
         ) : ganancias.length === 0 ? (
           <EmptyState
             title="Todavía no hay días cerrados"
-            text="Cierra tu día y aquí verás las unidades vendidas y la diferencia estimada por unidad de cada producto."
+            text="Cierra tu día y aquí verás cuánto vendes y cuánto te deja cada producto."
             actionLabel="Cerrar mi día"
             onAction={() => navigation.navigate('CerrarDia')}
             testID="queme-vacio"
@@ -192,7 +192,7 @@ const Tarjetas = ({
                       style={styles.etiquetaTexto}
                       testID={`queme-etiqueta-deja-${g.productoId}`}
                     >
-                      Mayor diferencia por unidad
+                      El que más te deja
                     </Text>
                   </View>
                 ) : null}
@@ -218,7 +218,7 @@ const Tarjetas = ({
               idEtiqueta={`queme-etiqueta-barra-vende-${g.productoId}`}
             />
             <FilaBarra
-              etiqueta="Diferencia estimada total"
+              etiqueta="Lo que te deja en total"
               cifra={formatoSoles(g.ganancia)}
               avance={avance(g.ganancia, mayorGanancia)}
               tono="success"
@@ -231,9 +231,7 @@ const Tarjetas = ({
               {`${cantidadEnPalabras(
                 g.seVende,
                 unidad,
-              )} · Diferencia estimada por unidad: ${formatoSoles(
-                g.teDeja,
-              )} (precio menos costo estimado)`}
+              )} · Te deja ${formatoSoles(g.teDeja)} por ${singularUnidad(unidad)}`}
             </Text>
           </Card>
         );
@@ -363,7 +361,7 @@ interface FilaBarraProps {
   idEtiqueta?: string;
 }
 
-// La etiqueta va arriba, a todo el ancho (a 360 dp no cabe "Diferencia estimada total" en una
+// La etiqueta va arriba, a todo el ancho (a 360 dp no cabe "Lo que te deja en total" en una
 // columna angosta); debajo, la barra y su cifra en palabras al lado: ningún porcentaje suelto.
 const FilaBarra = ({
   etiqueta,

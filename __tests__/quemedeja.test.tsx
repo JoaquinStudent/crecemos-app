@@ -253,7 +253,7 @@ describe('Qué me deja cada uno', () => {
     await abrirPantalla(app);
 
     expect(app.textoDe('queme-etiqueta-vendes-p-pancita')).toBe('El que más vendes');
-    expect(app.textoDe('queme-etiqueta-deja-p-anticucho')).toBe('Mayor diferencia por unidad');
+    expect(app.textoDe('queme-etiqueta-deja-p-anticucho')).toBe('El que más te deja');
     for (const id of ['p-anticucho', 'p-chicha', 'p-rachi']) {
       expect(app.enTarjeta(id, `queme-etiqueta-vendes-${id}`)).toBe(false);
     }
@@ -311,20 +311,20 @@ describe('Qué me deja cada uno', () => {
     await abrirPantalla(app);
 
     expect(app.textoDe('queme-detalle-p-anticucho')).toBe(
-      '30 porciones · Diferencia estimada por unidad: S/ 1.80 (precio menos costo estimado)',
+      '30 porciones · Te deja S/ 1.80 por porción',
     );
     expect(app.textoDe('queme-detalle-p-pancita')).toBe(
-      '50 porciones · Diferencia estimada por unidad: S/ 1.00 (precio menos costo estimado)',
+      '50 porciones · Te deja S/ 1.00 por porción',
     );
     expect(app.textoDe('queme-detalle-p-rachi')).toBe(
-      '10 porciones · Diferencia estimada por unidad: S/ 1.40 (precio menos costo estimado)',
+      '10 porciones · Te deja S/ 1.40 por porción',
     );
     expect(app.textoDe('queme-detalle-p-chicha')).toBe(
-      '40 vasos · Diferencia estimada por unidad: S/ 0.40 (precio menos costo estimado)',
+      '40 vasos · Te deja S/ 0.40 por vaso',
     );
     // Las etiquetas de las barras están como texto.
     expect(app.textosDeLaPantalla().filter(t => t === 'Se vende')).toHaveLength(4);
-    expect(app.textosDeLaPantalla().filter(t => t === 'Diferencia estimada total')).toHaveLength(4);
+    expect(app.textosDeLaPantalla().filter(t => t === 'Lo que te deja en total')).toHaveLength(4);
     expect(app.textoDe('queme-cifra-vende-p-pancita')).toBe('50 porciones');
     expect(app.textoDe('queme-cifra-vende-p-chicha')).toBe('40 vasos');
     expect(app.textoDe('queme-cifra-deja-p-anticucho')).toBe('S/ 54.00');

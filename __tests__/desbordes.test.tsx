@@ -83,7 +83,7 @@ describe('desbordes a 360 dp', () => {
     await app.tocar('tab-resumen');
     await app.tocar('resumen-que-me-deja');
 
-    expect(app.textoDe('queme-etiqueta-barra-deja-p-anticucho')).toBe('Diferencia estimada total');
+    expect(app.textoDe('queme-etiqueta-barra-deja-p-anticucho')).toBe('Lo que te deja en total');
     expect(app.estiloTextoDe('queme-etiqueta-barra-deja-p-anticucho').width).toBeUndefined();
     const cifra = app.estiloTextoDe('queme-cifra-deja-p-anticucho');
     expect(cifra.width).toBeUndefined();

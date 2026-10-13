@@ -28,8 +28,8 @@ Freddy compra mercadería cada 2 días y razona por ciclos: "el primer día es p
 | Recordatorio                  | A la hora que elijas, un aviso **dentro de la app** si aún no cerraste tu día. No son notificaciones del sistema.                                 |
 | Historial                     | Un grupo por día, con filtros (ingresos, gastos, por cobrar) y resumen del mes. Se puede editar o borrar un día sin tocar los precios viejos.    |
 | Cobros del Yape               | Suma lo que entró a una cuenta ajena y falta cobrar, y permite marcarlo como cobrado.                                                            |
-| Qué me deja cada uno          | Contrasta unidades vendidas y diferencia estimada por unidad (precio menos costo estimado).                                                      |
-| Simulador de precio           | Prueba "¿y si subo el precio?" y muestra la diferencia estimada, sin tocar tus datos.                                                            |
+| Qué me deja cada uno          | Contrasta lo que vendes con lo que te deja cada producto.                                                      |
+| Simulador de precio           | Prueba "¿y si subo el precio?" y muestra cuánto más ganarías, sin tocar tus datos.                                                            |
 | Mi cuota (meta de ahorro)     | Una alcancía con la cuota que quieres juntar y un aporte diario sugerido; cada aporte se anota y se suma.                                        |
 | Perfil                        | Un menú limpio de seis opciones (Mis datos, Cómo me pagan, Recordatorio diario, Mis productos, Borrar datos y Ayuda), cada una con un resumen en vivo y su propia pantalla. La foto se cambia con el botón de cámara sobre el avatar: elegir de la galería, tomar foto o quitarla. |
 | Mis productos                 | Permite crear, renombrar, editar, desactivar y reactivar productos desde Perfil → Mis productos.                                                  |
