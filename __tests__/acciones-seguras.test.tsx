@@ -109,6 +109,7 @@ describe('Guardados que fallan en pantalla', () => {
   it('Perfil: un switch que no se pudo guardar muestra el aviso', async () => {
     const app = await montarApp();
     await app.tocar('abrir-perfil');
+    await app.tocar('perfil-opcion-pagos');
     jest.spyOn(base(), 'setItem').mockRejectedValue(new Error('disco lleno'));
 
     await app.cambiarInterruptor('switch-acepta-yape', false);

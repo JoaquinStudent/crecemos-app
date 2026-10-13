@@ -4,10 +4,10 @@
 // Es la pantalla que hace posible el insight: sin precio y costo no hay "Te deja".
 import React, { useCallback, useRef, useState } from 'react';
 import { Pressable, ScrollView, StatusBar, StyleSheet, View } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { ChevronLeft, Clock, TriangleAlert } from 'lucide-react-native';
+import { ChevronLeft, Clock, TriangleAlert, UserRound, Wallet } from 'lucide-react-native';
 import { colors, radius, spacing } from '@theme';
 import { Text } from '@components/atoms/Text';
 import { mensajeBorrarEjemplo } from '@dominio/origen';
@@ -19,6 +19,8 @@ import { Input } from '@components/atoms/Input';
 import { AvatarPerfil } from '@components/molecules/AvatarPerfil';
 import { Callout } from '@components/molecules/Callout';
 import { Card } from '@components/molecules/Card';
+import { OpcionPerfil } from '@components/molecules/OpcionPerfil';
+import { resumenDatos, resumenPagos } from '@dominio/perfilResumen';
 import { ChipGroup } from '@components/molecules/ChipGroup';
 import { SwitchRow } from '@components/molecules/SwitchRow';
 import { CambiarPrecioSheet } from '@components/organisms/CambiarPrecioSheet';
@@ -26,7 +28,6 @@ import { fechaLocal } from '@dominio/fecha';
 import { ajustesDeRecordatorio, OPCIONES_HORA_RECORDATORIO } from '@dominio/recordatorio';
 import { formatoFechaCorta, formatoSoles } from '@dominio/formato';
 import { avatarDe } from '@dominio/foto';
-import { validarNumeroYape } from '@dominio/validacion';
 import { requiereRevision, teDeja } from '@dominio/producto';
 import { singularUnidad } from '@dominio/unidades';
 import type { DatosProducto } from '@dominio/validacion';
@@ -37,48 +38,9 @@ import { elegirFoto, mensajeFoto } from '@services/foto';
 import { avisaConLaAppCerrada, pedirPermisoDeAvisos } from '@services/recordatorio';
 import type { RootStackParamList } from '@navigation/RootStack';
 
-type CampoDato =
-  | 'nombre'
-  | 'negocio'
-  | 'ubicacion'
-  | 'yapeNumero'
-  | 'yapeTitular'
-  | 'yapeParentesco';
-
-interface DatoEditable {
-  campo: CampoDato;
-  etiqueta: string;
-  ayuda: string;
-}
-
-const DATOS: readonly DatoEditable[] = [
-  { campo: 'nombre', etiqueta: 'Mi nombre', ayuda: 'Escribe tu nombre' },
-  { campo: 'negocio', etiqueta: 'Mi negocio', ayuda: 'Escribe el nombre de tu negocio' },
-  { campo: 'ubicacion', etiqueta: 'Dónde vendo', ayuda: 'Escribe dónde vendes' },
-];
-
-const YAPE_NUMERO: DatoEditable = {
-  campo: 'yapeNumero',
-  etiqueta: 'Número de Yape',
-  ayuda: 'Escribe el número donde recibes Yape',
-};
-const YAPE_TITULAR: DatoEditable = {
-  campo: 'yapeTitular',
-  etiqueta: '¿De quién es el Yape?',
-  ayuda: 'Escribe el nombre de quien lo tiene',
-};
-const YAPE_PARENTESCO: DatoEditable = {
-  campo: 'yapeParentesco',
-  etiqueta: '¿Quién es para ti?',
-  ayuda: 'Por ejemplo: hermana, esposa, amigo',
-};
-
 export const PerfilScreen = () => {
   const { perfil, productos, guardarPerfil, guardarFoto, quitarFoto, crearProducto, editarProducto, establecerProductoActivo, cargarDatosDeEjemplo, semilla, datosDeEjemplo, borrarDatosDeEjemplo } = useCrecemos();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList, 'Perfil'>>();
-  const [editando, setEditando] = useState<CampoDato | null>(null);
-  const [borrador, setBorrador] = useState('');
-  const [errorBorrador, setErrorBorrador] = useState<string | undefined>();
   const [enHoja, setEnHoja] = useState<Producto | null>(null);
   const [hojaVisible, setHojaVisible] = useState(false);
   const [productoEditado, setProductoEditado] = useState<Producto | null>(null);
@@ -98,17 +60,6 @@ export const PerfilScreen = () => {
     }, []),
   );
 
-  // Cada guardado pasa por `useAccionSegura`: si falla, lo dice en su lugar en vez de callar.
-  const datoSeguro = useAccionSegura(async (campo: CampoDato) => {
-    const error = campo === 'yapeNumero' ? validarNumeroYape(borrador.trim()) : null;
-    if (error) {
-      setErrorBorrador(error);
-      return;
-    }
-    await guardarPerfil({ [campo]: borrador.trim() } as Partial<Perfil>);
-    setEditando(null);
-  });
-  const pagoSeguro = useAccionSegura((parcial: Partial<Perfil>) => guardarPerfil(parcial));
 
   // Recordatorio diario. Prender pide permiso solo cuando la persona lo toca, y antes le explica por
   // qué; si el sistema lo niega, el interruptor se queda apagado y se lo dice en palabras claras.
@@ -209,32 +160,6 @@ export const PerfilScreen = () => {
     setConfirmandoQuitar(true);
   };
 
-  // El teclado de iOS tapaba la fila que se edita, con su "Guardar" y "Cancelar", y
-  // `automaticallyAdjustKeyboardInsets` solo no alcanzaba: al abrir la edición se lleva la
-  // fila al borde de arriba de la pantalla, así el campo y sus botones quedan sobre el teclado.
-  const insets = useSafeAreaInsets();
-  const scrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
-  const filas = useRef<Partial<Record<CampoDato, React.ComponentRef<typeof View> | null>>>({});
-  const verFila = (campo: CampoDato) => {
-    const fila = filas.current[campo];
-    const interior = scrollRef.current?.getInnerViewRef?.();
-    if (!fila || !interior) return;
-    fila.measureLayout(interior, (_x, y) =>
-      scrollRef.current?.scrollTo({ y: Math.max(0, y - insets.top - spacing.lg), animated: true }),
-    );
-  };
-
-  const editar = (campo: CampoDato) => {
-    setBorrador(perfil[campo] ?? '');
-    setErrorBorrador(undefined);
-    datoSeguro.limpiarError();
-    setEditando(campo);
-    verFila(campo);
-  };
-
-  const cambiarBorrador = (campo: CampoDato, texto: string) =>
-    setBorrador(campo === 'yapeNumero' ? texto.replace(/\D/g, '') : texto);
-
   const abrirHoja = (producto: Producto) => {
     setEnHoja(producto);
     setHojaVisible(true);
@@ -269,75 +194,10 @@ export const PerfilScreen = () => {
     setProductoEditado(null);
   };
 
-  const filaDato = ({ campo, etiqueta, ayuda }: DatoEditable, separada: boolean) => (
-    <View
-      key={campo}
-      ref={fila => {
-        filas.current[campo] = fila;
-      }}
-      style={[styles.filaDato, separada && styles.separador]}
-    >
-      {editando === campo ? (
-        <View style={styles.edicion}>
-          <Input
-            label={etiqueta}
-            value={borrador}
-            onChangeText={texto => cambiarBorrador(campo, texto)}
-            error={errorBorrador}
-            autoFocus
-            autoCapitalize={campo === 'yapeNumero' ? 'none' : 'words'}
-            keyboardType={campo === 'yapeNumero' ? 'phone-pad' : 'default'}
-            maxLength={campo === 'yapeNumero' ? 9 : undefined}
-            testID={`input-${campo}`}
-          />
-          <View style={styles.acciones}>
-            <Button
-              title="Guardar"
-              variant="outline"
-              onPress={() => datoSeguro.ejecutar(campo)}
-              testID={`guardar-${campo}`}
-            />
-            <Button
-              title="Cancelar"
-              variant="ghost"
-              onPress={() => setEditando(null)}
-              testID={`cancelar-${campo}`}
-            />
-          </View>
-          <MensajeError mensaje={datoSeguro.mensajeError} testID={`error-guardar-${campo}`} />
-        </View>
-      ) : (
-        <View style={styles.dato}>
-          <View style={styles.datoTexto}>
-            <Text variant="label" color="textMuted">
-              {etiqueta}
-            </Text>
-            {perfil[campo] ? (
-              <Text testID={`valor-${campo}`}>{perfil[campo]}</Text>
-            ) : (
-              <Text color="textMuted">{ayuda}</Text>
-            )}
-          </View>
-          <Button
-            title="Editar"
-            variant="ghost"
-            onPress={() => editar(campo)}
-            accessibilityLabel={`Editar ${etiqueta.toLowerCase()}`}
-            testID={`editar-${campo}`}
-          />
-        </View>
-      )}
-    </View>
-  );
-
   return (
     <View style={styles.pantalla}>
       <ScrollView
-        ref={scrollRef}
         keyboardShouldPersistTaps="handled"
-        // iOS: suma al final el alto del teclado y sube el campo enfocado a la vista, para
-        // que la fila que se edita no quede tapada. Android ya reduce la ventana (adjustResize).
-        automaticallyAdjustKeyboardInsets
         contentContainerStyle={styles.scroll}
         testID="perfil-scroll"
       >
@@ -467,47 +327,22 @@ export const PerfilScreen = () => {
         </SafeAreaView>
 
         <View style={styles.contenido}>
-          <View style={styles.seccion}>
-            <Text variant="h3">Mis datos</Text>
-            <View style={styles.tarjeta}>
-              {DATOS.map((dato, i) => filaDato(dato, i > 0))}
-            </View>
-          </View>
-
-          <View style={styles.seccion}>
-            <Text variant="h3">Cómo me pagan</Text>
-            <View style={styles.tarjeta}>
-              <SwitchRow
-                label="Acepto Yape"
-                value={perfil.aceptaYape}
-                onValueChange={v => pagoSeguro.ejecutar({ aceptaYape: v })}
-                testID="switch-acepta-yape"
-              />
-              <View style={styles.separador}>
-                <SwitchRow
-                  label="El Yape no está a mi nombre"
-                  value={perfil.yapeAjeno}
-                  disabled={!perfil.aceptaYape}
-                  onValueChange={v => pagoSeguro.ejecutar({ yapeAjeno: v })}
-                  testID="switch-yape-ajeno"
-                />
-                <Text variant="caption" color="textMuted" style={styles.ayudaInterruptor}>
-                  Lo anotamos como pendiente por cobrar hasta que lo recibas.
-                </Text>
-              </View>
-              {perfil.aceptaYape ? (
-                <View style={styles.separador}>
-                  {filaDato(YAPE_NUMERO, false)}
-                  {perfil.yapeAjeno ? (
-                    <>
-                      {filaDato(YAPE_TITULAR, true)}
-                      {filaDato(YAPE_PARENTESCO, true)}
-                    </>
-                  ) : null}
-                </View>
-              ) : null}
-              <MensajeError mensaje={pagoSeguro.mensajeError} testID="error-guardar-pagos" />
-            </View>
+          <View style={styles.menu} testID="perfil-menu">
+            <OpcionPerfil
+              icon={UserRound}
+              title="Mis datos"
+              summary={resumenDatos(perfil)}
+              onPress={() => navigation.navigate('PerfilDatos')}
+              testID="perfil-opcion-datos"
+            />
+            <OpcionPerfil
+              icon={Wallet}
+              title="Cómo me pagan"
+              summary={resumenPagos(perfil)}
+              onPress={() => navigation.navigate('PerfilPagos')}
+              divider={false}
+              testID="perfil-opcion-pagos"
+            />
           </View>
 
           <View style={styles.seccion}>
@@ -813,6 +648,7 @@ const styles = StyleSheet.create({
   contenido: { padding: spacing.lg, gap: spacing.xl },
   seccion: { gap: spacing.md },
   // Tarjeta con un interruptor adentro: respira arriba y abajo (el texto no toca el borde).
+  menu: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.lg, overflow: 'hidden' },
   tarjetaConAire: { paddingVertical: spacing.md },
   tarjeta: {
     backgroundColor: colors.background,

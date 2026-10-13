@@ -8,6 +8,8 @@ import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import type { NavigatorScreenParams } from '@react-navigation/native';
 import { PerfilScreen } from '@screens/PerfilScreen';
+import { PerfilDatosScreen } from '@screens/PerfilDatosScreen';
+import { PerfilPagosScreen } from '@screens/PerfilPagosScreen';
 import { CerrarDiaScreen } from '@screens/CerrarDiaScreen';
 import { MiMetaScreen } from '@screens/MiMetaScreen';
 import { MiReporteScreen } from '@screens/MiReporteScreen';
@@ -20,6 +22,9 @@ export type RootStackParamList = {
   /** Con `fecha`, "Cerrar mi día" edita ese día; sin ella, es un cierre nuevo (o el de hoy). */
   CerrarDia: { fecha?: FechaNegocio } | undefined;
   Perfil: undefined;
+  /** Las pantallas que se abren desde las opciones del Perfil; "Atrás" vuelve a él. */
+  PerfilDatos: undefined;
+  PerfilPagos: undefined;
   QueMeDeja: undefined;
   MiReporte: undefined;
   /** La alcancía de la cuota del préstamo. */
@@ -33,6 +38,8 @@ export const RootStack = () => (
     <Stack.Screen name="Tabs" component={Tabs} />
     <Stack.Screen name="CerrarDia" component={CerrarDiaScreen} options={{ presentation: 'modal' }} />
     <Stack.Screen name="Perfil" component={PerfilScreen} />
+    <Stack.Screen name="PerfilDatos" component={PerfilDatosScreen} />
+    <Stack.Screen name="PerfilPagos" component={PerfilPagosScreen} />
     <Stack.Screen name="QueMeDeja" component={QueMeDejaScreen} />
     <Stack.Screen name="MiReporte" component={MiReporteScreen} />
     <Stack.Screen name="MiMeta" component={MiMetaScreen} />

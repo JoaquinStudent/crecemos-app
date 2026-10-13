@@ -5,7 +5,7 @@
  */
 
 import { createElement } from 'react';
-import { StyleSheet } from 'react-native';
+import { KeyboardAvoidingView, StyleSheet } from 'react-native';
 import ReactTestRenderer, { act, ReactTestInstance } from 'react-test-renderer';
 import { clearAllMockStorages } from '@react-native-async-storage/async-storage/jest';
 import { spacing } from '@theme';
@@ -53,7 +53,9 @@ const montarApp = async () => {
   const etiquetaDe = (testID: string): unknown =>
     app.root.findAll(n => typeof n.type === 'string' && n.props.testID === testID)[0].props.accessibilityLabel;
 
-  const scrollDelPerfil = () => app.root.findAll(n => n.props.testID === 'perfil-scroll')[0];
+  const buscar = (predicado: (n: ReactTestInstance) => boolean) => app.root.findAll(predicado);
+  const valorDe = (testID: string): string =>
+    app.root.findAll(n => esHost(n, 'TextInput') && n.props.testID === testID)[0].props.value;
 
   return {
     tocar,
@@ -65,7 +67,8 @@ const montarApp = async () => {
     interruptor,
     estiloDeVista,
     etiquetaDe,
-    scrollDelPerfil,
+    buscar,
+    valorDe,
   };
 };
 
@@ -102,33 +105,59 @@ describe('Perfil y hoja "Cambiar precio"', () => {
     expect(estiloDeVista('recordatorio-tarjeta').paddingVertical).toBe(12);
   });
 
-  it('guardar el nombre actualiza las iniciales en Inicio', async () => {
-    const { tocar, escribir, textoDe } = await montarApp();
+  it('"Mis datos" abre un formulario: guardar actualiza el Perfil y las iniciales en Inicio', async () => {
+    const { tocar, escribir, textoDe, existe, valorDe } = await montarApp();
     await tocar('abrir-perfil');
 
-    await tocar('editar-nombre');
+    await tocar('perfil-opcion-datos');
+    expect(existe('guardar-datos')).toBe(true);
+    expect(valorDe('input-nombre')).toBe('');
     await escribir('input-nombre', 'persona de prueba');
-    await tocar('guardar-nombre');
+    await escribir('input-negocio', 'Negocio de prueba');
+    await escribir('input-ubicacion', 'Mercado central');
+    await tocar('guardar-datos');
 
+    // Guardar vuelve al Perfil, que ya muestra los datos nuevos.
+    expect(existe('guardar-datos')).toBe(false);
     expect(textoDe('perfil-nombre')).toBe('persona de prueba');
     expect(textoDe('perfil-iniciales')).toBe('P');
-    expect((await obtenerPerfil())?.nombre).toBe('persona de prueba');
+    expect(textoDe('perfil-opcion-datos-resumen')).toBe('persona de prueba · Negocio de prueba');
+    const guardado = await obtenerPerfil();
+    expect(guardado).toMatchObject({
+      nombre: 'persona de prueba',
+      negocio: 'Negocio de prueba',
+      ubicacion: 'Mercado central',
+    });
 
     await tocar('perfil-atras');
     expect(textoDe('inicio-avatar-iniciales')).toBe('P');
   });
 
-  it('cancelar la edición no guarda nada', async () => {
-    const { tocar, escribir, existe, textos } = await montarApp();
+  it('"Mis datos" parte de lo guardado y "Cancelar" vuelve sin guardar nada', async () => {
+    const { tocar, escribir, existe, valorDe } = await montarApp();
     await tocar('abrir-perfil');
 
-    await tocar('editar-negocio');
+    await tocar('perfil-opcion-datos');
     await escribir('input-negocio', 'Negocio de prueba');
-    await tocar('cancelar-negocio');
+    await tocar('cancelar-datos');
 
     expect(existe('input-negocio')).toBe(false);
-    expect(textos()).toContain('Escribe el nombre de tu negocio');
     expect(await obtenerPerfil()).toBeNull();
+    await tocar('perfil-opcion-datos');
+    expect(valorDe('input-negocio')).toBe('');
+  });
+
+  it('"Atrás" de una sección vuelve al Perfil, y desde ahí a Inicio', async () => {
+    const { tocar, existe } = await montarApp();
+    await tocar('abrir-perfil');
+    await tocar('perfil-opcion-pagos');
+    expect(existe('switch-acepta-yape')).toBe(true);
+
+    await tocar('seccion-atras');
+    expect(existe('switch-acepta-yape')).toBe(false);
+    expect(existe('perfil-menu')).toBe(true);
+    await tocar('perfil-atras');
+    expect(existe('perfil-menu')).toBe(false);
   });
 
   it('avisa el precio viejo (más de 90 días) y no el reciente', async () => {
@@ -217,6 +246,7 @@ describe('Perfil y hoja "Cambiar precio"', () => {
   it('el interruptor "El Yape no está a mi nombre" persiste', async () => {
     const { tocar, cambiarInterruptor, interruptor } = await montarApp();
     await tocar('abrir-perfil');
+    await tocar('perfil-opcion-pagos');
     expect(interruptor('switch-yape-ajeno').props.value).toBe(false);
 
     await cambiarInterruptor('switch-yape-ajeno', true);
@@ -228,6 +258,7 @@ describe('Perfil y hoja "Cambiar precio"', () => {
   it('el interruptor del Yape ajeno comparte borde izquierdo con "Acepto Yape" (sin sangría anidada)', async () => {
     const { tocar, interruptor } = await montarApp();
     await tocar('abrir-perfil');
+    await tocar('perfil-opcion-pagos');
     const sangria = (testID: string) => {
       let total = 0;
       for (let n = interruptor(testID).parent; n; n = n.parent) {
@@ -264,6 +295,7 @@ describe('Perfil y hoja "Cambiar precio"', () => {
   it('sin "Acepto Yape" el otro interruptor se desactiva', async () => {
     const { tocar, cambiarInterruptor, interruptor } = await montarApp();
     await tocar('abrir-perfil');
+    await tocar('perfil-opcion-pagos');
     expect(interruptor('switch-yape-ajeno').props.disabled).toBeFalsy();
 
     await cambiarInterruptor('switch-acepta-yape', false);
@@ -275,6 +307,7 @@ describe('Perfil y hoja "Cambiar precio"', () => {
   it('pide el número de Yape en los dos casos, solo con 9 dígitos', async () => {
     const { tocar, escribir, existe, textoDe } = await montarApp();
     await tocar('abrir-perfil');
+    await tocar('perfil-opcion-pagos');
 
     await tocar('editar-yapeNumero');
     await escribir('input-yapeNumero', '98-76 x');
@@ -291,6 +324,7 @@ describe('Perfil y hoja "Cambiar precio"', () => {
   it('con el Yape ajeno pide de quién es y qué es para él; sin ajeno no los muestra', async () => {
     const { tocar, escribir, cambiarInterruptor, existe, textoDe } = await montarApp();
     await tocar('abrir-perfil');
+    await tocar('perfil-opcion-pagos');
     expect(existe('editar-yapeTitular')).toBe(false);
     expect(existe('editar-yapeParentesco')).toBe(false);
 
@@ -312,6 +346,7 @@ describe('Perfil y hoja "Cambiar precio"', () => {
   it('sin "Acepto Yape" no pide ningún dato de Yape', async () => {
     const { tocar, cambiarInterruptor, existe } = await montarApp();
     await tocar('abrir-perfil');
+    await tocar('perfil-opcion-pagos');
     expect(existe('editar-yapeNumero')).toBe(true);
 
     await cambiarInterruptor('switch-acepta-yape', false);
@@ -324,6 +359,7 @@ describe('Perfil y hoja "Cambiar precio"', () => {
   it('apagar "Acepto Yape" con "no está a mi nombre" encendido apaga ese interruptor y conserva los datos', async () => {
     const { tocar, escribir, cambiarInterruptor, interruptor } = await montarApp();
     await tocar('abrir-perfil');
+    await tocar('perfil-opcion-pagos');
     await cambiarInterruptor('switch-yape-ajeno', true);
     await tocar('editar-yapeNumero');
     await escribir('input-yapeNumero', '987654321');
@@ -358,15 +394,21 @@ describe('Perfil y hoja "Cambiar precio"', () => {
     expect(despues?.yapeParentesco).toBe('hermana');
   });
 
-  // GUARDA, no verificación: Jest no ve el diseño ni el teclado. Esta prueba solo evita que
-  // alguien quite la configuración que hace que el teclado de iOS no tape la fila que se
-  // edita en "Mis datos" (defecto hallado en el simulador, iPhone 17e). Que el campo con su
-  // "Guardar" y "Cancelar" queden sobre el teclado se comprueba a mano, en las tres filas.
-  it('guarda: el ScrollView del Perfil ajusta su relleno al teclado', async () => {
-    const { tocar, scrollDelPerfil } = await montarApp();
+  // GUARDA, no verificación: Jest no ve el teclado. Solo evita que alguien quite lo que hace que
+  // el teclado (que en Android con borde a borde se dibuja ENCIMA) no tape el campo ni el "Guardar"
+  // de las pantallas con formularios. Que el campo quede sobre el teclado se comprueba a mano.
+  it.each([
+    ['perfil-opcion-datos', 'perfil-datos'],
+    ['perfil-opcion-pagos', 'perfil-pagos'],
+  ])('guarda: la pantalla de %s se hace sitio sobre el teclado', async (fila, pantalla) => {
+    const { tocar, buscar } = await montarApp();
     await tocar('abrir-perfil');
+    await tocar(fila);
 
-    expect(scrollDelPerfil().props.automaticallyAdjustKeyboardInsets).toBe(true);
-    expect(scrollDelPerfil().props.keyboardShouldPersistTaps).toBe('handled');
+    const evita = buscar(n => (n.type as unknown) === 'KeyboardAvoidingView' || n.type === KeyboardAvoidingView);
+    expect(evita.length).toBeGreaterThan(0);
+    expect(evita[0].props.behavior).toBe('padding');
+    const scroll = buscar(n => n.props.testID === `${pantalla}-scroll`)[0];
+    expect(scroll.props.keyboardShouldPersistTaps).toBe('handled');
   });
 });
