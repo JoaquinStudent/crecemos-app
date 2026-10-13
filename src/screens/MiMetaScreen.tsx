@@ -171,7 +171,12 @@ const VistaMeta = ({
         </Text>
       </Card>
 
-      <Card variant="bordered" style={styles.centrado} testID="meta-hoy">
+      <Card
+        variant="bordered"
+        style={styles.centrado}
+        wrapperStyle={styles.bloque}
+        testID="meta-hoy"
+      >
         <Text variant="bodyStrong" testID="meta-hoy-mensaje">
           {mensajeHoy}
         </Text>
@@ -232,7 +237,7 @@ const VistaMeta = ({
           ) : (
             <Button
               title="Separar otro monto"
-              variant={sugerencia.monto > 0 ? 'outline' : 'primary'}
+              variant="outline"
               fullWidth
               onPress={() => setOtroAbierto(true)}
               testID="meta-otro"

@@ -11,7 +11,7 @@ import { CrecemosProvider, useCrecemos } from '@context/CrecemosProvider';
 import { nuevoCierre } from '@dominio/cierre';
 import { fechaLocal, restarDias } from '@dominio/fecha';
 import { Meta } from '@dominio/meta';
-import { colors } from '@theme';
+import { colors, spacing } from '@theme';
 import { PRODUCTOS_POR_DEFECTO } from '@dominio/productosPorDefecto';
 import {
   borrarDatosDeEjemplo,
@@ -74,7 +74,8 @@ describe('Mi cuota: pulido de la pantalla', () => {
 
     expect(app.textos()).not.toContain('Hoy');
     expect(app.textoDe('meta-hoy-mensaje')).toBe('Hoy separa S/ 20.00 y llegas a tiempo');
-    expect(estiloDeProps(app.propsDe('meta-hoy')).gap).toBeGreaterThanOrEqual(12);
+    // El gap va en el contenedor interno de la tarjeta (el de RNE envuelve a los hijos).
+    expect(app.estiloDeContenido('meta-hoy').gap).toBeGreaterThanOrEqual(spacing.md);
   });
 
   it('"Borrar mi meta" va en rojo y "Cambiar monto o fecha" no', async () => {
@@ -194,6 +195,18 @@ describe('Mi cuota: separar y quitar', () => {
     expect(app.existe('meta-separar')).toBe(false);
     expect(app.textoDe('meta-hoy-mensaje')).toBe('Hoy ya separaste lo que tocaba. ¡Bien!');
     expect((await obtenerMeta())?.aportes).toHaveLength(1);
+  });
+
+  it('con la cuota de hoy hecha, "Separar otro monto" es secundario (contorno) y la frase tiene aire', async () => {
+    const app = await montarApp();
+    await app.tocar('inicio-ver-meta');
+    await app.tocar('meta-separar');
+
+    expect(app.existe('meta-separar')).toBe(false);
+    const otro = app.propsDe('meta-otro');
+    expect(otro.accessibilityLabel).toBe('Separar otro monto');
+    // Contorno: fondo transparente (no el relleno del botón principal).
+    expect(app.estiloDeContenido('meta-hoy').gap).toBeGreaterThanOrEqual(spacing.md);
   });
 
   it('"Separar otro monto" abre el campo, valida y suma', async () => {

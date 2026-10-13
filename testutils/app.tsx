@@ -77,6 +77,22 @@ export const montarApp = async () => {
     if (!vista) throw new Error(`No hay ninguna vista con testID "${testID}"`);
     return StyleSheet.flatten(vista.props.style);
   };
+  // Estilo del primer contenedor interno de una tarjeta (el que envuelve a los hijos: ahí aplica el gap).
+  const estiloDeContenido = (testID: string) => {
+    const vista = app.root.findAll(n => esHost(n, 'View') && n.props.testID === testID)[0];
+    if (!vista) throw new Error('No hay ninguna vista con ese testID: '+testID);
+    const hijo = vista.findAll(n => esHost(n, 'View') && n !== vista)[0];
+    return StyleSheet.flatten(hijo?.props.style);
+  };
+  // Los colores de fondo de las vistas dibujadas dentro de ese nodo (para distinguir lleno de contorno).
+  const fondosDe = (testID: string): unknown[] => {
+    const nodoRaiz = app.root.findAll(n => n.props.testID === testID)[0];
+    if (!nodoRaiz) throw new Error('No hay nada con testID: ' + testID);
+    return nodoRaiz
+      .findAll(n => esHost(n, 'View'))
+      .map(n => StyleSheet.flatten(n.props.style)?.backgroundColor)
+      .filter(Boolean);
+  };
   const cuantos = (prefijo: string) =>
     app.root.findAll(n => esHost(n, 'View') && String(n.props.testID ?? '').startsWith(prefijo))
       .length;
@@ -120,6 +136,8 @@ export const montarApp = async () => {
     valorDe,
     interruptor,
     estiloDe,
+    estiloDeContenido,
+    fondosDe,
     cuantos,
     pestanaActiva,
     titulosDeDia,
