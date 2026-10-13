@@ -483,7 +483,7 @@ export const PerfilScreen = () => {
                 onValueChange={v => pagoSeguro.ejecutar({ aceptaYape: v })}
                 testID="switch-acepta-yape"
               />
-              <View style={[styles.separador, styles.indentada]}>
+              <View style={styles.separador}>
                 <SwitchRow
                   label="El Yape no está a mi nombre"
                   value={perfil.yapeAjeno}
@@ -708,7 +708,12 @@ const TarjetaProducto = ({
   const deja = teDeja(producto);
   const revision = requiereRevision(producto, hoy);
   return (
-    <Card variant="bordered" style={styles.tarjetaProducto} testID={`producto-${producto.id}`}>
+    <Card
+      variant="bordered"
+      style={styles.tarjetaProducto}
+      wrapperStyle={styles.contenidoProducto}
+      testID={`producto-${producto.id}`}
+    >
       <View style={styles.filaProducto}>
         <Text
           variant="bodyStrong"
@@ -822,10 +827,11 @@ const styles = StyleSheet.create({
   datoTexto: { flex: 1 },
   edicion: { gap: spacing.sm },
   acciones: { flexDirection: 'row', gap: spacing.sm },
-  indentada: { paddingLeft: spacing.lg },
   ayudaInterruptor: { paddingBottom: spacing.md },
   panelPermiso: { paddingVertical: spacing.md, gap: spacing.sm },
-  tarjetaProducto: { backgroundColor: colors.background, gap: spacing.xs },
+  // Padding propio de la tarjeta (spacing.md) y nada más; el aire entre líneas va en el contenedor interno.
+  tarjetaProducto: { backgroundColor: colors.background, padding: spacing.md },
+  contenidoProducto: { gap: spacing.xs },
   filaProducto: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -834,9 +840,9 @@ const styles = StyleSheet.create({
   },
   nombreProducto: { flex: 1 },
   precioProducto: { flexShrink: 0 },
-  accionesProducto: { gap: spacing.xs },
+  accionesProducto: { gap: spacing.sm },
   accionesSecundarias: { flexDirection: 'row', gap: spacing.sm },
-  accionIgual: { flex: 1, alignSelf: 'stretch' },
+  accionIgual: { flex: 1, alignSelf: 'stretch', minHeight: 48 },
   actualizado: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   actualizadoTexto: { flex: 1 },
   aviso: { marginTop: spacing.sm },

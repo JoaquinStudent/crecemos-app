@@ -15,6 +15,8 @@ export interface CardProps extends Omit<ViewProps, 'style'> {
   /** Quita el relleno interno (para listas o contenido que llega al borde). */
   flush?: boolean;
   style?: StyleProp<ViewStyle>;
+  /** Estilo del contenedor interno de RNE (el que envuelve a los hijos): ahí sí aplica `gap`. */
+  wrapperStyle?: StyleProp<ViewStyle>;
   children?: ReactNode;
 }
 
@@ -22,6 +24,7 @@ export const Card = ({
   variant = 'plain',
   flush = false,
   style,
+  wrapperStyle,
   children,
   ...rest
 }: CardProps) => (
@@ -32,6 +35,7 @@ export const Card = ({
       flush && styles.flush,
       style,
     ]}
+    wrapperStyle={wrapperStyle}
     {...rest}
   >
     {children}

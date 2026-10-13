@@ -8,6 +8,7 @@ import { createElement } from 'react';
 import { StyleSheet } from 'react-native';
 import ReactTestRenderer, { act, ReactTestInstance } from 'react-test-renderer';
 import { clearAllMockStorages } from '@react-native-async-storage/async-storage/jest';
+import { spacing } from '@theme';
 import App from '../App';
 import { fechaLocal } from '@dominio/fecha';
 import { PRODUCTOS_POR_DEFECTO } from '@dominio/productosPorDefecto';
@@ -223,6 +224,42 @@ describe('Perfil y hoja "Cambiar precio"', () => {
 
     expect(interruptor('switch-yape-ajeno').props.value).toBe(true);
     expect((await obtenerPerfil())?.yapeAjeno).toBe(true);
+  });
+
+  it('el interruptor del Yape ajeno comparte borde izquierdo con "Acepto Yape" (sin sangría anidada)', async () => {
+    const { tocar, interruptor } = await montarApp();
+    await tocar('abrir-perfil');
+    const sangria = (testID: string) => {
+      let total = 0;
+      for (let n = interruptor(testID).parent; n; n = n.parent) {
+        if (typeof n.type !== 'string') continue;
+        const e = StyleSheet.flatten(n.props.style) ?? {};
+        if (e.borderWidth === 1) break; // llegó a la tarjeta
+        total += Number(e.paddingLeft ?? e.paddingHorizontal ?? 0) + Number(e.marginLeft ?? e.marginHorizontal ?? 0);
+      }
+      return total;
+    };
+    expect(sangria('switch-yape-ajeno')).toBe(sangria('switch-acepta-yape'));
+  });
+
+  it('las acciones del producto van compactas: filas separadas por spacing.sm, botones de 48 y sin márgenes sueltos', async () => {
+    const { tocar, estiloDeVista } = await montarApp();
+    await tocar('abrir-perfil');
+    const id = PRODUCTOS_POR_DEFECTO[0].id;
+    const acciones = estiloDeVista(`acciones-producto-${id}`);
+    expect(acciones.gap).toBe(spacing.sm);
+    expect(acciones.margin ?? acciones.marginTop ?? acciones.marginBottom ?? acciones.paddingBottom ?? 0).toBe(0);
+    const tarjeta = StyleSheet.flatten(
+      montada!.root.findAll(n => n.props.testID === `producto-${id}`)[0].props.style,
+    );
+    expect(tarjeta.padding).toBe(spacing.md);
+    for (const b of ['editar-producto', 'activo-producto']) {
+      const e = StyleSheet.flatten(
+        montada!.root.findAll(n => n.props.testID === `${b}-${id}` && typeof n.type !== 'string')[0].props.style,
+      ) as { flex?: number; minHeight?: number };
+      expect(e.flex).toBe(1);
+      expect(e.minHeight).toBe(48);
+    }
   });
 
   it('sin "Acepto Yape" el otro interruptor se desactiva', async () => {
