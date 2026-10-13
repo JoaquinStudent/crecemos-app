@@ -454,11 +454,15 @@ describe('recorrido guiado: accesibilidad y diseño', () => {
     await abrir(BARRA);
     const barra = StyleSheet.flatten(porId('recorrido-marco')!.props.style);
     expect(BARRA.y - barra.top!).toBe(4);
+    // A los lados no pasa de lo medido: no tapa las etiquetas vecinas de la barra.
+    expect(barra.left).toBe(BARRA.x);
+    expect(barra.left! + barra.width!).toBe(BARRA.x + BARRA.width);
     await act(async () => montada!.unmount());
     montada = null;
     await abrir(MEDIO);
     const medio = StyleSheet.flatten(porId('recorrido-marco')!.props.style);
     expect(MEDIO.y - medio.top!).toBe(8);
+    expect(MEDIO.x - medio.left!).toBe(8);
   });
 
   it('el hueco nunca se sale de la ventana', async () => {

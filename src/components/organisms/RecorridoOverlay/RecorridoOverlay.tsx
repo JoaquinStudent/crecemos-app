@@ -23,7 +23,7 @@ import type { Rect } from '@components/molecules/PasoGuia';
 
 /** Aire entre lo señalado y el borde del hueco. */
 const MARGEN_HUECO = spacing.sm;
-/** Más justo para lo que está en la barra de abajo: no debe cubrir las etiquetas vecinas. */
+/** En la barra de abajo: solo aire vertical; a los lados el hueco no pasa de lo medido (no tapa las etiquetas vecinas). */
 const MARGEN_HUECO_BARRA = spacing.xs;
 /** Separación entre el hueco y la tarjeta. */
 const SEPARACION = spacing.md;
@@ -73,9 +73,10 @@ export const RecorridoOverlay = ({
   // Lo que llega hasta la barra de abajo lleva un margen más justo; el hueco siempre cabe en la ventana.
   const enBarra = rect.y + rect.height >= alto - insets.bottom - size.touch;
   const margen = enBarra ? MARGEN_HUECO_BARRA : MARGEN_HUECO;
-  const x = Math.min(ancho, Math.max(0, rect.x - margen));
+  const margenX = enBarra ? 0 : margen;
+  const x = Math.min(ancho, Math.max(0, rect.x - margenX));
   const y = Math.min(alto, Math.max(0, rect.y - margen));
-  const derecha = Math.max(x, Math.min(ancho, rect.x + rect.width + margen));
+  const derecha = Math.max(x, Math.min(ancho, rect.x + rect.width + margenX));
   const abajoDelHueco = Math.max(y, Math.min(alto, rect.y + rect.height + margen));
   const anchoHueco = derecha - x;
   const altoHueco = abajoDelHueco - y;
