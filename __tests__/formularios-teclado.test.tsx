@@ -65,7 +65,8 @@ const comprobarPie = async (
   await teclado.abrir(312, 528);
   expect(paddingBottomDe(vistaDeKav(app))).toBe(800 - 528);
   const contenido = StyleSheet.flatten(app.propsDe(`${pantalla}-scroll`).contentContainerStyle);
-  expect(contenido.paddingBottom).toBeUndefined();
+  // Solo el colchón fijo que deja subir el último campo: nunca la altura del teclado (272) otra vez.
+  expect(contenido.paddingBottom).toBe(spacing.xxl);
   expect(contenido.padding).toBe(spacing.lg);
   // Con el teclado abierto los botones siguen en el árbol, dentro del pie.
   for (const id of botones) expect(app.existe(id)).toBe(true);

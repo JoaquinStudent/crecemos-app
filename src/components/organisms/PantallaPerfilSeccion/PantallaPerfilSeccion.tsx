@@ -93,6 +93,7 @@ export const PantallaPerfilSeccion = ({
 const styles = StyleSheet.create({
   pantalla: { flex: 1, backgroundColor: colors.background },
   contenido: { padding: spacing.lg, paddingBottom: spacing.xxl, gap: spacing.lg },
-  contenidoConPie: { padding: spacing.lg, gap: spacing.lg },
+  // El colchón de abajo deja que el último campo suba y no quede pegado al pie fijo.
+  contenidoConPie: { padding: spacing.lg, paddingBottom: spacing.xxl, gap: spacing.lg },
   pieConTeclado: { paddingBottom: spacing.sm },
 });
