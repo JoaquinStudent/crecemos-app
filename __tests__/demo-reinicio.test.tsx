@@ -95,6 +95,7 @@ describe('Demo reproducible: cargar, borrar y volver a cargar el ejemplo', () =>
 
     // 3. Perfil → Borrar datos de ejemplo.
     await app.tocar('abrir-perfil');
+    await app.tocar('perfil-opcion-borrar');
     await app.tocar('borrar-ejemplo');
     await app.tocar('borrar-ejemplo-si');
     expect(await listarCierres()).toEqual([]);
@@ -105,6 +106,7 @@ describe('Demo reproducible: cargar, borrar y volver a cargar el ejemplo', () =>
     expect(await listarYapes()).toHaveLength(1);
 
     // 4. De vuelta en Inicio: estado vacío otra vez, listo para repetir la demo.
+    await app.tocar('seccion-atras');
     await app.tocar('perfil-atras');
     expect(app.existe('inicio-ciclo')).toBe(false);
     expect(app.existe('inicio-manana')).toBe(false);

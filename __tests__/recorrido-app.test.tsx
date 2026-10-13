@@ -147,6 +147,7 @@ describe('recorrido guiado en la app', () => {
     const { existe, textoDe, tocar } = await montarApp();
     expect(existe('recorrido-overlay')).toBe(false);
     await tocar('abrir-perfil');
+    await tocar('perfil-opcion-ayuda');
     expect(existe('ver-recorrido')).toBe(true);
     await tocar('ver-recorrido');
     expect(existe('recorrido-overlay')).toBe(true);

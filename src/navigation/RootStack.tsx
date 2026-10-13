@@ -10,6 +10,8 @@ import type { NavigatorScreenParams } from '@react-navigation/native';
 import { PerfilScreen } from '@screens/PerfilScreen';
 import { PerfilDatosScreen } from '@screens/PerfilDatosScreen';
 import { PerfilPagosScreen } from '@screens/PerfilPagosScreen';
+import { PerfilAyudaScreen } from '@screens/PerfilAyudaScreen';
+import { PerfilBorrarDatosScreen } from '@screens/PerfilBorrarDatosScreen';
 import { PerfilProductosScreen } from '@screens/PerfilProductosScreen';
 import { PerfilRecordatorioScreen } from '@screens/PerfilRecordatorioScreen';
 import { CerrarDiaScreen } from '@screens/CerrarDiaScreen';
@@ -29,6 +31,8 @@ export type RootStackParamList = {
   PerfilPagos: undefined;
   PerfilRecordatorio: undefined;
   PerfilProductos: undefined;
+  PerfilBorrarDatos: undefined;
+  PerfilAyuda: undefined;
   QueMeDeja: undefined;
   MiReporte: undefined;
   /** La alcancía de la cuota del préstamo. */
@@ -46,6 +50,8 @@ export const RootStack = () => (
     <Stack.Screen name="PerfilPagos" component={PerfilPagosScreen} />
     <Stack.Screen name="PerfilRecordatorio" component={PerfilRecordatorioScreen} />
     <Stack.Screen name="PerfilProductos" component={PerfilProductosScreen} />
+    <Stack.Screen name="PerfilBorrarDatos" component={PerfilBorrarDatosScreen} />
+    <Stack.Screen name="PerfilAyuda" component={PerfilAyudaScreen} />
     <Stack.Screen name="QueMeDeja" component={QueMeDejaScreen} />
     <Stack.Screen name="MiReporte" component={MiReporteScreen} />
     <Stack.Screen name="MiMeta" component={MiMetaScreen} />

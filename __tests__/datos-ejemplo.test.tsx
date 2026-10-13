@@ -137,16 +137,24 @@ describe('Perfil: Borrar datos de ejemplo', () => {
   beforeEach(() => clearAllMockStorages());
   afterEach(desmontarApp);
 
-  it('sin datos de ejemplo no hay botón', async () => {
+  it('sin datos de ejemplo la fila lo dice, la pantalla no ofrece borrar y avisa que no hay nada', async () => {
     const app = await montarApp();
     await app.tocar('abrir-perfil');
+    expect(app.textoDe('perfil-opcion-borrar-resumen')).toBe('No hay datos de ejemplo');
+    await app.tocar('perfil-opcion-borrar');
     expect(app.existe('borrar-ejemplo')).toBe(false);
+    expect(app.existe('borrar-vacio')).toBe(true);
+    expect(app.textos()).toContain('No hay datos de ejemplo');
+    // Sin nada propio ni de ejemplo, se puede volver a cargar la demostración.
+    expect(app.existe('cargar-ejemplo-borrar')).toBe(true);
   });
 
   it('pide confirmar diciendo cuántos días se van, y recién ahí borra solo lo de ejemplo', async () => {
     await sembrar(true);
     const app = await montarApp();
     await app.tocar('abrir-perfil');
+    expect(app.textoDe('perfil-opcion-borrar-resumen')).toBe('3 días de ejemplo');
+    await app.tocar('perfil-opcion-borrar');
 
     await app.tocar('borrar-ejemplo');
     expect(app.textoDe('borrar-ejemplo-mensaje')).toContain('Se van a borrar 3 días de ejemplo');
@@ -159,12 +167,14 @@ describe('Perfil: Borrar datos de ejemplo', () => {
     expect(restantes[0].fecha).toBe('2026-10-06');
     expect(app.existe('borrar-ejemplo')).toBe(false);
     expect(app.existe('perfil-datos-ejemplo')).toBe(false);
+    expect(app.existe('borrar-vacio')).toBe(true);
   });
 
   it('"No, dejarlos" no borra nada', async () => {
     await sembrar(false);
     const app = await montarApp();
     await app.tocar('abrir-perfil');
+    await app.tocar('perfil-opcion-borrar');
     await app.tocar('borrar-ejemplo');
 
     await app.tocar('borrar-ejemplo-no');

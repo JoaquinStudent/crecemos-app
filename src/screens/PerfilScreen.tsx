@@ -7,25 +7,30 @@ import { Pressable, ScrollView, StatusBar, StyleSheet, View } from 'react-native
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { ChevronLeft, UserRound, Wallet, BellRing, Package } from 'lucide-react-native';
+import { ChevronLeft, UserRound, Wallet, BellRing, Package, Trash2, CircleHelp } from 'lucide-react-native';
 import { colors, radius, spacing } from '@theme';
 import { Text } from '@components/atoms/Text';
-import { mensajeBorrarEjemplo } from '@dominio/origen';
 import { MensajeError } from '@components/atoms/MensajeError';
 import { useAccionSegura } from '@hooks/useAccionSegura';
 import { Button } from '@components/atoms/Button';
 import { Icon } from '@components/atoms/Icon';
 import { AvatarPerfil } from '@components/molecules/AvatarPerfil';
 import { OpcionPerfil } from '@components/molecules/OpcionPerfil';
-import { resumenDatos, resumenPagos, resumenProductos, resumenRecordatorio } from '@dominio/perfilResumen';
+import {
+  RESUMEN_AYUDA,
+  resumenBorrar,
+  resumenDatos,
+  resumenPagos,
+  resumenProductos,
+  resumenRecordatorio,
+} from '@dominio/perfilResumen';
 import { avatarDe } from '@dominio/foto';
-import { useRecorrido } from '@context/RecorridoProvider';
 import { useCrecemos } from '@context/CrecemosProvider';
 import { elegirFoto, mensajeFoto } from '@services/foto';
 import type { RootStackParamList } from '@navigation/RootStack';
 
 export const PerfilScreen = () => {
-  const { perfil, productos, guardarFoto, quitarFoto, datosDeEjemplo, borrarDatosDeEjemplo } = useCrecemos();
+  const { perfil, productos, guardarFoto, quitarFoto, datosDeEjemplo } = useCrecemos();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList, 'Perfil'>>();
   // El encabezado de Perfil es magenta: con íconos oscuros la barra de estado no se lee. Mientras
   // esta pantalla está al frente se pide el estilo claro; al salir se restaura el oscuro de la app.
@@ -41,19 +46,6 @@ export const PerfilScreen = () => {
     await quitarFoto();
     setConfirmandoQuitar(false);
   }, 'No pudimos quitar tu foto. Inténtalo otra vez.');
-  // Borrar lo de ejemplo pide confirmar diciendo cuántos días se van (UX, regla 8).
-  const [confirmandoBorrarEjemplo, setConfirmandoBorrarEjemplo] = useState(false);
-  const borrarEjemploSeguro = useAccionSegura(async () => {
-    await borrarDatosDeEjemplo();
-    setConfirmandoBorrarEjemplo(false);
-  }, 'No pudimos borrar los datos de ejemplo. Inténtalo otra vez.');
-  // "Ver el recorrido otra vez": olvida que lo vio, vuelve a Inicio y lo arranca allí.
-  const { repetir: repetirRecorrido } = useRecorrido();
-  const recorridoSeguro = useAccionSegura(async () => {
-    await repetirRecorrido();
-    navigation.navigate('Tabs', { screen: 'Inicio' });
-  }, 'No pudimos abrir el recorrido. Inténtalo otra vez.');
-  const hayEjemplo = datosDeEjemplo.dias > 0 || datosDeEjemplo.productos > 0;
 
   // Foto de perfil: se guarda al elegirla. Los botones dependen de si ya hay una foto válida.
   const hayFoto = avatarDe(perfil).tipo === 'foto';
@@ -259,79 +251,30 @@ export const PerfilScreen = () => {
               title="Mis productos"
               summary={resumenProductos(productos)}
               onPress={() => navigation.navigate('PerfilProductos')}
-              divider={false}
               testID="perfil-opcion-productos"
             />
-          </View>
-
-          {hayEjemplo ? (
-            <View style={styles.seccion} testID="perfil-datos-ejemplo">
-              <View>
-                <Text variant="h3">Datos de ejemplo</Text>
-                <Text variant="caption" color="textMuted">
-                  Vinieron con la demostración. No cuentan en el reporte para tu banco cuando ya tienes
-                  tus propios días.
-                </Text>
-              </View>
-              {confirmandoBorrarEjemplo ? (
-                <View style={styles.tarjetaProducto}>
-                  <Text variant="bodyStrong" accessibilityLiveRegion="polite" testID="borrar-ejemplo-mensaje">
-                    {mensajeBorrarEjemplo(datosDeEjemplo)}
-                  </Text>
-                  <MensajeError mensaje={borrarEjemploSeguro.mensajeError} testID="error-borrar-ejemplo" />
-                  <Button
-                    title="Sí, borrar los de ejemplo"
-                    variant="danger"
-                    fullWidth
-                    loading={borrarEjemploSeguro.ejecutando}
-                    onPress={() => borrarEjemploSeguro.ejecutar()}
-                    testID="borrar-ejemplo-si"
-                  />
-                  <Button
-                    title="No, dejarlos"
-                    variant="outline"
-                    fullWidth
-                    onPress={() => setConfirmandoBorrarEjemplo(false)}
-                    testID="borrar-ejemplo-no"
-                  />
-                </View>
-              ) : (
-                <Button
-                  title="Borrar datos de ejemplo"
-                  variant="outline"
-                  fullWidth
-                  onPress={() => {
-                    borrarEjemploSeguro.limpiarError();
-                    setConfirmandoBorrarEjemplo(true);
-                  }}
-                  testID="borrar-ejemplo"
-                />
-              )}
-            </View>
-          ) : null}
-
-          <View style={styles.seccion} testID="perfil-ayuda">
-            <View>
-              <Text variant="h3">Ayuda</Text>
-              <Text variant="caption" color="textMuted">
-                Un paseo corto por lo más importante de la app.
-              </Text>
-            </View>
-            <Button
-              title="Ver el recorrido otra vez"
-              variant="outline"
-              fullWidth
-              loading={recorridoSeguro.ejecutando}
-              onPress={() => recorridoSeguro.ejecutar()}
-              testID="ver-recorrido"
+            <OpcionPerfil
+              icon={Trash2}
+              title="Borrar datos"
+              summary={resumenBorrar(datosDeEjemplo)}
+              onPress={() => navigation.navigate('PerfilBorrarDatos')}
+              testID="perfil-opcion-borrar"
             />
-            <MensajeError mensaje={recorridoSeguro.mensajeError} testID="error-ver-recorrido" />
+            <OpcionPerfil
+              icon={CircleHelp}
+              title="Ayuda"
+              summary={RESUMEN_AYUDA}
+              onPress={() => navigation.navigate('PerfilAyuda')}
+              divider={false}
+              testID="perfil-opcion-ayuda"
+            />
           </View>
         </View>
       </ScrollView>
     </View>
   );
 };
+
 const styles = StyleSheet.create({
   pantalla: { flex: 1, backgroundColor: colors.background },
   scroll: { paddingBottom: spacing.xxl },
@@ -366,25 +309,5 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   contenido: { padding: spacing.lg, gap: spacing.xl },
-  seccion: { gap: spacing.md },
-  // Tarjeta con un interruptor adentro: respira arriba y abajo (el texto no toca el borde).
   menu: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.lg, overflow: 'hidden' },
-  tarjetaConAire: { paddingVertical: spacing.md },
-  tarjeta: {
-    backgroundColor: colors.background,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.lg,
-    paddingHorizontal: spacing.lg,
-  },
-  separador: { borderTopWidth: 1, borderTopColor: colors.border },
-  filaDato: { paddingVertical: spacing.sm },
-  dato: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  datoTexto: { flex: 1 },
-  edicion: { gap: spacing.sm },
-  acciones: { flexDirection: 'row', gap: spacing.sm },
-  ayudaInterruptor: { paddingBottom: spacing.md },
-  panelPermiso: { paddingVertical: spacing.md, gap: spacing.sm },
-  // Padding propio de la tarjeta (spacing.md) y nada más; el aire entre líneas va en el contenedor interno.
-  tarjetaProducto: { backgroundColor: colors.background, padding: spacing.md },
 });
