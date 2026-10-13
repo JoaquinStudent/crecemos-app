@@ -6,8 +6,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   KeyboardAvoidingView,
-  Platform,
-  ScrollView,
   StyleSheet,
   Vibration,
   View,
@@ -29,6 +27,7 @@ import { Card } from '@components/molecules/Card';
 import { ChipGroup, ChipOption } from '@components/molecules/ChipGroup';
 import { SwitchRow } from '@components/molecules/SwitchRow';
 import { ScreenHeader } from '@components/molecules/ScreenHeader';
+import { ScrollConTeclado } from '@components/molecules/ScrollConTeclado';
 import { StickyFooter } from '@components/molecules/StickyFooter';
 import { interpretarDia, resumenEntendido } from '@analisis/contarDia';
 import type { InterpretacionDia } from '@analisis/contarDia';
@@ -41,6 +40,7 @@ import { estado as estadoDeMeta, sugerenciaDeHoy, teQuedaDelUltimoCierre } from 
 import type { Cierre, CategoriaGasto, DatosCierre, Gasto } from '@dominio/tipos';
 import { MensajeError } from '@components/atoms/MensajeError';
 import { useAccionSegura } from '@hooks/useAccionSegura';
+import { useTecladoVisible } from '@hooks/useTecladoVisible';
 import { useCrecemos } from '@context/CrecemosProvider';
 import type { RootStackParamList } from '@navigation/RootStack';
 
@@ -109,7 +109,8 @@ export const CerrarDiaScreen = () => {
   const hayOriginal = original !== undefined;
   const cierresRef = useRef(cierres);
   cierresRef.current = cierres;
-  const scrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
+  const scrollRef = useRef<React.ComponentRef<typeof ScrollConTeclado>>(null);
+  const teclado = useTecladoVisible();
   const yapesRef = useRef(yapes);
   yapesRef.current = yapes;
   // Los yapes anotados del día que se está cerrando (o editando).
@@ -375,7 +376,8 @@ export const CerrarDiaScreen = () => {
     <SafeAreaView style={styles.pantalla} edges={['top']}>
       <KeyboardAvoidingView
         style={styles.pantalla}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior="padding"
+        keyboardVerticalOffset={0}
       >
         <ScreenHeader
           title="Cerrar mi día"
@@ -389,10 +391,12 @@ export const CerrarDiaScreen = () => {
           backTestID="cerrar-atras"
           subtitleTestID="cerrar-fecha"
         />
-        <ScrollView
+        {/* El pie sube con el teclado (KeyboardAvoidingView): la zona de scroll termina sobre él. */}
+        <ScrollConTeclado
           ref={scrollRef}
           contentContainerStyle={styles.contenido}
-          keyboardShouldPersistTaps="handled"
+          conRelleno={false}
+          testID="cerrar-scroll"
         >
           {editandoHoy ? (
             <Callout accessibilityLiveRegion="polite" testID="cerrar-ya-cerraste">
@@ -606,9 +610,10 @@ export const CerrarDiaScreen = () => {
               {formatoSoles(teQueda)}
             </Text>
           </Card>
-        </ScrollView>
+        </ScrollConTeclado>
 
-        <StickyFooter>
+        {/* Con el teclado abierto el margen del gesto del sistema ya no hace falta. */}
+        <StickyFooter style={teclado.visible ? styles.pieConTeclado : undefined}>
           {errores.cierre ? (
             <Text color="danger" accessibilityLiveRegion="polite" testID="error-cierre">
               {errores.cierre}
@@ -642,6 +647,7 @@ const styles = StyleSheet.create({
   pantalla: { flex: 1, backgroundColor: colors.background },
   encabezado: { paddingHorizontal: spacing.lg, paddingTop: spacing.xs },
   contenido: { padding: spacing.lg, gap: spacing.xl },
+  pieConTeclado: { paddingBottom: spacing.sm },
   exito: {
     flex: 1,
     alignItems: 'center',

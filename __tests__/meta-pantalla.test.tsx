@@ -21,6 +21,7 @@ import {
   obtenerMeta,
 } from '@storage/repositorio';
 import { desmontarApp, montarApp } from '../testutils/app';
+import { crearTecladoSimulado } from '../testutils/teclado';
 
 const base = () => createAsyncStorage('crecemos');
 const HOY = () => fechaLocal(new Date());
@@ -92,17 +93,24 @@ describe('Mi cuota: pulido de la pantalla', () => {
     expect(colorDelBoton('meta-editar')).not.toBe(colors.danger);
   });
 
-  it('con el formulario abierto el scroll deja espacio para llegar a "Guardar mi meta" con el teclado', async () => {
+  it('con el teclado abierto el scroll suma su alto (ya no hay un relleno fijo gigante)', async () => {
+    const teclado = crearTecladoSimulado();
     const app = await montarApp();
+    const relleno = () =>
+      estiloDeProps({ style: app.propsDe('meta-scroll').contentContainerStyle }).paddingBottom;
     await app.tocar('inicio-crear-meta');
     expect(app.propsDe('meta-scroll').keyboardShouldPersistTaps).toBe('handled');
-    expect(estiloDeProps({ style: app.propsDe('meta-scroll').contentContainerStyle }).paddingBottom).toBeUndefined();
+    expect(relleno()).toBeUndefined();
     await app.tocar('meta-crear');
 
     expect(app.existe('meta-guardar')).toBe(true);
-    expect(
-      estiloDeProps({ style: app.propsDe('meta-scroll').contentContainerStyle }).paddingBottom,
-    ).toBeGreaterThanOrEqual(300);
+    // Formulario abierto, teclado cerrado: nada de relleno de más.
+    expect(relleno()).toBeUndefined();
+    await teclado.abrir(312, 528);
+    expect(relleno()).toBe(312 + spacing.lg);
+    await teclado.cerrar();
+    expect(relleno()).toBeUndefined();
+    jest.restoreAllMocks();
   });
 });
 

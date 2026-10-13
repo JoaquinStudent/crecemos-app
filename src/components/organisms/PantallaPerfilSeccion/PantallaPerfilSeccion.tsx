@@ -1,14 +1,15 @@
 // src/components/organisms/PantallaPerfilSeccion/PantallaPerfilSeccion.tsx
 // El marco común de cada pantalla que se abre desde el Perfil (Mis datos, Cómo me pagan...): zona
-// segura arriba, encabezado con "Atrás" y título, y un ScrollView que el teclado no tapa.
+// segura arriba, encabezado con "Atrás" y título, y un ScrollConTeclado que el teclado no tapa.
 // Con borde a borde en Android 16 `adjustResize` se ignora y el teclado se dibuja ENCIMA: el
-// KeyboardAvoidingView con `padding` (en las dos plataformas, como Preguntar) achica la zona visible
-// y así el campo enfocado y el botón "Guardar" quedan alcanzables.
+// ScrollConTeclado suma el alto del teclado al relleno inferior y lleva el campo enfocado sobre él,
+// así el campo y el botón "Guardar" quedan alcanzables. UN solo mecanismo: sin KeyboardAvoidingView.
 import { ReactNode } from 'react';
-import { KeyboardAvoidingView, ScrollView, StyleSheet } from 'react-native';
+import { StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, spacing } from '@theme';
 import { ScreenHeader } from '@components/molecules/ScreenHeader';
+import { ScrollConTeclado } from '@components/molecules/ScrollConTeclado';
 
 export interface PantallaPerfilSeccionProps {
   title: string;
@@ -27,22 +28,20 @@ export const PantallaPerfilSeccion = ({
   testID,
 }: PantallaPerfilSeccionProps) => (
   <SafeAreaView style={styles.pantalla} edges={['top']} testID={testID}>
-    <KeyboardAvoidingView style={styles.pantalla} behavior="padding" keyboardVerticalOffset={0}>
-      <ScrollView
-        keyboardShouldPersistTaps="handled"
-        contentContainerStyle={styles.contenido}
-        testID={testID ? `${testID}-scroll` : undefined}
-      >
-        <ScreenHeader
-          title={title}
-          subtitle={subtitle}
-          onBack={onBack}
-          backTestID="seccion-atras"
-          titleTestID={testID ? `${testID}-titulo` : undefined}
-        />
-        {children}
-      </ScrollView>
-    </KeyboardAvoidingView>
+    <ScrollConTeclado
+      keyboardShouldPersistTaps="handled"
+      contentContainerStyle={styles.contenido}
+      testID={testID ? `${testID}-scroll` : undefined}
+    >
+      <ScreenHeader
+        title={title}
+        subtitle={subtitle}
+        onBack={onBack}
+        backTestID="seccion-atras"
+        titleTestID={testID ? `${testID}-titulo` : undefined}
+      />
+      {children}
+    </ScrollConTeclado>
   </SafeAreaView>
 );
 

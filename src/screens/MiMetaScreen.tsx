@@ -3,7 +3,7 @@
 // enseña; con meta, el anillo de avance, cuánto separar hoy (UN botón principal, un toque),
 // lo ya separado con su "Quitar", y editar o borrar la meta. Todo con texto, nada solo con ícono.
 import React, { useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -21,6 +21,7 @@ import { CargandoBloques } from '@components/molecules/CargandoBloques';
 import { ChipGroup, ChipOption } from '@components/molecules/ChipGroup';
 import { EmptyState } from '@components/molecules/EmptyState';
 import { ScreenHeader } from '@components/molecules/ScreenHeader';
+import { ScrollConTeclado } from '@components/molecules/ScrollConTeclado';
 import { fechaDesdePartes, fechaLocal } from '@dominio/fecha';
 import { formatoFecha, formatoFechaCorta, formatoSoles, parseAmount } from '@dominio/formato';
 import {
@@ -48,9 +49,8 @@ export const MiMetaScreen = () => {
 
   return (
     <SafeAreaView style={styles.pantalla} edges={['top']}>
-      <ScrollView
-        contentContainerStyle={[styles.contenido, formulario && styles.contenidoConTeclado]}
-        keyboardShouldPersistTaps="handled"
+      <ScrollConTeclado
+        contentContainerStyle={styles.contenido}
         testID="meta-scroll"
       >
         <ScreenHeader
@@ -75,7 +75,7 @@ export const MiMetaScreen = () => {
             actionTestID="meta-crear"
           />
         )}
-      </ScrollView>
+      </ScrollConTeclado>
     </SafeAreaView>
   );
 };
@@ -464,8 +464,6 @@ const FormularioMeta = ({ meta, alTerminar }: { meta: Meta | null; alTerminar: (
 const styles = StyleSheet.create({
   pantalla: { flex: 1, backgroundColor: colors.background },
   contenido: { padding: spacing.lg, gap: spacing.xl },
-  // Con el formulario abierto el teclado tapa el pie: este relleno deja subir "Guardar mi meta" por encima de él.
-  contenidoConTeclado: { paddingBottom: spacing.xxl * 10 },
   centrado: { alignItems: 'stretch', gap: spacing.md },
   bloque: { gap: spacing.md },
   aporte: {

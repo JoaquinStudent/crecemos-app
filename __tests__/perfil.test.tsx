@@ -10,6 +10,7 @@ import ReactTestRenderer, { act, ReactTestInstance } from 'react-test-renderer';
 import { clearAllMockStorages } from '@react-native-async-storage/async-storage/jest';
 import { spacing } from '@theme';
 import App from '../App';
+import { crearTecladoSimulado } from '../testutils/teclado';
 import { fechaLocal } from '@dominio/fecha';
 import { PRODUCTOS_POR_DEFECTO } from '@dominio/productosPorDefecto';
 import { guardarProducto, listarProductos, obtenerPerfil } from '@storage/repositorio';
@@ -401,22 +402,31 @@ describe('Perfil y hoja "Cambiar precio"', () => {
     expect(despues?.yapeParentesco).toBe('hermana');
   });
 
-  // GUARDA, no verificación: Jest no ve el teclado. Solo evita que alguien quite lo que hace que
-  // el teclado (que en Android con borde a borde se dibuja ENCIMA) no tape el campo ni el "Guardar"
-  // de las pantallas con formularios. Que el campo quede sobre el teclado se comprueba a mano.
+  // Jest no ve el teclado: con uno simulado se comprueba que el ScrollConTeclado suma su alto al
+  // relleno (UN solo mecanismo: sin KeyboardAvoidingView, que contaría el teclado dos veces).
+  // Que el campo quede sobre el teclado se comprueba a mano en el teléfono.
   it.each([
     ['perfil-opcion-datos', 'perfil-datos'],
     ['perfil-opcion-pagos', 'perfil-pagos'],
     ['perfil-opcion-recordatorio', 'perfil-recordatorio'],
-  ])('guarda: la pantalla de %s se hace sitio sobre el teclado', async (fila, pantalla) => {
+  ])('guarda: la pantalla de %s se hace sitio sobre el teclado sin contarlo dos veces', async (fila, pantalla) => {
+    const teclado = crearTecladoSimulado();
     const { tocar, buscar } = await montarApp();
+    const propsDe = (id: string) =>
+      buscar(n => n.props.testID === id && typeof n.type === 'string')[0].props;
     await tocar('abrir-perfil');
     await tocar(fila);
 
-    const evita = buscar(n => (n.type as unknown) === 'KeyboardAvoidingView' || n.type === KeyboardAvoidingView);
-    expect(evita.length).toBeGreaterThan(0);
-    expect(evita[0].props.behavior).toBe('padding');
-    const scroll = buscar(n => n.props.testID === `${pantalla}-scroll`)[0];
-    expect(scroll.props.keyboardShouldPersistTaps).toBe('handled');
+    expect(buscar(n => (n.type as unknown) === 'KeyboardAvoidingView' || n.type === KeyboardAvoidingView)).toHaveLength(0);
+    const relleno = () =>
+      StyleSheet.flatten(propsDe(`${pantalla}-scroll`).contentContainerStyle).paddingBottom;
+    expect(propsDe(`${pantalla}-scroll`).keyboardShouldPersistTaps).toBe('handled');
+    expect(relleno()).toBe(spacing.xxl);
+
+    await teclado.abrir(312, 528);
+    expect(relleno()).toBe(312 + spacing.lg);
+    await teclado.cerrar();
+    expect(relleno()).toBe(spacing.xxl);
+    jest.restoreAllMocks();
   });
 });
