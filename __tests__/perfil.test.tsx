@@ -5,6 +5,7 @@
  */
 
 import { createElement } from 'react';
+import { StyleSheet } from 'react-native';
 import ReactTestRenderer, { act, ReactTestInstance } from 'react-test-renderer';
 import { clearAllMockStorages } from '@react-native-async-storage/async-storage/jest';
 import App from '../App';
@@ -46,6 +47,11 @@ const montarApp = async () => {
   const interruptor = (testID: string) =>
     app.root.findAll(n => n.props.testID === testID && 'value' in n.props)[0];
 
+  const estiloDeVista = (testID: string) =>
+    StyleSheet.flatten(app.root.findAll(n => typeof n.type === 'string' && n.props.testID === testID)[0].props.style);
+  const etiquetaDe = (testID: string): unknown =>
+    app.root.findAll(n => typeof n.type === 'string' && n.props.testID === testID)[0].props.accessibilityLabel;
+
   const scrollDelPerfil = () => app.root.findAll(n => n.props.testID === 'perfil-scroll')[0];
 
   return {
@@ -56,6 +62,8 @@ const montarApp = async () => {
     textos,
     textoDe,
     interruptor,
+    estiloDeVista,
+    etiquetaDe,
     scrollDelPerfil,
   };
 };
@@ -73,15 +81,25 @@ describe('Perfil y hoja "Cambiar precio"', () => {
     if (app) await act(async () => app.unmount());
   });
 
-  it('sin nombre muestra "Agrega tu nombre" y la inicial "?"', async () => {
-    const { tocar, textos, textoDe } = await montarApp();
+  it('sin nombre muestra "Agrega tu nombre" y un ícono de persona "Sin foto", no un "?"', async () => {
+    const { tocar, textos, existe } = await montarApp();
 
-    expect(textoDe('inicio-avatar-iniciales')).toBe('?');
+    expect(existe('inicio-avatar-iniciales-sin-foto')).toBe(true);
+    expect(existe('inicio-avatar-iniciales')).toBe(false);
     await tocar('abrir-perfil');
 
     expect(textos()).toContain('Agrega tu nombre');
     expect(textos()).toContain('Mi perfil');
-    expect(textoDe('perfil-iniciales')).toBe('?');
+    expect(textos()).not.toContain('?');
+    expect(existe('perfil-iniciales-sin-foto')).toBe(true);
+  });
+
+  it('el ícono "Sin foto" se anuncia y la tarjeta del recordatorio tiene aire arriba y abajo', async () => {
+    const { tocar, etiquetaDe, estiloDeVista } = await montarApp();
+    expect(etiquetaDe('inicio-avatar-iniciales-sin-foto')).toBe('Sin foto');
+    await tocar('abrir-perfil');
+    expect(etiquetaDe('perfil-iniciales-sin-foto')).toBe('Sin foto');
+    expect(estiloDeVista('recordatorio-tarjeta').paddingVertical).toBe(12);
   });
 
   it('guardar el nombre actualiza las iniciales en Inicio', async () => {
@@ -131,12 +149,16 @@ describe('Perfil y hoja "Cambiar precio"', () => {
     expect(existe('aviso-precio-p-chicha')).toBe(false);
   });
 
-  it('cada producto muestra lo que cuesta y lo que deja, con el monto junto al porcentaje', async () => {
+  it('cada producto muestra lo que cuesta y lo que deja, en soles y sin porcentaje', async () => {
     const { tocar, textos } = await montarApp();
     await tocar('abrir-perfil');
 
-    // Anticucho: S/ 10.00 − S/ 8.20 = S/ 1.80, el 18% del precio.
-    expect(textos()).toContain('Costo estimado S/ 8.20 · Diferencia estimada por unidad S/ 1.80 · 18%');
+    // Anticucho: S/ 10.00 − S/ 8.20 = S/ 1.80 por porción.
+    expect(textos()).toContain('Costo S/ 8.20 · Te deja S/ 1.80 por porción');
+    expect(textos().some(t => t.includes('%'))).toBe(false);
+    // La explicación va una sola vez, arriba de la lista, no repetida en cada producto.
+    expect(textos().filter(t => /precio de venta menos tu costo/i.test(t))).toHaveLength(1);
+    expect(textos().some(t => t.includes('Precio de venta menos costo estimado por unidad'))).toBe(false);
     expect(textos()).toContain('Precio actualizado el 15 de julio');
   });
 
@@ -186,7 +208,7 @@ describe('Perfil y hoja "Cambiar precio"', () => {
 
     expect(existe('guardar-precio')).toBe(false);
     expect(textos()).toContain('S/ 11.00');
-    expect(textos()).toContain('Costo estimado S/ 8.20 · Diferencia estimada por unidad S/ 2.80 · 25%');
+    expect(textos()).toContain('Costo S/ 8.20 · Te deja S/ 2.80 por porción');
     const anticucho = (await listarProductos()).find(p => p.id === 'p-anticucho');
     expect(anticucho?.precioVenta).toBe(11);
     expect(anticucho?.actualizadoEn).toBe(fechaLocal(new Date()));

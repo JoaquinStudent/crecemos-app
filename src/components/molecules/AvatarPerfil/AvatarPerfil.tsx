@@ -1,9 +1,12 @@
 // src/components/molecules/AvatarPerfil/AvatarPerfil.tsx
-// El círculo de "Mi perfil": la foto si hay una válida; si no (o si no carga), la inicial.
+// El círculo de "Mi perfil": la foto si hay una válida; si no (o si no carga), la inicial; y si
+// tampoco hay nombre, un ícono de persona (un "?" parecería un error).
 // Qué mostrar lo decide el dominio (`avatarDe`); aquí solo se dibuja.
 import { useState } from 'react';
 import { Image, StyleSheet, View } from 'react-native';
 import { colors, ColorName, radius, TypographyVariant } from '@theme';
+import { User } from 'lucide-react-native';
+import { Icon } from '@components/atoms/Icon';
 import { Text } from '@components/atoms/Text';
 import { avatarDe } from '@dominio/foto';
 import { inicialesAvatar } from '@dominio/perfil';
@@ -58,6 +61,19 @@ export const AvatarPerfil = ({
 
   // Sin foto, o con una foto que no cargó: la inicial del nombre.
   const letra = avatar.tipo === 'iniciales' ? avatar.texto : inicialesAvatar(perfil?.nombre ?? '');
+  if (letra === '?') {
+    return (
+      <View
+        accessible
+        accessibilityRole="image"
+        accessibilityLabel="Sin foto"
+        style={[circulo, styles.iniciales, { backgroundColor: colors[fondo] }]}
+        testID={testIDIniciales ? `${testIDIniciales}-sin-foto` : undefined}
+      >
+        <Icon icon={User} color="textInverse" size={Math.round(tamano / 2)} />
+      </View>
+    );
+  }
   return (
     <View style={[circulo, styles.iniciales, { backgroundColor: colors[fondo] }]}>
       <Text variant={textoVariant} color="textInverse" testID={testIDIniciales}>

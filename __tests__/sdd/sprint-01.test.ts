@@ -272,7 +272,7 @@ describe('SPEC-01: Flujo mínimo de punta a punta — cerrar el día y ver cuán
     const teQueda = app.root.findAll(
       n => esHost(n, 'Text') && n.props.testID === 'inicio-te-queda',
     )[0];
-    expect(textos()).toContain('Resultado registrado');
+    expect(textos()).toContain('Tu último día');
     expect(teQueda.props.children).toBe('S/ 70.00');
     expect(await listarCierres()).toHaveLength(1);
   });
@@ -295,7 +295,7 @@ describe('SPEC-01: Flujo mínimo de punta a punta — cerrar el día y ver cuán
 
     await tocar('cierre-listo');
 
-    expect(textos()).toContain('Resultado registrado');
+    expect(textos()).toContain('Tu último día');
     expect(teQuedaEnInicio()).toBe('S/ 70.00');
     const cierres = await listarCierres();
     expect(cierres).toHaveLength(1);

@@ -431,7 +431,7 @@ describe('SPEC-04: Cobros pendientes y carga inicial desde el Mock API', () => {
       const teQueda = textoDe('inicio-te-queda');
       expect(teQueda).not.toBe('S/ 0.00');
       expect(teQueda).toBe(formatoSoles(calcularCierre(ultimo).teQueda));
-      expect(textosEnPantalla()).toContain('Resultado registrado');
+      expect(textosEnPantalla()).toContain('Tu último día');
       // "Yape por cobrar" con su total y sus pagos.
       expect(textosEnPantalla()).toContain('Yape por cobrar');
       expect(textoDe('inicio-por-cobrar-total')).toBe(formatoSoles(porCobrar.total));

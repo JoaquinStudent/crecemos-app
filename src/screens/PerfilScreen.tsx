@@ -28,6 +28,7 @@ import { formatoFechaCorta, formatoSoles } from '@dominio/formato';
 import { avatarDe } from '@dominio/foto';
 import { validarNumeroYape } from '@dominio/validacion';
 import { requiereRevision, teDeja } from '@dominio/producto';
+import { singularUnidad } from '@dominio/unidades';
 import type { DatosProducto } from '@dominio/validacion';
 import type { Perfil, Producto } from '@dominio/tipos';
 import { useRecorrido } from '@context/RecorridoProvider';
@@ -511,7 +512,7 @@ export const PerfilScreen = () => {
 
           <View style={styles.seccion}>
             <Text variant="h3">Recordatorio diario</Text>
-            <View style={styles.tarjeta}>
+            <View style={[styles.tarjeta, styles.tarjetaConAire]} testID="recordatorio-tarjeta">
               <SwitchRow
                 label="Recordarme cerrar mi día"
                 description={
@@ -578,7 +579,7 @@ export const PerfilScreen = () => {
             <View>
               <Text variant="h3">Mis productos</Text>
               <Text variant="caption" color="textMuted">
-                El precio de venta y el costo estimado permiten comparar tus productos.
+                Lo que te deja cada producto es su precio de venta menos tu costo estimado.
               </Text>
             </View>
             <Button title="Agregar producto" variant="outline" onPress={() => abrirFormularioProducto()} testID="agregar-producto" />
@@ -723,30 +724,44 @@ const TarjetaProducto = ({
       </View>
       {!producto.activo ? <Text color="textMuted">Inactivo</Text> : null}
       <Text variant="bodySmall" color="textMuted">
-        Costo estimado {formatoSoles(producto.costoUnitario)} ·{' '}
+        Costo {formatoSoles(producto.costoUnitario)} ·{' '}
         <Text variant="bodySmall" color={deja.monto < 0 ? 'danger' : 'success'}>
-          Diferencia estimada por unidad {formatoSoles(deja.monto)}
-        </Text>{' '}
-        · {deja.porcentaje}%
+          Te deja {formatoSoles(deja.monto)} por {singularUnidad(producto.unidad)}
+        </Text>
       </Text>
-      <Text variant="caption" color="textMuted">Precio de venta menos costo estimado por unidad.</Text>
       <View style={styles.actualizado}>
         <Icon icon={Clock} size="sm" color="textMuted" />
         <Text variant="caption" color="textMuted" style={styles.actualizadoTexto}>
           Precio actualizado el {formatoFechaCorta(producto.actualizadoEn)}
         </Text>
       </View>
-      {/* Tres botones con texto no caben en una fila a 360 dp: la fila se parte en dos. */}
+      {/* Tres botones con texto no caben en una fila a 360 dp: "Cambiar precio" va a todo el ancho y
+          los otros dos se reparten la fila de abajo, alineados y sin sangría. */}
       <View style={styles.accionesProducto} testID={`acciones-producto-${producto.id}`}>
         <Button
           title="Cambiar precio"
           variant="ghost"
+          fullWidth
           onPress={onCambiarPrecio}
           accessibilityLabel={`Cambiar precio de ${producto.nombre}`}
           testID={`cambiar-precio-${producto.id}`}
         />
-        <Button title="Editar" variant="ghost" onPress={onEditar} testID={`editar-producto-${producto.id}`} />
-        <Button title={producto.activo ? 'Desactivar' : 'Reactivar'} variant="ghost" onPress={onActivo} testID={`activo-producto-${producto.id}`} />
+        <View style={styles.accionesSecundarias}>
+          <Button
+            title="Editar"
+            variant="ghost"
+            style={styles.accionIgual}
+            onPress={onEditar}
+            testID={`editar-producto-${producto.id}`}
+          />
+          <Button
+            title={producto.activo ? 'Desactivar' : 'Reactivar'}
+            variant="ghost"
+            style={styles.accionIgual}
+            onPress={onActivo}
+            testID={`activo-producto-${producto.id}`}
+          />
+        </View>
       </View>
       {revision.revisar ? (
         <Callout icon={TriangleAlert} style={styles.aviso} testID={`aviso-precio-${producto.id}`}>
@@ -792,6 +807,8 @@ const styles = StyleSheet.create({
   },
   contenido: { padding: spacing.lg, gap: spacing.xl },
   seccion: { gap: spacing.md },
+  // Tarjeta con un interruptor adentro: respira arriba y abajo (el texto no toca el borde).
+  tarjetaConAire: { paddingVertical: spacing.md },
   tarjeta: {
     backgroundColor: colors.background,
     borderWidth: 1,
@@ -817,7 +834,9 @@ const styles = StyleSheet.create({
   },
   nombreProducto: { flex: 1 },
   precioProducto: { flexShrink: 0 },
-  accionesProducto: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  accionesProducto: { gap: spacing.xs },
+  accionesSecundarias: { flexDirection: 'row', gap: spacing.sm },
+  accionIgual: { flex: 1, alignSelf: 'stretch' },
   actualizado: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   actualizadoTexto: { flex: 1 },
   aviso: { marginTop: spacing.sm },

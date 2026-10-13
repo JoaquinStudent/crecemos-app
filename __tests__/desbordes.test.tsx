@@ -113,7 +113,7 @@ describe('desbordes a 360 dp', () => {
     expect(monto.maxWidth).toBe('55%');
   });
 
-  it('Perfil: el nombre del producto cede ante el precio y los tres botones se acomodan en filas', async () => {
+  it('Perfil: el nombre del producto cede ante el precio y los botones quedan alineados, sin sangría', async () => {
     await sembrarCiclo();
     const app = await montarApp();
     await app.tocar('abrir-perfil');
@@ -121,7 +121,10 @@ describe('desbordes a 360 dp', () => {
     const nombre = app.estiloTextoDe('producto-nombre-p-anticucho');
     expect(nombre.flex).toBe(1);
     expect(app.textoNodoProps('producto-nombre-p-anticucho').numberOfLines).toBe(2);
-    expect(app.estiloDe('acciones-producto-p-anticucho')).toMatchObject({ flexWrap: 'wrap' });
+    const acciones = app.estiloDe('acciones-producto-p-anticucho');
+    expect(acciones.flexWrap).toBeUndefined();
+    expect(acciones.paddingLeft).toBeUndefined();
+    expect(acciones.marginLeft).toBeUndefined();
     // Los tres siguen siendo botones con texto.
     expect(app.textos()).toEqual(expect.arrayContaining(['Cambiar precio', 'Editar', 'Desactivar']));
   });
