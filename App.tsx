@@ -7,11 +7,18 @@
 import { StatusBar } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { CrecemosProvider } from '@context/CrecemosProvider';
+import { CrecemosProvider, useCrecemos } from '@context/CrecemosProvider';
 import { RecorridoProvider } from '@context/RecorridoProvider';
 import { RootStack } from '@navigation/RootStack';
 import { ErrorDeCarga } from '@components/organisms/ErrorDeCarga';
+import { SplashAnimado } from '@components/organisms/SplashAnimado';
 import { TemaProvider } from '@components/organisms/TemaProvider';
+
+/** El splash de la marca se va cuando la app terminó de cargar sus datos. */
+const SplashDeCarga = () => {
+  const { cargando } = useCrecemos();
+  return <SplashAnimado listo={!cargando} />;
+};
 
 function App() {
   return (
@@ -26,6 +33,7 @@ function App() {
               </NavigationContainer>
             </RecorridoProvider>
           </ErrorDeCarga>
+          <SplashDeCarga />
         </CrecemosProvider>
       </TemaProvider>
     </SafeAreaProvider>

@@ -3,7 +3,8 @@
 Uso (desde la raíz del proyecto):  python -I scripts/generar-iconos.py
 Necesita Pillow. Escribe en android/app/src/main/res: mipmap-*/ic_launcher.png (cuadrado, Android
 viejos), ic_launcher_round.png (redondo), ic_launcher_foreground.png (capa frontal del ícono
-adaptativo, Android 8+), mipmap-anydpi-v26/*.xml y values/ic_launcher_background.xml.
+adaptativo, Android 8+), mipmap-anydpi-v26/*.xml y values/ic_launcher_background.xml. También
+assets/icono/splash-logo.png (splash animado de JS) y drawable-nodpi/splash_logo.png (splash del sistema).
 """
 from pathlib import Path
 from statistics import median
@@ -70,6 +71,13 @@ def main() -> None:
         capa_frontal(logo, fondo, round(108 * factor)).save(
             carpeta / "ic_launcher_foreground.png", optimize=True
         )
+
+    # El splash de JS (SplashAnimado) repite el del sistema: la misma capa frontal a 288 dp (x3).
+    splash = capa_frontal(logo, fondo, 864)
+    splash.save(RAIZ / "assets" / "icono" / "splash-logo.png", optimize=True)
+    # Y el del sistema (Android 12+): una sola imagen nítida para todas las densidades (nodpi).
+    (RES / "drawable-nodpi").mkdir(parents=True, exist_ok=True)
+    splash.save(RES / "drawable-nodpi" / "splash_logo.png", optimize=True)
 
     adaptativo = RES / "mipmap-anydpi-v26"
     adaptativo.mkdir(parents=True, exist_ok=True)

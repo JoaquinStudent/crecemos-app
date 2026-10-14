@@ -7,6 +7,9 @@ export const colors = {
   primarySoft: '#F9E3EE',
   accent: '#FFA400',
   accentSoft: '#FFF2DB',
+  // Fondo del splash y del ícono: el magenta que trae el logo. Mismo valor que
+  // `ic_launcher_background` (android/.../values), para que el splash nativo y el de JS coincidan.
+  splash: '#CA0358',
 
   // Estados
   success: '#0F7A4F',

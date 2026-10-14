@@ -17,6 +17,8 @@ class MainApplication : Application(), ReactApplication {
         PackageList(this).packages.apply {
           // Reconocedor de voz de "Cuéntame tu día": ver android/.../wenkesj/voice/LEEME.md.
           add(VoicePackage())
+          // Avisa desde JS cuándo quitar el splash nativo (ver SplashEstado.kt).
+          add(SplashNativoPackage())
         },
     )
   }

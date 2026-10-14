@@ -6,4 +6,12 @@
         <item name="android:editTextBackground">@drawable/rn_edit_text_material</item>
     </style>
 
+    <!-- Splash nativo: el logo sobre el magenta de la marca. Dura hasta que JS pinta el mismo logo
+         (SplashAnimado) y entonces pasa a AppTheme. El logo es splash_logo (nodpi, nítido), el mismo que pinta SplashAnimado. -->
+    <style name="Theme.App.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/ic_launcher_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_logo</item>
+        <item name="postSplashScreenTheme">@style/AppTheme</item>
+    </style>
+
 </resources>
