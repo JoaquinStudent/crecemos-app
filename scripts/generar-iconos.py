@@ -5,6 +5,7 @@ Necesita Pillow. Escribe en android/app/src/main/res: mipmap-*/ic_launcher.png (
 viejos), ic_launcher_round.png (redondo), ic_launcher_foreground.png (capa frontal del ícono
 adaptativo, Android 8+), mipmap-anydpi-v26/*.xml y values/ic_launcher_background.xml. También
 assets/icono/splash-logo.png (splash animado de JS) y drawable-nodpi/splash_logo.png (splash del sistema).
+Para iOS: Images.xcassets/AppIcon.appiconset/icon-1024.png y SplashLogo.imageset/*.png (LaunchScreen).
 """
 from pathlib import Path
 from statistics import median
@@ -14,6 +15,7 @@ from PIL import Image, ImageDraw, ImageFilter
 RAIZ = Path(__file__).resolve().parent.parent
 LOGO = RAIZ / "assets" / "icono" / "logo.png"
 RES = RAIZ / "android" / "app" / "src" / "main" / "res"
+IOS_ASSETS = RAIZ / "ios" / "CuadramosApp" / "Images.xcassets"
 
 # Ícono clásico: 48 dp por densidad. Capa frontal adaptativa: 108 dp por densidad.
 DENSIDADES = {"mdpi": 1, "hdpi": 1.5, "xhdpi": 2, "xxhdpi": 3, "xxxhdpi": 4}
@@ -58,6 +60,19 @@ def redondo(img: Image.Image) -> Image.Image:
     return salida
 
 
+def generar_ios(logo: Image.Image, fondo: tuple[int, int, int]) -> None:
+    """Ícono (1024, sin transparencia: iOS lo rechaza con alfa; él mismo le pone las esquinas) y el
+    logo del LaunchScreen a 288 pt (@1x/@2x/@3x), igual que el splash de Android y el de JS."""
+    icono = IOS_ASSETS / "AppIcon.appiconset"
+    icono.mkdir(parents=True, exist_ok=True)
+    logo.resize((1024, 1024), Image.LANCZOS).convert("RGB").save(icono / "icon-1024.png", optimize=True)
+    splash = IOS_ASSETS / "SplashLogo.imageset"
+    splash.mkdir(parents=True, exist_ok=True)
+    for escala in (1, 2, 3):
+        lado = 288 * escala
+        capa_frontal(logo, fondo, lado).save(splash / f"splash-logo@{escala}x.png", optimize=True)
+
+
 def main() -> None:
     logo = Image.open(LOGO).convert("RGB")
     fondo = color_de_fondo(logo)
@@ -78,6 +93,8 @@ def main() -> None:
     # Y el del sistema (Android 12+): una sola imagen nítida para todas las densidades (nodpi).
     (RES / "drawable-nodpi").mkdir(parents=True, exist_ok=True)
     splash.save(RES / "drawable-nodpi" / "splash_logo.png", optimize=True)
+
+    generar_ios(logo, fondo)
 
     adaptativo = RES / "mipmap-anydpi-v26"
     adaptativo.mkdir(parents=True, exist_ok=True)
