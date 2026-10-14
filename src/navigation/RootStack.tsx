@@ -14,6 +14,7 @@ import { PerfilAyudaScreen } from '@screens/PerfilAyudaScreen';
 import { PerfilBorrarDatosScreen } from '@screens/PerfilBorrarDatosScreen';
 import { PerfilProductosScreen } from '@screens/PerfilProductosScreen';
 import { PerfilRecordatorioScreen } from '@screens/PerfilRecordatorioScreen';
+import { PerfilConfiguracionScreen } from '@screens/PerfilConfiguracionScreen';
 import { CerrarDiaScreen } from '@screens/CerrarDiaScreen';
 import { MiMetaScreen } from '@screens/MiMetaScreen';
 import { MiReporteScreen } from '@screens/MiReporteScreen';
@@ -30,6 +31,7 @@ export type RootStackParamList = {
   PerfilDatos: undefined;
   PerfilPagos: undefined;
   PerfilRecordatorio: undefined;
+  PerfilConfiguracion: undefined;
   PerfilProductos: undefined;
   PerfilBorrarDatos: undefined;
   PerfilAyuda: undefined;
@@ -52,6 +54,7 @@ export const RootStack = () => (
     <Stack.Screen name="PerfilDatos" component={PerfilDatosScreen} />
     <Stack.Screen name="PerfilPagos" component={PerfilPagosScreen} />
     <Stack.Screen name="PerfilRecordatorio" component={PerfilRecordatorioScreen} />
+    <Stack.Screen name="PerfilConfiguracion" component={PerfilConfiguracionScreen} />
     <Stack.Screen name="PerfilProductos" component={PerfilProductosScreen} />
     <Stack.Screen name="PerfilBorrarDatos" component={PerfilBorrarDatosScreen} />
     <Stack.Screen name="PerfilAyuda" component={PerfilAyudaScreen} />

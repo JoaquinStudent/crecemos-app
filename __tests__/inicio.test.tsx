@@ -872,14 +872,14 @@ describe('Inicio: el insight', () => {
     });
   };
 
-  it('muestra la frase exacta del insight, en 18 px y sin naranja como color de texto', async () => {
+  it('muestra la frase exacta del insight, en 16 px (letra Normal) y sin naranja como color de texto', async () => {
     await sembrarInsight();
 
     const { existe, textoDe, tamanoDe, colorDe } = await montarApp();
 
     expect(existe('inicio-insight')).toBe(true);
     expect(textoDe('inicio-insight-texto')).toBe(FRASE_DEL_INSIGHT);
-    expect(tamanoDe('inicio-insight-texto')).toBe(18);
+    expect(tamanoDe('inicio-insight-texto')).toBe(16);
     expect(colorDe('inicio-insight-texto')).toBe(colors.text);
     expect(colorDe('inicio-insight-texto')).not.toBe(colors.accent);
   });
@@ -1022,7 +1022,7 @@ describe('Inicio: las recomendaciones', () => {
     expect(existe('inicio-sin-recomendaciones')).toBe(false);
   });
 
-  it('cada tarjeta dice el mensaje del motor, con verbo y monto, en 18 px', async () => {
+  it('cada tarjeta dice el mensaje del motor, con verbo y monto, en 16 px (letra Normal)', async () => {
     await sembrarTodasLasReglas();
     const { textoDe, tamanoDe, colorDe } = await montarApp();
     const del = evaluarReglas({
@@ -1034,7 +1034,7 @@ describe('Inicio: las recomendaciones', () => {
     expect(del.map(r => r.reglaId)).toEqual(['cobro', 'precio']);
     for (const r of del) {
       expect(textoDe(`inicio-recomendacion-${r.reglaId}-texto`)).toBe(r.mensaje);
-      expect(tamanoDe(`inicio-recomendacion-${r.reglaId}-texto`)).toBe(18);
+      expect(tamanoDe(`inicio-recomendacion-${r.reglaId}-texto`)).toBe(16);
       expect(colorDe(`inicio-recomendacion-${r.reglaId}-texto`)).toBe(colors.text);
     }
     expect(textoDe('inicio-recomendacion-cobro-texto')).toMatch(

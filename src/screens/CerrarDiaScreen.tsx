@@ -42,8 +42,10 @@ import { estado as estadoDeMeta, sugerenciaDeHoy, teQuedaDelUltimoCierre } from 
 import type { Cierre, CategoriaGasto, DatosCierre, Gasto } from '@dominio/tipos';
 import { MensajeError } from '@components/atoms/MensajeError';
 import { useAccionSegura } from '@hooks/useAccionSegura';
+import { useAhora } from '@hooks/useAhora';
 import { useTecladoVisible } from '@hooks/useTecladoVisible';
 import { useCrecemos } from '@context/CrecemosProvider';
+import { useAjustesVisuales } from '@context/AjustesVisualesContext';
 import type { RootStackParamList } from '@navigation/RootStack';
 
 // Una sola fuente para las categorías: ETIQUETA_GASTO (dominio).
@@ -77,6 +79,7 @@ const enteroDe = (texto: string) => (texto === '' ? 0 : parseInt(texto, 10));
 export const CerrarDiaScreen = () => {
   const { productos, cierres, guardarDia, meta, aportarAMeta, yapes } =
     useCrecemos();
+  const { vibracion } = useAjustesVisuales();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList, 'CerrarDia'>>();
   const route = useRoute<RouteProp<RootStackParamList, 'CerrarDia'>>();
 
@@ -100,7 +103,9 @@ export const CerrarDiaScreen = () => {
   // Modo edición: llega la fecha de un día ya cerrado desde Historial.
   const fecha = route.params?.fecha;
   // Sin `fecha` el objetivo es hoy: si hoy ya está cerrado se edita ese cierre, nunca se crea uno en blanco.
-  const hoy = fechaLocal(new Date());
+  // `useAhora` mantiene "hoy" al día: si el modal queda abierto o en segundo plano pasada la
+  // medianoche, el día objetivo cambia solo (ver el efecto de cambio de día más abajo).
+  const hoy = fechaLocal(useAhora());
   const original = cierres.find(c => c.fecha === (fecha ?? hoy));
   const editandoHoy = fecha === undefined && original !== undefined;
   // Al editar un cierre antiguo se puede conservar una línea de un producto hoy inactivo.
@@ -174,6 +179,18 @@ export const CerrarDiaScreen = () => {
     sincronizar();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fecha, hayOriginal]);
+
+  // Cambió el día con el modal abierto (sin `fecha`): lo cerrado ayer no es "hoy". Se descarta la
+  // pantalla de éxito y el formulario se carga para el día nuevo. No corre al guardar (el día no cambia).
+  const diaObjetivo = fecha ?? hoy;
+  const diaAnterior = useRef(diaObjetivo);
+  useEffect(() => {
+    if (diaAnterior.current === diaObjetivo) return;
+    diaAnterior.current = diaObjetivo;
+    setExito(null);
+    setSeparado(null);
+    sincronizar();
+  }, [diaObjetivo, sincronizar]);
 
   // Al editar un día se muestra el precio con que se vendió ese día, no el de hoy (D2).
   const precioDe = (productoId: string, vigente: number) =>
@@ -332,7 +349,7 @@ export const CerrarDiaScreen = () => {
       gastoTotal: resumenVista.gastoTotal,
     });
     try {
-      Vibration.vibrate(10);
+      if (vibracion) Vibration.vibrate(10);
     } catch {
       // Sin vibración (o sin permiso) no pasa nada: es solo una confirmación táctil.
     }
@@ -410,7 +427,7 @@ export const CerrarDiaScreen = () => {
           subtitle={
             original
               ? `Editando el ${formatoFecha(original.fecha).toLowerCase()}`
-              : formatoFecha(fechaLocal(new Date()))
+              : formatoFecha(hoy)
           }
           onBack={cerrar}
           style={styles.encabezado}

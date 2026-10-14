@@ -8,6 +8,7 @@ import { StatusBar } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { CrecemosProvider, useCrecemos } from '@context/CrecemosProvider';
+import { AjustesVisualesProvider } from '@context/AjustesVisualesContext';
 import { RecorridoProvider } from '@context/RecorridoProvider';
 import { RootStack } from '@navigation/RootStack';
 import { ErrorDeCarga } from '@components/organisms/ErrorDeCarga';
@@ -26,14 +27,16 @@ function App() {
       <TemaProvider>
         <StatusBar barStyle="dark-content" />
         <CrecemosProvider>
-          <ErrorDeCarga>
-            <RecorridoProvider>
-              <NavigationContainer>
-                <RootStack />
-              </NavigationContainer>
-            </RecorridoProvider>
-          </ErrorDeCarga>
-          <SplashDeCarga />
+          <AjustesVisualesProvider>
+            <ErrorDeCarga>
+              <RecorridoProvider>
+                <NavigationContainer>
+                  <RootStack />
+                </NavigationContainer>
+              </RecorridoProvider>
+            </ErrorDeCarga>
+            <SplashDeCarga />
+          </AjustesVisualesProvider>
         </CrecemosProvider>
       </TemaProvider>
     </SafeAreaProvider>

@@ -17,6 +17,7 @@ import { Icon } from '@components/atoms/Icon';
 import { fechaLocal } from '@dominio/fecha';
 import { useCrecemos } from '@context/CrecemosProvider';
 import { useBarraOculta } from '@context/BarraOcultaContext';
+import { useAhora } from '@hooks/useAhora';
 import { useMedidasBarra } from '@hooks/useMedidasBarra';
 import { movimientoReducido } from '@hooks/useMovimientoReducido';
 import { useTecladoVisible } from '@hooks/useTecladoVisible';
@@ -56,7 +57,10 @@ const ESCALA_MAXIMA = 1;
 export const BarraNavegacion = ({ state, navigation }: BottomTabBarProps) => {
   const insets = useSafeAreaInsets();
   const { cierres } = useCrecemos();
-  const hoyCerrado = cierres.some(c => c.fecha === fechaLocal(new Date()));
+  // `useAhora` renueva "hoy" al pasar la medianoche y al volver la app al frente: sin él la barra
+  // seguía mostrando "Hoy ✓" con el cierre de ayer.
+  const hoy = fechaLocal(useAhora());
+  const hoyCerrado = cierres.some(c => c.fecha === hoy);
   // Con el teclado abierto la barra se esconde: en Android con borde a borde el teclado se dibuja
   // encima de la app y la barra (una capa absoluta) quedaría tapada o flotando sobre el formulario.
   const teclado = useTecladoVisible();
@@ -135,6 +139,7 @@ export const BarraNavegacion = ({ state, navigation }: BottomTabBarProps) => {
           variant={seleccionada ? 'captionStrong' : 'caption'}
           color={seleccionada ? 'primary' : 'textMuted'}
           numberOfLines={1}
+          sinEscalar
           maxFontSizeMultiplier={ESCALA_MAXIMA}
         >
           {ranura.etiqueta}
@@ -192,6 +197,7 @@ export const BarraNavegacion = ({ state, navigation }: BottomTabBarProps) => {
               variant="captionStrong"
               color="primary"
               numberOfLines={1}
+              sinEscalar
               maxFontSizeMultiplier={ESCALA_MAXIMA}
               testID="tab-cerrar-dia-etiqueta"
             >
