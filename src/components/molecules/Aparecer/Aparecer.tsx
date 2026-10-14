@@ -4,6 +4,7 @@
 // bloque aparece de golpe.
 import React, { useEffect, useRef } from 'react';
 import { Animated, Easing, StyleProp, ViewStyle } from 'react-native';
+import { useRecorrido } from '@context/RecorridoProvider';
 import { movimientoReducido } from '@hooks/useMovimientoReducido';
 
 export const DURACION_ENTRADA_MS = 280;
@@ -21,6 +22,14 @@ export interface AparecerProps {
 
 export const Aparecer = ({ children, indice = 0, style }: AparecerProps) => {
   const progreso = useRef(new Animated.Value(0)).current;
+  // El recorrido guiado mide lo señalado: si el bloque aún se está moviendo, el hueco saldría corrido.
+  const { activo: recorridoActivo } = useRecorrido();
+
+  useEffect(() => {
+    if (!recorridoActivo) return;
+    progreso.stopAnimation();
+    progreso.setValue(1);
+  }, [recorridoActivo, progreso]);
 
   useEffect(() => {
     let vivo = true;

@@ -2,9 +2,10 @@
 // Comparte entre las pestañas y la barra inferior si la barra está escondida. Las pantallas con
 // scroll llaman a `useEsconderBarraAlDesplazar()`; la barra lee `oculta` (0 = visible, 1 = escondida)
 // y se desliza hacia abajo. Sin proveedor (pantallas sueltas, pruebas) todo es un no-op.
-import React, { createContext, useCallback, useContext, useMemo, useRef } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef } from 'react';
 import { Animated, Easing } from 'react-native';
 import type { NativeScrollEvent, NativeSyntheticEvent } from 'react-native';
+import { useRecorrido } from '@context/RecorridoProvider';
 import { useMovimientoReducido } from '@hooks/useMovimientoReducido';
 import { barraVisibleTras } from '@navigation/ocultarBarra';
 
@@ -30,6 +31,19 @@ export const BarraOcultaProvider = ({ children }: { children: React.ReactNode })
   const visible = useRef(true);
   const anterior = useRef(0);
   const reducido = useMovimientoReducido();
+  // Mientras corre el recorrido guiado la barra queda fija y a la vista: el recorrido desplaza las
+  // pantallas por su cuenta y señala pestañas de la barra; si se escondiera, el hueco quedaría vacío.
+  const { activo: recorridoActivo } = useRecorrido();
+  const congelada = useRef(false);
+  useEffect(() => {
+    congelada.current = recorridoActivo;
+    if (!recorridoActivo) return;
+    visible.current = true;
+    anterior.current = 0;
+    oculta.stopAnimation();
+    // De golpe y no animada: el recorrido mide la barra enseguida y no puede esperar el deslizamiento.
+    oculta.setValue(0);
+  }, [recorridoActivo, oculta]);
 
   const mover = useCallback(
     (mostrarla: boolean) => {
@@ -53,6 +67,7 @@ export const BarraOcultaProvider = ({ children }: { children: React.ReactNode })
         mover(true);
       },
       alDesplazar: evento => {
+        if (congelada.current) return;
         const { contentOffset, contentSize, layoutMeasurement } = evento.nativeEvent;
         const actual = contentOffset.y;
         // Rebote de iOS al final: no cuenta como "subir".
