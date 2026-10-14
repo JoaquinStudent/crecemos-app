@@ -35,6 +35,7 @@ import { formatoSoles } from '@dominio/formato';
 import { armarHistorial, resumenDelMes } from '@dominio/historial';
 import type { Cierre, FiltroHistorial, GrupoDia, Movimiento } from '@dominio/tipos';
 import { useCrecemos } from '@context/CrecemosProvider';
+import { useEsconderBarraAlDesplazar } from '@context/BarraOcultaContext';
 import { useMedidasBarra } from '@hooks/useMedidasBarra';
 import type { RootStackParamList } from '@navigation/RootStack';
 import type { TabsParamList } from '@navigation/Tabs';
@@ -82,6 +83,7 @@ export const HistorialScreen = () => {
   const { cierres, cargando } = useCrecemos();
   const navigation = useNavigation<HistorialNavigation>();
   const { rellenoContenido } = useMedidasBarra();
+  const esconderBarra = useEsconderBarraAlDesplazar();
   const [filtro, setFiltro] = useState<FiltroHistorial>('todo');
   // La hoja conserva el día aunque se cierre (para que no se vacíe mientras baja).
   const [enHoja, setEnHoja] = useState<Cierre | null>(null);
@@ -150,6 +152,7 @@ export const HistorialScreen = () => {
         <SectionList<Movimiento, Seccion>
           sections={secciones}
           stickySectionHeadersEnabled
+          {...esconderBarra}
           keyExtractor={item => item.id}
           contentContainerStyle={{ paddingBottom: rellenoContenido }}
           testID="historial-lista"

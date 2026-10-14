@@ -3,8 +3,8 @@
 // "Cerrar día" es la acción principal de la app: va al centro, elevada, en el círculo magenta,
 // y NO es una pestaña (abre el formulario encima de todo). Ningún ícono va solo: cada ranura lleva
 // su etiqueta de texto de 14 px o más (UX, regla 1) y todo lo tocable mide 48 dp o más (regla 10).
-import React from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import React, { useEffect } from 'react';
+import { Animated, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CommonActions } from '@react-navigation/native';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
@@ -16,6 +16,8 @@ import { PASOS, PasoGuia } from '@components/molecules/PasoGuia';
 import { Icon } from '@components/atoms/Icon';
 import { fechaLocal } from '@dominio/fecha';
 import { useCrecemos } from '@context/CrecemosProvider';
+import { useBarraOculta } from '@context/BarraOcultaContext';
+import { useMedidasBarra } from '@hooks/useMedidasBarra';
 import { useTecladoVisible } from '@hooks/useTecladoVisible';
 import {
   AIRE_ETIQUETA,
@@ -57,6 +59,15 @@ export const BarraNavegacion = ({ state, navigation }: BottomTabBarProps) => {
   // Con el teclado abierto la barra se esconde: en Android con borde a borde el teclado se dibuja
   // encima de la app y la barra (una capa absoluta) quedaría tapada o flotando sobre el formulario.
   const teclado = useTecladoVisible();
+  // Al bajar el scroll la barra se desliza hacia abajo hasta salir de pantalla; al subir vuelve.
+  const { oculta, mostrar } = useBarraOculta();
+  const { alturaTotal } = useMedidasBarra();
+  const bajada = oculta.interpolate({ inputRange: [0, 1], outputRange: [0, alturaTotal] });
+  // Cambiar de pestaña siempre la devuelve: la pantalla nueva empieza arriba.
+  const indice = state.index;
+  useEffect(() => {
+    mostrar();
+  }, [indice, mostrar]);
 
   const irA = (nombre: string, clave: string) => {
     const evento = navigation.emit({ type: 'tabPress', target: clave, canPreventDefault: true });
@@ -117,8 +128,12 @@ export const BarraNavegacion = ({ state, navigation }: BottomTabBarProps) => {
   if (teclado.visible) return null;
 
   return (
-    <View
-      style={[styles.barra, { paddingBottom: rellenoInferior(insets.bottom) }]}
+    <Animated.View
+      style={[
+        styles.barra,
+        { paddingBottom: rellenoInferior(insets.bottom) },
+        { transform: [{ translateY: bajada }] },
+      ]}
       pointerEvents="box-none"
       testID="barra-navegacion"
     >
@@ -153,7 +168,7 @@ export const BarraNavegacion = ({ state, navigation }: BottomTabBarProps) => {
       </PasoGuia>
       {pestana(resumen)}
       {pestana(asistente)}
-    </View>
+    </Animated.View>
   );
 };
 
