@@ -49,16 +49,17 @@ export const MiMetaScreen = () => {
 
   return (
     <SafeAreaView style={styles.pantalla} edges={['top']}>
+      <ScreenHeader
+        title="Mi cuota"
+        subtitle="Junta de a poquito para llegar tranquilo al día de pago"
+        onBack={() => navigation.goBack()}
+        style={styles.encabezado}
+        backTestID="meta-atras"
+      />
       <ScrollConTeclado
         contentContainerStyle={styles.contenido}
         testID="meta-scroll"
       >
-        <ScreenHeader
-          title="Mi cuota"
-          subtitle="Junta de a poquito para llegar tranquilo al día de pago"
-          onBack={() => navigation.goBack()}
-          backTestID="meta-atras"
-        />
         {cargando ? (
           <CargandoBloques bloques={2} alto={140} testID="meta-cargando" />
         ) : formulario ? (
@@ -463,7 +464,8 @@ const FormularioMeta = ({ meta, alTerminar }: { meta: Meta | null; alTerminar: (
 
 const styles = StyleSheet.create({
   pantalla: { flex: 1, backgroundColor: colors.background },
-  contenido: { padding: spacing.lg, gap: spacing.xl },
+  encabezado: { paddingHorizontal: spacing.lg, paddingTop: spacing.xs },
+  contenido: { padding: spacing.lg, paddingTop: spacing.md, gap: spacing.xl },
   centrado: { alignItems: 'stretch', gap: spacing.md },
   bloque: { gap: spacing.md },
   aporte: {

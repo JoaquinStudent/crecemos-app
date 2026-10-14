@@ -60,14 +60,16 @@ export const ResumenScreen = () => {
 
   return (
     <SafeAreaView style={styles.pantalla} edges={['top']}>
+      {/* El título va fuera del scroll: queda fijo mientras el contenido se desplaza. */}
+      <View style={styles.encabezado}>
+        <Text variant="h1" accessibilityRole="header">
+          Resumen
+        </Text>
+      </View>
       <ScrollView
         {...esconderBarra}
         contentContainerStyle={[styles.contenido, { paddingBottom: rellenoContenido }]}
       >
-        <Text variant="h1" accessibilityRole="header">
-          Resumen
-        </Text>
-
         {cargando ? (
           <CargandoBloques bloques={3} alto={120} testID="resumen-cargando" />
         ) : actual && resumenActual ? (
@@ -325,7 +327,8 @@ const Comparacion = ({ actual, anterior }: { actual: ResumenCiclo; anterior: Res
 
 const styles = StyleSheet.create({
   pantalla: { flex: 1, backgroundColor: colors.background },
-  contenido: { padding: spacing.lg, gap: spacing.xl },
+  encabezado: { paddingHorizontal: spacing.lg, paddingTop: spacing.lg, paddingBottom: spacing.sm },
+  contenido: { padding: spacing.lg, paddingTop: spacing.md, gap: spacing.xl },
   seccion: { gap: spacing.md },
   comparacion: {
     flexDirection: 'row',

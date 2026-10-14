@@ -87,15 +87,15 @@ export const QueMeDejaScreen = () => {
 
   return (
     <SafeAreaView style={styles.pantalla} edges={['top']} testID="queme-pantalla">
+      <ScreenHeader
+        title="Qué me deja cada uno"
+        subtitle={periodoEnPalabras(ciclos)}
+        onBack={() => navigation.goBack()}
+        style={styles.encabezado}
+        backTestID="queme-atras"
+        subtitleTestID="queme-periodo"
+      />
       <ScrollView contentContainerStyle={styles.contenido}>
-        <ScreenHeader
-          title="Qué me deja cada uno"
-          subtitle={periodoEnPalabras(ciclos)}
-          onBack={() => navigation.goBack()}
-          backTestID="queme-atras"
-          subtitleTestID="queme-periodo"
-        />
-
         {cargando ? (
           <CargandoBloques bloques={3} alto={140} testID="queme-cargando" />
         ) : ganancias.length === 0 ? (
@@ -394,7 +394,8 @@ const FilaBarra = ({
 
 const styles = StyleSheet.create({
   pantalla: { flex: 1, backgroundColor: colors.background },
-  contenido: { padding: spacing.lg, gap: spacing.lg, paddingBottom: spacing.xxl },
+  encabezado: { paddingHorizontal: spacing.lg, paddingTop: spacing.xs },
+  contenido: { padding: spacing.lg, paddingTop: spacing.md, gap: spacing.lg, paddingBottom: spacing.xxl },
   lista: { gap: spacing.md },
   tarjeta: { backgroundColor: colors.background, gap: spacing.sm },
   etiquetas: {

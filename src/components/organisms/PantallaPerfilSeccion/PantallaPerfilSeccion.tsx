@@ -44,6 +44,7 @@ export const PantallaPerfilSeccion = ({
       title={title}
       subtitle={subtitle}
       onBack={onBack}
+      style={styles.encabezado}
       backTestID="seccion-atras"
       titleTestID={testID ? `${testID}-titulo` : undefined}
     />
@@ -54,13 +55,13 @@ export const PantallaPerfilSeccion = ({
     return (
       <SafeAreaView style={styles.pantalla} edges={['top']} testID={testID}>
         <KeyboardAvoidingView style={styles.pantalla} behavior="padding" keyboardVerticalOffset={0}>
+          {encabezado}
           <ScrollConTeclado
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={styles.contenidoConPie}
             conRelleno={false}
             testID={idScroll}
           >
-            {encabezado}
             {children}
           </ScrollConTeclado>
           {/* Con el teclado abierto el margen del gesto del sistema ya no hace falta. */}
@@ -77,13 +78,13 @@ export const PantallaPerfilSeccion = ({
 
   return (
     <SafeAreaView style={styles.pantalla} edges={['top']} testID={testID}>
+      {encabezado}
       <ScrollConTeclado
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={styles.contenido}
         margenInferior={spacing.lg + BOTONES_BAJO_EL_CAMPO}
         testID={idScroll}
       >
-        {encabezado}
         {children}
       </ScrollConTeclado>
     </SafeAreaView>
@@ -92,8 +93,10 @@ export const PantallaPerfilSeccion = ({
 
 const styles = StyleSheet.create({
   pantalla: { flex: 1, backgroundColor: colors.background },
-  contenido: { padding: spacing.lg, paddingBottom: spacing.xxl, gap: spacing.lg },
+  // El encabezado va fuera del scroll: queda fijo mientras el contenido se desplaza.
+  encabezado: { paddingHorizontal: spacing.lg, paddingTop: spacing.xs },
+  contenido: { padding: spacing.lg, paddingTop: spacing.md, paddingBottom: spacing.xxl, gap: spacing.lg },
   // El colchón de abajo deja que el último campo suba y no quede pegado al pie fijo.
-  contenidoConPie: { padding: spacing.lg, paddingBottom: spacing.xxl, gap: spacing.lg },
+  contenidoConPie: { padding: spacing.lg, paddingTop: spacing.md, paddingBottom: spacing.xxl, gap: spacing.lg },
   pieConTeclado: { paddingBottom: spacing.sm },
 });
