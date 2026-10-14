@@ -81,6 +81,20 @@ const mismoRect = (a: Rect, b: Rect) =>
   Math.abs(a.width - b.width) <= TOLERANCIA &&
   Math.abs(a.height - b.height) <= TOLERANCIA;
 
+/** Cuánto se sigue re-midiendo el paso mostrado y cada cuántos cuadros de animación (~80 ms). */
+const SEGUIMIENTO_MS = 900;
+const CUADROS_ENTRE_MEDIDAS = 5;
+/** Veces que se vuelve a contar los pasos al arrancar, como máximo (~0,8 s)… */
+const REINTENTOS_AL_CONTAR = 10;
+/** …y cuántas veces seguidas debe dar lo mismo para darlo por bueno. */
+const MUESTRAS_ESTABLES = 3;
+const esperarCuadros = (cuadros: number) =>
+  new Promise<void>(resolver => {
+    const paso = (restan: number) =>
+      restan <= 0 ? resolver() : requestAnimationFrame(() => paso(restan - 1));
+    paso(cuadros);
+  });
+
 const estaALaVista = (r: Rect, alto: number, tope: number) =>
   r.y >= tope && r.y + r.height <= alto - RESERVA_BARRA;
 
@@ -103,6 +117,14 @@ export const RecorridoProvider = ({ children }: { children: ReactNode }) => {
   const indiceRef = useRef(0);
   indiceRef.current = indice;
 
+  // Al desmontarse se corta cualquier seguimiento en curso (ver `seguirMientrasSeAcomoda`).
+  useEffect(
+    () => () => {
+      token.current += 1;
+    },
+    [],
+  );
+
   const setFase = useCallback((nueva: Fase) => {
     faseRef.current = nueva;
     setFaseEstado(nueva);
@@ -124,6 +146,41 @@ export const RecorridoProvider = ({ children }: { children: ReactNode }) => {
     marcarRecorridoVisto().catch(() => undefined);
   }, [setFase]);
 
+  /**
+   * Vuelve a medir el paso activo. Se llama cuando el hueco ya se dibujó (onLayout) y cuando lo
+   * señalado cambia de tamaño o de lugar (onLayout de PasoGuia): así el hueco sigue a lo señalado
+   * aunque estuviera animándose o su pantalla recién se hubiera acomodado. Sin temporizadores:
+   * cada medición la dispara un evento de diseño, y si no hubo cambio no hay nada que actualizar.
+   */
+  const remedir = useCallback(async () => {
+    if (faseRef.current !== 'activo') return;
+    const paso = lista.current[indiceRef.current];
+    if (!paso) return;
+    const miToken = token.current;
+    const medida = await paso.medir();
+    if (miToken !== token.current || !medida) return;
+    setRect(previo => (previo && mismoRect(previo, medida) ? previo : medida));
+  }, []);
+
+  /**
+   * Tras mostrar un paso, sigue midiéndolo mientras su pantalla se acomoda (la animación de volver
+   * desde Perfil, los márgenes del sistema…): esas animaciones mueven la vista sin avisar con
+   * `onLayout`, y medir justo al arrancar dejaba el hueco corrido (pasaba en la versión release,
+   * donde JS llega antes de que termine la animación). Avanza por cuadros de animación, no por
+   * temporizadores, y no cambia nada si lo señalado no se movió. Se corta al cambiar de paso o cerrar.
+   */
+  const seguirMientrasSeAcomoda = useCallback(
+    async (miToken: number) => {
+      const fin = Date.now() + SEGUIMIENTO_MS;
+      while (Date.now() < fin) {
+        await esperarCuadros(CUADROS_ENTRE_MEDIDAS);
+        if (miToken !== token.current || faseRef.current !== 'activo') return;
+        await remedir();
+      }
+    },
+    [remedir],
+  );
+
   /** Muestra el paso `desde` (o el siguiente que se pueda medir en esa dirección). */
   const mostrar = useCallback(
     async (desde: number, direccion: 1 | -1): Promise<'ok' | 'agotado' | 'cancelado'> => {
@@ -142,20 +199,36 @@ export const RecorridoProvider = ({ children }: { children: ReactNode }) => {
           setIndice(i);
           setRect(medida);
           setFase('activo');
+          seguirMientrasSeAcomoda(miToken).catch(() => undefined);
           return 'ok';
         }
       }
       return 'agotado';
     },
-    [setFase],
+    [seguirMientrasSeAcomoda, setFase],
   );
+
+  /** Los pasos registrados que hoy se pueden medir (están montados y con tamaño), en orden. */
+  const pasosMedibles = useCallback(async () => {
+    const candidatos = [...registro.current.values()].sort((a, b) => a.orden - b.orden);
+    const medidos = await Promise.all(candidatos.map(async p => ((await p.medir()) ? p : null)));
+    return medidos.filter((p): p is PasoRegistro => p !== null);
+  }, []);
 
   const comenzar = useCallback(async () => {
     if (faseRef.current !== 'pendiente') return;
     setFase('arrancando');
-    const candidatos = [...registro.current.values()].sort((a, b) => a.orden - b.orden);
-    const medidos = await Promise.all(candidatos.map(async p => ((await p.medir()) ? p : null)));
-    const montados = medidos.filter((p): p is PasoRegistro => p !== null);
+    // Al volver desde otra pantalla (Perfil → Ayuda), Inicio se está reacomodando y no todo lo
+    // señalado se puede medir aún: se cuenta de nuevo hasta que el número de pasos se repita.
+    let montados = await pasosMedibles();
+    let seguidas = 1; // cuántas veces seguidas dio la misma cantidad
+    for (let intento = 0; intento < REINTENTOS_AL_CONTAR && seguidas < MUESTRAS_ESTABLES; intento += 1) {
+      await esperarCuadros(CUADROS_ENTRE_MEDIDAS);
+      if ((faseRef.current as Fase) !== 'arrancando') return; // cerraron o saltaron mientras tanto
+      const otra = await pasosMedibles();
+      seguidas = otra.length === montados.length ? seguidas + 1 : 1;
+      montados = otra;
+    }
     if (montados.length === 0) {
       // Nada que mostrar todavía: no se marca como visto, se reintenta en otro arranque.
       setFase('inactivo');
@@ -165,7 +238,7 @@ export const RecorridoProvider = ({ children }: { children: ReactNode }) => {
     setTotal(montados.length);
     const resultado = await mostrar(0, 1);
     if (resultado === 'agotado') setFase('inactivo');
-  }, [mostrar, setFase]);
+  }, [mostrar, pasosMedibles, setFase]);
 
   const iniciar = useCallback(() => {
     if (faseRef.current === 'inactivo') setFase('pendiente');
@@ -175,22 +248,6 @@ export const RecorridoProvider = ({ children }: { children: ReactNode }) => {
     await olvidarRecorridoVisto();
     iniciar();
   }, [iniciar]);
-
-  /**
-   * Vuelve a medir el paso activo. Se llama cuando el hueco ya se dibujó (onLayout) y cuando lo
-   * señalado cambia de tamaño o de lugar (onLayout de PasoGuia): así el hueco sigue a lo señalado
-   * aunque estuviera animándose o su pantalla recién se hubiera acomodado. Sin temporizadores:
-   * cada medición la dispara un evento de diseño, y si no hubo cambio no hay nada que actualizar.
-   */
-  const remedir = useCallback(async () => {
-    if (faseRef.current !== 'activo') return;
-    const paso = lista.current[indiceRef.current];
-    if (!paso) return;
-    const miToken = token.current;
-    const medida = await paso.medir();
-    if (miToken !== token.current || !medida) return;
-    setRect(previo => (previo && mismoRect(previo, medida) ? previo : medida));
-  }, []);
 
   const avisarLayout = useCallback(
     (nombre: string) => {
