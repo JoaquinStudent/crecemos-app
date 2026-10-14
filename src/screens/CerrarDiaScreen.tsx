@@ -13,10 +13,11 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { CircleCheck, PiggyBank, Plus } from 'lucide-react-native';
+import { ChevronDown, ChevronUp, CircleCheck, Mic, PiggyBank, Plus, Square } from 'lucide-react-native';
 import { colors, spacing } from '@theme';
 import { Text } from '@components/atoms/Text';
 import { Button } from '@components/atoms/Button';
+import { BotonIcono } from '@components/atoms/BotonIcono';
 import { Icon } from '@components/atoms/Icon';
 import { Input } from '@components/atoms/Input';
 import { MoneyText } from '@components/atoms/MoneyText';
@@ -30,6 +31,7 @@ import { ScreenHeader } from '@components/molecules/ScreenHeader';
 import { ScrollConTeclado } from '@components/molecules/ScrollConTeclado';
 import { StickyFooter } from '@components/molecules/StickyFooter';
 import { interpretarDia, resumenEntendido } from '@analisis/contarDia';
+import { MENSAJE_ERROR_VOZ, useDictadoVoz } from '@hooks/useDictadoVoz';
 import type { InterpretacionDia } from '@analisis/contarDia';
 import { calcularCierre, crearId, editarCierre, nuevoCierre } from '@dominio/cierre';
 import { ETIQUETA_GASTO } from '@dominio/categorias';
@@ -279,14 +281,38 @@ export const CerrarDiaScreen = () => {
   };
 
   // Solo propone: llena el formulario para que la persona lo revise. Nada se guarda aquí.
-  const llenarConRelato = () => {
-    const i = interpretarDia(relato, activos);
+  const llenarConTexto = (texto: string) => {
+    const i = interpretarDia(texto, activos);
     if (pisaria(i)) {
       setEntendido(null);
       setPorConfirmar(i);
       return;
     }
     aplicarRelato(i);
+  };
+  const llenarConRelato = () => llenarConTexto(relato);
+
+  // Hablar: lo que se oye va llenando el cuadro y, al terminar, se llena el cierre para revisarlo.
+  const voz = useDictadoVoz({
+    alParcial: setRelato,
+    alTexto: texto => {
+      setRelato(texto);
+      llenarConTexto(texto);
+    },
+  });
+  // "Cuéntame tu día" empieza cerrado: el formulario es lo principal y la voz es un atajo.
+  const [contarAbierto, setContarAbierto] = useState(false);
+  const alternarContar = () => {
+    // Al esconderlo no se queda el micrófono abierto sin que se vea.
+    if (contarAbierto && voz.escuchando) voz.parar();
+    setContarAbierto(abierto => !abierto);
+  };
+  const alternarVoz = () => {
+    if (voz.escuchando) return voz.parar();
+    // Un dictado nuevo borra el aviso del anterior: no se queda "No pude llenar nada" mientras escucha.
+    setEntendido(null);
+    setPorConfirmar(null);
+    return voz.empezar();
   };
 
   const quitarGasto = (id: string) => setGastos(previos => previos.filter(g => g.id !== id));
@@ -404,76 +430,122 @@ export const CerrarDiaScreen = () => {
             </Callout>
           ) : null}
 
-          <Card style={styles.tarjeta} testID="cuentame-tarjeta">
-            <Text variant="h3">Cuéntame tu día</Text>
-            <Input
-              label="Escribe o dicta cómo te fue"
-              value={relato}
-              onChangeText={setRelato}
-              placeholder="Preparé 60 anticuchos y me sobraron 5. Yape 120. Gasté 30 de carbón."
-              multiline
-              numberOfLines={3}
-              maxLength={600}
-              textAlignVertical="top"
-              style={styles.relato}
-              helperText="Toca el micrófono de tu teclado para hablar"
-              autoCorrect={false}
-              testID="cuentame-texto"
-            />
-            <Button
-              title="Llenar mi cierre"
-              variant="outline"
-              fullWidth
-              style={styles.llenar}
-              disabled={relato.trim() === ''}
-              accessibilityLabel="Llenar mi cierre con lo que me contaste"
-              onPress={llenarConRelato}
-              testID="cuentame-llenar"
-            />
-            {porConfirmar ? (
-              <Callout accessibilityLiveRegion="polite" testID="cuentame-confirmar">
-                <Text variant="bodyStrong">Esto cambia lo que ya escribiste. ¿Continuar?</Text>
-                <Button
-                  title="Sí, reemplazar"
-                  variant="outline"
-                  fullWidth
-                  onPress={() => aplicarRelato(porConfirmar)}
-                  testID="cuentame-reemplazar"
-                />
-                <Button
-                  title="No, dejar como está"
-                  variant="ghost"
-                  fullWidth
-                  onPress={() => setPorConfirmar(null)}
-                  testID="cuentame-dejar"
-                />
-              </Callout>
-            ) : null}
-            {entendido ? (
-              <Callout accessibilityLiveRegion="polite" testID="cuentame-resultado">
-                {entendido.resumen !== '' ? (
-                  <Text variant="bodyStrong" testID="cuentame-entendi">
-                    {`Entendí: ${entendido.resumen}`}
+          <Button
+            title="Cuéntame tu día"
+            variant="outline"
+            fullWidth
+            leftIcon={Mic}
+            rightIcon={contarAbierto ? ChevronUp : ChevronDown}
+            accessibilityLabel={
+              contarAbierto
+                ? 'Cuéntame tu día: ocultar'
+                : 'Cuéntame tu día: hablar o escribir cómo te fue para llenar el cierre'
+            }
+            onPress={alternarContar}
+            testID="cuentame-abrir"
+          />
+          {contarAbierto ? (
+            <Card style={styles.tarjetaVoz} wrapperStyle={styles.tarjetaVozInterior} testID="cuentame-tarjeta">
+              {voz.disponible ? (
+                <View style={styles.cabeza}>
+                  <View style={styles.vozTexto}>
+                    {voz.escuchando ? (
+                      <Text variant="bodyStrong" accessibilityLiveRegion="polite" testID="cuentame-escuchando">
+                        Te escucho… cuéntame cómo te fue.
+                      </Text>
+                    ) : (
+                      <Text testID="cuentame-instruccion">Toca el micrófono y cuéntame cómo te fue.</Text>
+                    )}
+                    <Text variant="caption" testID="cuentame-privacidad">
+                      El audio lo procesa el servicio de voz de tu teléfono. No se guarda ni se envía a Crecemos.
+                    </Text>
+                  </View>
+                  <BotonIcono
+                    icon={voz.escuchando ? Square : Mic}
+                    accessibilityLabel={
+                      voz.escuchando ? 'Dejar de escuchar' : 'Hablar para contar cómo te fue hoy'
+                    }
+                    onPress={alternarVoz}
+                    style={voz.escuchando ? styles.microEscuchando : undefined}
+                    testID="cuentame-hablar"
+                  />
+                </View>
+              ) : null}
+              {voz.error ? (
+                <Callout accessibilityLiveRegion="polite">
+                  <Text variant="bodyStrong" testID="cuentame-error-voz">
+                    {MENSAJE_ERROR_VOZ[voz.error]}
                   </Text>
-                ) : (
-                  <Text variant="bodyStrong" testID="cuentame-nada">
-                    No pude llenar nada. Escribe los datos en los campos de abajo.
-                  </Text>
-                )}
-                {entendido.noEntendido.length > 0 ? (
-                  <Text testID="cuentame-no-entendi">
-                    {`No entendí: ${entendido.noEntendido.join('; ')}`}
-                  </Text>
-                ) : null}
-                {entendido.notas.map(n => (
-                  <Text key={n} variant="caption">
-                    {n}
-                  </Text>
-                ))}
-                <Text variant="caption">Revisa los campos y corrige lo que haga falta. Todavía no se guardó nada.</Text>
-              </Callout>
-            ) : null}
-          </Card>
+                </Callout>
+              ) : null}
+              <Input
+                label={voz.disponible ? 'O escríbelo aquí' : 'Escribe cómo te fue'}
+                value={relato}
+                onChangeText={setRelato}
+                placeholder="Preparé 60 anticuchos y me sobraron 5. Yape 120. Gasté 30 de carbón."
+                multiline
+                numberOfLines={3}
+                maxLength={600}
+                textAlignVertical="top"
+                style={styles.relato}
+                autoCorrect={false}
+                testID="cuentame-texto"
+              />
+              <Button
+                title="Llenar mi cierre"
+                variant="outline"
+                fullWidth
+                style={styles.llenar}
+                disabled={relato.trim() === ''}
+                accessibilityLabel="Llenar mi cierre con lo que me contaste"
+                onPress={llenarConRelato}
+                testID="cuentame-llenar"
+              />
+              {porConfirmar ? (
+                <Callout accessibilityLiveRegion="polite" testID="cuentame-confirmar">
+                  <Text variant="bodyStrong">Esto cambia lo que ya escribiste. ¿Continuar?</Text>
+                  <Button
+                    title="Sí, reemplazar"
+                    variant="outline"
+                    fullWidth
+                    onPress={() => aplicarRelato(porConfirmar)}
+                    testID="cuentame-reemplazar"
+                  />
+                  <Button
+                    title="No, dejar como está"
+                    variant="ghost"
+                    fullWidth
+                    onPress={() => setPorConfirmar(null)}
+                    testID="cuentame-dejar"
+                  />
+                </Callout>
+              ) : null}
+              {entendido ? (
+                <Callout accessibilityLiveRegion="polite" testID="cuentame-resultado">
+                  {entendido.resumen !== '' ? (
+                    <Text variant="bodyStrong" testID="cuentame-entendi">
+                      {`Entendí: ${entendido.resumen}`}
+                    </Text>
+                  ) : (
+                    <Text variant="bodyStrong" testID="cuentame-nada">
+                      No pude llenar nada. Escribe los datos en los campos de abajo.
+                    </Text>
+                  )}
+                  {entendido.noEntendido.length > 0 ? (
+                    <Text testID="cuentame-no-entendi">
+                      {`No entendí: ${entendido.noEntendido.join('; ')}`}
+                    </Text>
+                  ) : null}
+                  {entendido.notas.map(n => (
+                    <Text key={n} variant="caption">
+                      {n}
+                    </Text>
+                  ))}
+                  <Text variant="caption">Revisa los campos y corrige lo que haga falta. Todavía no se guardó nada.</Text>
+                </Callout>
+              ) : null}
+            </Card>
+          ) : null}
 
           <View style={styles.bloque}>
             <Text variant="h3">¿Cuánto preparaste y cuánto te sobró?</Text>
@@ -658,8 +730,14 @@ const styles = StyleSheet.create({
   exitoMonto: { alignItems: 'center', alignSelf: 'stretch', gap: spacing.xs },
   bloque: { gap: spacing.md },
   tarjeta: { padding: spacing.md, gap: spacing.sm },
+  tarjetaVoz: { padding: spacing.lg },
+  // El `gap` va en el contenedor interno de RNE: en el estilo de la tarjeta no se aplica.
+  tarjetaVozInterior: { gap: spacing.lg },
+  cabeza: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md },
+  vozTexto: { flex: 1, gap: spacing.xs },
+  microEscuchando: { backgroundColor: colors.danger },
   relato: { minHeight: 96 },
-  llenar: { marginTop: spacing.sm },
+  llenar: { marginTop: 0 },
   fila: { flexDirection: 'row', gap: spacing.md },
   columna: { flex: 1 },
   gasto: {

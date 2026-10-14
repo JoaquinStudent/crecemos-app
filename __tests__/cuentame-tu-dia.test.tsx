@@ -19,15 +19,17 @@ describe('Cerrar mi día: Cuéntame tu día', () => {
   const abrir = async () => {
     const app = await montarApp();
     await app.tocar('tab-cerrar-dia');
+    await app.tocar('cuentame-abrir');
     return app;
   };
 
-  it('deja aire entre la pista del micrófono y el botón "Llenar mi cierre"', async () => {
+  it('deja aire entre la pista del campo y el botón "Llenar mi cierre"', async () => {
     const app = await abrir();
     let nodo: ReturnType<typeof app.botonDe> | null = app.botonDe('cuentame-llenar');
     let margen = 0;
     while (nodo && margen === 0) {
-      margen = StyleSheet.flatten(nodo.props.style)?.marginTop ?? 0;
+      const estilo = StyleSheet.flatten(nodo.props.style);
+      margen = Math.max(estilo?.marginTop ?? 0, estilo?.gap ?? 0);
       nodo = nodo.parent;
     }
     expect(margen).toBeGreaterThanOrEqual(8);
@@ -36,7 +38,7 @@ describe('Cerrar mi día: Cuéntame tu día', () => {
   it('muestra el campo, la pista con texto y un botón secundario con nombre', async () => {
     const app = await abrir();
     expect(app.textos()).toContain('Cuéntame tu día');
-    expect(app.textos()).toContain('Toca el micrófono de tu teclado para hablar');
+    expect(app.textos()).toContain('Escribe cómo te fue');
     expect(textoCompleto(app.botonDe('cuentame-llenar'))).toBe('Llenar mi cierre');
     expect(app.propsDe('cuentame-texto').multiline).toBe(true);
   });
@@ -133,6 +135,7 @@ describe('Cerrar mi día: Cuéntame tu día', () => {
     await app.tocar('guardar-dia');
     await app.tocar('cierre-listo');
     await app.tocar('tab-cerrar-dia');
+    await app.tocar('cuentame-abrir');
 
     await app.escribir('cuentame-texto', 'Preparé 25 anticuchos');
     await app.tocar('cuentame-llenar');
