@@ -1,7 +1,7 @@
 // src/analisis/clasificadorLocal.ts
 // El clasificador de respaldo: cuando no hay internet (o el servidor no contesta), la pregunta se
 // clasifica AQUÍ, en el teléfono, con reglas cerradas y puntaje por frases. Elige entre las MISMAS
-// doce intenciones que el servidor y devuelve lo mismo (`intencion`, `dia`, `confianza` de 0 a 1), con
+// catorce intenciones que el servidor y devuelve lo mismo (`intencion`, `dia`, `confianza` de 0 a 1), con
 // el mismo umbral (`UMBRAL_CONFIANZA`): por debajo, `noEntendi`. Las cifras y las frases las arma el
 // código de siempre (`responderConsulta`); solo la clasificación necesitaba al servidor.
 // Puro: sin red, sin reloj, sin azar, sin React. `hoy` es opcional y solo sirve para "anteayer".
@@ -24,18 +24,25 @@ const r = (re: RegExp, peso: number, excluye?: RegExp): Regla => ({ re, peso, ex
 const MEJOR = '(mejor|mas|bien)';
 const PEOR = '(peor|menos|mal)';
 const HABLA_DE_DIA = /\bdias?\b/;
+/** "El mes" es de las intenciones del mes, no de las del día: «cómo me fue el mes» no es «cómo me fue el lunes». */
+const HABLA_DE_MES = /\bmes(es)?\b/;
 
 const REGLAS: Record<Exclude<IntencionId, 'noEntendi'>, Regla[]> = {
   ventaDelDia: [
-    r(/\bcuant[oa]s? (vendi|vendio|gane|hice|facture|ingrese|entro|me entro|vendimos)\b/, 2),
-    r(/\b(mi|la|las|mis) ventas? (de|del|en)\b/, 1.5),
-    r(/\bcomo me (fue|va) (hoy|ayer|anteayer|antier|el|este)\b/, 1.5),
-    r(/\bque tal (me fue|mi venta|mis ventas|vendi)\b/, 1.5),
-    r(/\bcuanto (fue|es|ha sido|salio) (la|mi) venta\b/, 1.5),
-    r(/\b(vendi|vendio|venta|ventas)\b/, 0.5),
+    r(
+      /\bcuant[oa]s? (vendi|vendio|gane|hice|facture|ingrese|entro|me entro|vendimos)\b/,
+      2,
+      HABLA_DE_MES,
+    ),
+    r(/\b(mi|la|las|mis) ventas? (de|del|en)\b/, 1.5, HABLA_DE_MES),
+    r(/\bcomo me (fue|va) (hoy|ayer|anteayer|antier|el|este)\b/, 1.5, HABLA_DE_MES),
+    r(/\bque tal (me fue|mi venta|mis ventas|vendi)\b/, 1.5, HABLA_DE_MES),
+    r(/\bcuanto (fue|es|ha sido|salio) (la|mi) venta\b/, 1.5, HABLA_DE_MES),
+    r(/\b(vendi|vendio|venta|ventas)\b/, 0.5, HABLA_DE_MES),
     r(
       /\b(hoy|ayer|anteayer|antier|anoche|lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b/,
       0.5,
+      HABLA_DE_MES,
     ),
   ],
   mejorDia: [
@@ -107,6 +114,7 @@ const REGLAS: Record<Exclude<IntencionId, 'noEntendi'>, Regla[]> = {
     r(
       /\bcuant[oa]s? (preparo|preparar|compro|comprar|cocino|cocinar|debo preparar|debo comprar|debo cocinar|tengo que preparar|tengo que comprar|hago|llevo|traigo)\b/,
       2,
+      HABLA_DE_MES,
     ),
     r(
       /\bque (preparo|compro|cocino|debo preparar|debo comprar|debo cocinar|deberia preparar|deberia comprar|tengo que preparar|tengo que comprar|llevo) ?(para )?(manana|hoy)?\b/,
@@ -118,6 +126,19 @@ const REGLAS: Record<Exclude<IntencionId, 'noEntendi'>, Regla[]> = {
     r(/\bmanana\b/, 0.5, /\b(vendi|vendio|ventas?)\b/),
     r(/\bcuant[oa]s? (porciones|platos|anticuchos|vasos|raciones|unidades|mercaderia)\b/, 1.5),
     r(/\b(recomiend|sugier)[a-z]*\b.{0,25}\b(manana|comprar|preparar)\b/, 1.5),
+  ],
+  resumenMesPasado: [
+    r(/\bmes (pasado|anterior)\b/, 3),
+    r(/\b(el )?ultimo mes\b/, 2),
+    r(/\bcomo (me fue|cerre|termine|salio) (en )?(el|mi) mes\b/, 2.5),
+    r(/\bcomo (fue|estuvo|salio) (el|mi) mes\b/, 2),
+  ],
+  resumenMesActual: [
+    r(/\beste mes\b/, 2.5),
+    r(/\bmes (actual|en curso)\b/, 3),
+    r(/\bventas? del mes\b/, 2, /\bmes (pasado|anterior)\b/),
+    r(/\bcomo (voy|vengo|estoy|me va|me esta yendo) (en|con) (el|mi) mes\b/, 2.5),
+    r(/\b(lo )?que va del mes\b/, 2),
   ],
   compararCiclo: [
     r(/\bciclo (pasado|anterior)\b/, 2),

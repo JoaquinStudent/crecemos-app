@@ -337,7 +337,7 @@ describe('servidor: interpretar', () => {
     }
     expect(questions.intencion.instructions).toContain('¿Qué quiso preguntar la persona');
     expect(Object.keys(questions.intencion.criteria)).toEqual(INTENCIONES_APP.map(i => i.id));
-    expect(Object.keys(questions.intencion.criteria)).toHaveLength(12);
+    expect(Object.keys(questions.intencion.criteria)).toHaveLength(14);
     expect(questions.intencion.criteria).toEqual(
       Object.fromEntries(INTENCIONES_APP.map(i => [i.id, i.descripcion])),
     );
@@ -531,7 +531,7 @@ describe('servidor: interpretar', () => {
     expect(esquema.type).toBe('object');
     expect(esquema.additionalProperties).toBe(false);
     expect(esquema.required.sort()).toEqual(['confianza', 'dia', 'intencion']);
-    expect(esquema.properties.intencion.enum).toHaveLength(12);
+    expect(esquema.properties.intencion.enum).toHaveLength(14);
     expect(esquema.properties.intencion.enum).toEqual(INTENCIONES_APP.map(i => i.id));
     expect(esquema.properties).not.toHaveProperty('producto');
     expect(esquema.properties.dia.enum).toEqual([...DIAS_CONSULTA]);
@@ -1057,7 +1057,7 @@ describe('servidor: límite por IP', () => {
 
 describe('servidor: consistencia con la app', () => {
   it('las 12 intenciones del Worker son exactamente las de la app, con la misma descripción', () => {
-    expect(INTENCIONES).toHaveLength(12);
+    expect(INTENCIONES).toHaveLength(14);
     expect(INTENCIONES.map((i: { id: string }) => i.id)).toEqual(INTENCIONES_APP.map(i => i.id));
     expect(INTENCIONES).toEqual(
       INTENCIONES_APP.map(i => ({ id: i.id, descripcion: i.descripcion })),
@@ -1080,7 +1080,7 @@ describe('servidor: consistencia con la app', () => {
   });
 
   it('cada intención y cada día del Worker los acepta la app', () => {
-    expect(INTENCIONES).toHaveLength(12);
+    expect(INTENCIONES).toHaveLength(14);
     expect(DIAS).toHaveLength(10);
     for (const { id } of INTENCIONES) {
       expect(

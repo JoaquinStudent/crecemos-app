@@ -173,7 +173,7 @@ export interface ContextoAnalisis {
   ciclos?: Ciclo[];
 }
 
-/** Las doce preguntas que el chat "Preguntarle a mis datos" sabe responder (Sprint-08). */
+/** Las catorce preguntas que el chat "Preguntarle a mis datos" sabe responder (Sprint-08; el mes, Sprint-13). */
 export type IntencionId =
   | 'ventaDelDia'
   | 'mejorDia'
@@ -186,6 +186,8 @@ export type IntencionId =
   | 'compararCiclo'
   | 'revisarPrecio'
   | 'cuandoRecupereCapital'
+  | 'resumenMesPasado'
+  | 'resumenMesActual'
   | 'noEntendi';
 
 /** De qué día habla la pregunta; `ninguno` si no nombra ninguno. */

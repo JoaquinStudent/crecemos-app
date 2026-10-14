@@ -153,6 +153,8 @@ describe('INTENCIONES', () => {
       'compararCiclo',
       'revisarPrecio',
       'cuandoRecupereCapital',
+      'resumenMesPasado',
+      'resumenMesActual',
       'noEntendi',
     ]);
   });

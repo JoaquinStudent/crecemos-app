@@ -3,10 +3,10 @@
 Un Cloudflare Worker. **La app nunca habla con OpenRouter**: habla con este Worker, que guarda la
 clave como secreto y reenvía solo lo necesario.
 
-| La app manda                                                           | El Worker hace                                                                                                                              | Responde                                |
-| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
-| `{ "tipo": "interpretar", "texto": "¿cuánto vendí ayer?" }`            | Pide a **Jev** (API tipada) que elija una de las 12 preguntas conocidas. Si Jev falla o responde algo inválido, lo hace **DeepSeek**        | `{ intencion, dia, confianza, modelo }` |
-| `{ "tipo": "juzgar", "hecho": { intencion, frase, cifras, senales } }` | Pide **solo a Jev** que juzgue la respuesta ya calculada: `bien`, `ojo` o `urgente`. Sin respaldo: si Jev falla o duda, responde sin juicio | `{ semaforo, confianza, modelo }`       |
+| La app manda                                                           | El Worker hace                                                                                                                                                                                                                           | Responde                                |
+| ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| `{ "tipo": "interpretar", "texto": "¿cuánto vendí ayer?" }`            | Pide a **Jev** (API tipada) que elija una de las 14 preguntas conocidas. Si Jev falla o responde algo inválido, lo hace **DeepSeek**. Si Jev contesta `noEntendi` o duda (menos de 0.6), **DeepSeek lo intenta una vez más** (ver abajo) | `{ intencion, dia, confianza, modelo }` |
+| `{ "tipo": "juzgar", "hecho": { intencion, frase, cifras, senales } }` | Pide **solo a Jev** que juzgue la respuesta ya calculada: `bien`, `ojo` o `urgente`. Sin respaldo: si Jev falla o duda, responde sin juicio                                                                                              | `{ semaforo, confianza, modelo }`       |
 
 Todo pasa por OpenRouter, con **la misma clave** (`OPENROUTER_API_KEY`) para las dos APIs:
 
@@ -21,6 +21,29 @@ Todo pasa por OpenRouter, con **la misma clave** (`OPENROUTER_API_KEY`) para las
 - **DeepSeek** (respaldo para clasificar) va por el chat,
   `https://openrouter.ai/api/v1/chat/completions`, con salidas estructuradas (JSON con valores
   permitidos).
+
+### Segundo intento con DeepSeek (Sprint-13)
+
+Antes, DeepSeek solo entraba si Jev **fallaba**. Ahora también entra cuando Jev **contesta, pero no
+entiende**:
+
+| Lo que dice Jev                                          | Qué hace el Worker                                                                                                                                                                  |
+| -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Una intención real con confianza de 0.6 o más            | Responde eso, con el `modelo` de Jev. **No llama a DeepSeek**                                                                                                                       |
+| `noEntendi`, o una intención con confianza menor a 0.6   | Le hace **la misma pregunta cerrada** a DeepSeek (el mismo esquema JSON estricto del respaldo). Solo se acepta su respuesta si **no es `noEntendi` y su confianza es de 0.8 o más** |
+| Se rechaza a DeepSeek, o falla, o responde algo inválido | Responde `noEntendi` (con estado 200, sin ningún código de error) y el chat dice "No te entendí bien"                                                                               |
+| Jev falla o responde algo inválido                       | Igual que antes: clasifica DeepSeek y, si tampoco puede, `NO_DISPONIBLE`                                                                                                            |
+
+- DeepSeek **solo elige** entre las intenciones y los días que ya existen; nunca inventa una. Las
+  cifras las sigue calculando el teléfono.
+- Los tiempos no cambian: Jev tiene 4 s como mucho y todo el `interpretar`, 7,5 s (la app corta a los
+  8). El segundo intento usa lo que quede del presupuesto, sin pasar de 7 s; si quedan menos de 500 ms,
+  no se intenta.
+- A DeepSeek solo viaja el **texto de la pregunta** (más las instrucciones fijas del Worker): ningún
+  historial ni datos del negocio.
+- El campo `modelo` dice quién decidió: el de DeepSeek si él aportó la intención; el de Jev en los
+  demás casos (también cuando se rechaza a DeepSeek y sale `noEntendi`).
+- El umbral de 0.8 es la constante `CONFIANZA_SEGUNDO_INTENTO` de `worker.js`.
 
 Las cifras y frases visibles las calcula el teléfono. Los productos configurados se identifican por su
 nombre en el teléfono y el catálogo no se envía al Worker. Hasta actualizar el Worker desplegado,
@@ -123,13 +146,27 @@ Si responde un error:
 | `{"error":"DEMASIADAS_PETICIONES"}` | Pasaste las 20 peticiones por minuto de tu IP (una pregunta del chat gasta hasta 3); espera un minuto                                   |
 | `{"error":"SOLICITUD_INVALIDA"}`    | El cuerpo no tiene la forma pedida (texto de 1 a 200 caracteres, frase de hasta 300)                                                    |
 
-### 5. Saber quién respondió: Jev o el respaldo
+### 5. Saber quién respondió: Jev o DeepSeek
 
 Mira el campo `modelo` de la respuesta de `interpretar`:
 
 - Empieza con `typesafe/jev-` (por ejemplo `typesafe/jev-1.13-20260917`): respondió **Jev**, por la
-  API tipada. Es lo esperable.
-- `deepseek/deepseek-v4-flash`: Jev falló y respondió el **respaldo DeepSeek**.
+  API tipada. Es lo esperable. También sale este modelo cuando Jev no entendió y el segundo intento de
+  DeepSeek se rechazó (la `intencion` es `noEntendi`).
+- `deepseek/deepseek-v4-flash`: respondió **DeepSeek**, ya sea porque Jev falló o porque no entendió y
+  DeepSeek acertó con confianza de 0.8 o más.
+
+Para ver el segundo intento, prueba una pregunta del mes que Jev antes no entendía:
+
+```sh
+curl -s -X POST https://crecemos-asistente.joaquiningsoft.workers.dev \
+  -H 'Content-Type: application/json' \
+  -d '{"tipo":"interpretar","texto":"cómo me fue el mes pasado"}'
+```
+
+Debe responder `"intencion":"resumenMesPasado"`, con el `modelo` de Jev si él la entendió o el de
+DeepSeek si hizo falta el segundo intento. Si responde `noEntendi` con el `modelo` de Jev, ninguno de
+los dos llegó a la confianza pedida.
 
 Si ves `jev-latest` tal cual, la API no informó la versión y se muestra el modelo configurado; también
 es Jev. Anota lo que ves: es la prueba real que pide el SPEC (M11 de la auditoría). La app ignora
@@ -168,7 +205,7 @@ de chat. Lo mismo con `DEEPSEEK_MODELO`, que sí es un modelo de chat de OpenRou
 estructuradas.
 
 **Cómo decide Jev:** devuelve una `confidence` de 0 a 1 que mide qué tan concentrada está la
-probabilidad en una opción. Con 12 opciones, una opción con 60 % de probabilidad da una confianza de
+probabilidad en una opción. Con 14 opciones, una opción con 60 % de probabilidad da una confianza de
 unos 0.56: un poco por debajo del mínimo de la app (0.6), que entonces dice "No entendí". Si pasa
 seguido con preguntas claras, la solución es mejorar las descripciones de `PREGUNTAS_JEV` en
 `worker.js`, no bajar el mínimo.

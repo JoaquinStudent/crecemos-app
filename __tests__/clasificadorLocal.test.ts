@@ -130,6 +130,28 @@ const FRASES: Array<[IntencionId, string[]]> = [
       'como va mi capital',
     ],
   ],
+  [
+    'resumenMesPasado',
+    [
+      '¿Cómo me fue el mes pasado?',
+      'como me fue el mes pasado',
+      'cuanto vendi el mes pasado',
+      'cómo cerré el mes',
+      'ventas del mes pasado',
+      'cómo me fue en el mes anterior',
+    ],
+  ],
+  [
+    'resumenMesActual',
+    [
+      '¿Cómo voy este mes?',
+      'como voy este mes',
+      'cuanto vendi este mes',
+      'ventas del mes',
+      'cómo me va este mes',
+      'cuánto llevo este mes',
+    ],
+  ],
 ];
 
 describe('clasificarLocal: las doce intenciones', () => {

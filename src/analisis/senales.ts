@@ -34,6 +34,35 @@ const indiceDeMes = (mes: string): number => {
 const mesDeIndice = (indice: number): string =>
   `${Math.floor(indice / 12)}-${String((indice % 12) + 1).padStart(2, '0')}`;
 
+/** El mes calendario anterior a 'YYYY-MM' ('2027-01' → '2026-12'). */
+export const mesAnterior = (mes: string): string => mesDeIndice(indiceDeMes(mes) - 1);
+
+/** Las cuentas de un mes: lo que vendió, lo que gastó, el resultado registrado y los días con cierre. */
+export interface TotalesMes extends MesCompleto {
+  /** Gastos del mes: la suma de los gastos de cada cierre. */
+  gastos: number;
+}
+
+/**
+ * Venta, gastos, "te queda" (el resultado registrado) y días con cierre de un mes ('YYYY-MM'). Con
+ * `hastaDia` solo cuentan los cierres de los días 1 a `hastaDia`; sin él, el mes entero. Solo cuentan
+ * los cierres que existen: un día sin cierre no suma ni cuenta como día. Es la misma cuenta del reporte
+ * del banco y del chat.
+ */
+export const totalesDelMes = (cierres: Cierre[], mes: string, hastaDia = 31): TotalesMes => {
+  const delMes = cierres.filter(
+    c => c.fecha.startsWith(mes) && Number(c.fecha.slice(8, 10)) <= hastaDia,
+  );
+  const resumenes = delMes.map(calcularCierre);
+  return {
+    mes,
+    venta: redondearSoles(resumenes.reduce((total, r) => total + r.venta, 0)),
+    gastos: redondearSoles(resumenes.reduce((total, r) => total + r.gastoTotal, 0)),
+    teQueda: redondearSoles(resumenes.reduce((total, r) => total + r.teQueda, 0)),
+    dias: new Set(delMes.map(c => c.fecha)).size,
+  };
+};
+
 const promedio = (valores: number[]): number =>
   valores.length === 0
     ? 0
@@ -58,14 +87,8 @@ const mesesCompletos = (
   const meses: MesCompleto[] = [];
   for (let i = desdeUltimos; i <= hasta; i++) {
     const mes = mesDeIndice(i);
-    const delMes = cierres.filter(c => c.fecha.startsWith(mes));
-    const resumenes = delMes.map(calcularCierre);
-    meses.push({
-      mes,
-      venta: redondearSoles(resumenes.reduce((total, r) => total + r.venta, 0)),
-      teQueda: redondearSoles(resumenes.reduce((total, r) => total + r.teQueda, 0)),
-      dias: new Set(delMes.map(c => c.fecha)).size,
-    });
+    const { venta, teQueda, dias } = totalesDelMes(cierres, mes);
+    meses.push({ mes, venta, teQueda, dias });
   }
   return meses;
 };
