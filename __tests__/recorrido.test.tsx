@@ -60,7 +60,15 @@ const Pantalla = ({ listo = false, orden }: { listo?: boolean; orden?: string[] 
 };
 
 let montada: ReactTestRenderer.ReactTestRenderer | null = null;
-const montar = async (hijo: ReactNode) => {
+// El recorrido cuenta sus pasos hasta que el número se repite (~0,25 s): se le da ese tiempo.
+const asentar = async () => {
+  for (let i = 0; i < 5; i += 1) {
+    await act(async () => {
+      await new Promise(resolver => setTimeout(resolver, 80));
+    });
+  }
+};
+const montar = async (hijo: ReactNode, esperar = true) => {
   await act(async () => {
     montada = ReactTestRenderer.create(
       <SafeAreaProvider>
@@ -68,6 +76,7 @@ const montar = async (hijo: ReactNode) => {
       </SafeAreaProvider>,
     );
   });
+  if (esperar) await asentar();
 };
 const raiz = () => montada!.root;
 const porId = (id: string): ReactTestInstance | undefined =>
@@ -301,7 +310,7 @@ describe('recorrido guiado: primer arranque', () => {
         </SafeAreaProvider>,
       );
     });
-    await act(async () => {});
+    await asentar();
     expect(hay('recorrido-overlay')).toBe(true);
   });
 
@@ -351,7 +360,7 @@ describe('recorrido guiado: repetir', () => {
     await act(async () => {
       await api.repetir();
     });
-    await act(async () => {});
+    await asentar();
     expect(hay('recorrido-overlay')).toBe(true);
     expect(textoDe('recorrido-contador')).toBe('Paso 1 de 3');
   });
@@ -372,7 +381,7 @@ describe('recorrido guiado: repetir', () => {
         </SafeAreaProvider>,
       );
     });
-    await act(async () => {});
+    await asentar();
     expect(hay('recorrido-overlay')).toBe(true);
   });
 });
@@ -478,8 +487,14 @@ describe('recorrido guiado: accesibilidad y diseño', () => {
   it('nada avanza solo: sin botones tocados el paso no cambia', async () => {
     jest.useFakeTimers();
     try {
-      await montar(<Pantalla listo />);
-      await act(async () => {});
+      await montar(<Pantalla listo />, false);
+      // Con timers falsos el tiempo corre a mano: lo justo para que el recorrido cuente sus pasos.
+      for (let i = 0; i < 20; i += 1) {
+        await act(async () => {
+          jest.advanceTimersByTime(100);
+        });
+      }
+      expect(textoDe('recorrido-contador')).toBe('Paso 1 de 3');
       await act(async () => {
         jest.advanceTimersByTime(60_000);
       });

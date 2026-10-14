@@ -218,7 +218,7 @@ describe('Qué me deja cada uno', () => {
     expect(app.existe('queme-atras')).toBe(true);
   });
 
-  it('muestra el insight con su texto exacto, en 18 px y sin el naranja como color de texto', async () => {
+  it('muestra el insight con su texto exacto, en 16 px (letra Normal) y sin el naranja como color de texto', async () => {
     await sembrarDosCiclos();
     const app = await montarApp();
     await abrirPantalla(app);
@@ -227,7 +227,7 @@ describe('Qué me deja cada uno', () => {
     expect(app.textoDe('queme-insight-texto')).toBe(
       'La pancita se vende más, pero el anticucho te deja S/ 0.80 más por cada uno.',
     );
-    expect(app.tamanoDe('queme-insight-texto')).toBe(18);
+    expect(app.tamanoDe('queme-insight-texto')).toBe(16);
     expect(app.colorDe('queme-insight-texto')).not.toBe('#FFA400');
   });
 
@@ -244,7 +244,8 @@ describe('Qué me deja cada uno', () => {
     expect(app.textoDe('queme-ganancia-p-rachi')).toBe('S/ 14.00');
     // La cifra grande es la ganancia, en verde.
     expect(app.colorDe('queme-ganancia-p-anticucho')).toBe('#0F7A4F');
-    expect(app.tamanoDe('queme-ganancia-p-anticucho')).toBeGreaterThanOrEqual(20);
+    // Con letra Normal el título h3 mide 18: sigue siendo mayor que el cuerpo (16).
+    expect(app.tamanoDe('queme-ganancia-p-anticucho')).toBeGreaterThan(16);
   });
 
   it('"El que más vendes" y "El que más te deja" caen en productos distintos', async () => {

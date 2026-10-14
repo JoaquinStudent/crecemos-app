@@ -149,14 +149,14 @@ export const MiReporteScreen = () => {
 
   return (
     <SafeAreaView style={styles.pantalla} edges={['top']} testID="reporte-pantalla">
+      <ScreenHeader
+        title="Mi reporte"
+        subtitle="Para mostrarle a tu banco"
+        onBack={() => navigation.goBack()}
+        style={styles.encabezado}
+        backTestID="reporte-atras"
+      />
       <ScrollView contentContainerStyle={styles.contenido}>
-        <ScreenHeader
-          title="Mi reporte"
-          subtitle="Para mostrarle a tu banco"
-          onBack={() => navigation.goBack()}
-          backTestID="reporte-atras"
-        />
-
         {cargando ? (
           <CargandoBloques bloques={2} alto={160} testID="reporte-cargando" />
         ) : null}
@@ -450,7 +450,8 @@ const Barras = ({ meses }: { meses: MesCompleto[] }) => {
 
 const styles = StyleSheet.create({
   pantalla: { flex: 1, backgroundColor: colors.background },
-  contenido: { padding: spacing.lg, gap: spacing.lg, paddingBottom: spacing.xl },
+  encabezado: { paddingHorizontal: spacing.lg, paddingTop: spacing.xs },
+  contenido: { padding: spacing.lg, paddingTop: spacing.md, gap: spacing.lg, paddingBottom: spacing.xl },
   // El naranja es solo relleno de la barra: las letras del aviso van en oscuro.
   progreso: { marginTop: spacing.sm },
   privacidad: {

@@ -1,6 +1,7 @@
 // src/dominio/perfilResumen.ts
 // Las líneas cortas que cada opción del Perfil muestra debajo de su título ("Yape activado",
 // "Activado · 9:30 p. m."...). Puras: salen de los datos reales y no inventan nada.
+import { ajustesVisuales, OPCIONES_TAMANO } from './ajustes';
 import { ajustesDeRecordatorio, etiquetaDeHora } from './recordatorio';
 import type { DatosDeEjemplo } from './origen';
 import type { Perfil, Producto } from './tipos';
@@ -29,6 +30,15 @@ export const resumenRecordatorio = (
 ): string => {
   const { activo, hora } = ajustesDeRecordatorio(perfil);
   return activo ? `Activado · ${etiquetaDeHora(hora)}` : 'Apagado';
+};
+
+/** "Letra normal", "Letra grande" o "Letra extra grande". */
+export const resumenConfiguracion = (
+  perfil: Pick<Perfil, 'tamanoLetra' | 'vibracion' | 'reducirAnimaciones'>,
+): string => {
+  const { tamanoLetra } = ajustesVisuales(perfil);
+  const etiqueta = OPCIONES_TAMANO.find(o => o.valor === tamanoLetra)?.etiqueta ?? '';
+  return `Letra ${etiqueta.toLowerCase()}`;
 };
 
 /** Cuántos productos están activos (los que se ofrecen al cerrar el día). */

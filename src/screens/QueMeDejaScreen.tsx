@@ -87,15 +87,15 @@ export const QueMeDejaScreen = () => {
 
   return (
     <SafeAreaView style={styles.pantalla} edges={['top']} testID="queme-pantalla">
+      <ScreenHeader
+        title="Qué me deja cada uno"
+        subtitle={periodoEnPalabras(ciclos)}
+        onBack={() => navigation.goBack()}
+        style={styles.encabezado}
+        backTestID="queme-atras"
+        subtitleTestID="queme-periodo"
+      />
       <ScrollView contentContainerStyle={styles.contenido}>
-        <ScreenHeader
-          title="Qué me deja cada uno"
-          subtitle={periodoEnPalabras(ciclos)}
-          onBack={() => navigation.goBack()}
-          backTestID="queme-atras"
-          subtitleTestID="queme-periodo"
-        />
-
         {cargando ? (
           <CargandoBloques bloques={3} alto={140} testID="queme-cargando" />
         ) : ganancias.length === 0 ? (
@@ -277,7 +277,12 @@ const SimuladorPrecio = ({
   const paso = formatoSoles(PASO_PRECIO);
 
   return (
-    <Card variant="bordered" style={styles.tarjeta} testID="queme-simulador">
+    <Card
+      variant="bordered"
+      style={styles.tarjetaSimulador}
+      wrapperStyle={styles.interiorSimulador}
+      testID="queme-simulador"
+    >
       <View style={styles.filaTitulo}>
         <Icon icon={Calculator} color="primary" size="md" />
         <Text variant="h3" accessibilityRole="header">
@@ -298,15 +303,17 @@ const SimuladorPrecio = ({
       ) : (
         <Text variant="bodyStrong">{producto.nombre}</Text>
       )}
-      <Text variant="label" color="textMuted">
-        Precio simulado
-      </Text>
-      <Text variant="h2" testID="queme-sim-precio">
-        {formatoSoles(simulacion.precioSimulado)}
-      </Text>
-      <Text variant="caption" color="textMuted" testID="queme-sim-actual">
-        {`Hoy cobras ${formatoSoles(simulacion.precioActual)}`}
-      </Text>
+      <View style={styles.bloquePrecio}>
+        <Text variant="label" color="textMuted">
+          Precio simulado
+        </Text>
+        <Text variant="h2" testID="queme-sim-precio">
+          {formatoSoles(simulacion.precioSimulado)}
+        </Text>
+        <Text variant="caption" color="textMuted" testID="queme-sim-actual">
+          {`Hoy cobras ${formatoSoles(simulacion.precioActual)}`}
+        </Text>
+      </View>
       <View style={styles.filaBotones}>
         <Button
           title={`Bajar ${paso}`}
@@ -394,7 +401,8 @@ const FilaBarra = ({
 
 const styles = StyleSheet.create({
   pantalla: { flex: 1, backgroundColor: colors.background },
-  contenido: { padding: spacing.lg, gap: spacing.lg, paddingBottom: spacing.xxl },
+  encabezado: { paddingHorizontal: spacing.lg, paddingTop: spacing.xs },
+  contenido: { padding: spacing.lg, paddingTop: spacing.md, gap: spacing.lg, paddingBottom: spacing.xxl },
   lista: { gap: spacing.md },
   tarjeta: { backgroundColor: colors.background, gap: spacing.sm },
   etiquetas: {
@@ -419,6 +427,11 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   nombre: { flex: 1 },
+  // El simulador respira: más relleno arriba y abajo, y espacio entre sus bloques. El `gap` va en el
+  // contenedor interno de RNE (`wrapperStyle`): en el estilo de la tarjeta no se aplica.
+  tarjetaSimulador: { backgroundColor: colors.background, paddingVertical: spacing.xl },
+  interiorSimulador: { gap: spacing.lg },
+  bloquePrecio: { gap: spacing.xxs },
   filaTitulo: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   // Lado a lado y a partes iguales; si ni así caben (fuente muy grande) el segundo baja a su fila.
   filaBotones: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md },

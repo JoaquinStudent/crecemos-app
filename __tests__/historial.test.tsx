@@ -5,7 +5,7 @@
  */
 
 import { createElement } from 'react';
-import { StyleSheet } from 'react-native';
+import { AccessibilityInfo, StyleSheet } from 'react-native';
 import ReactTestRenderer, { act, ReactTestInstance } from 'react-test-renderer';
 import { clearAllMockStorages } from '@react-native-async-storage/async-storage/jest';
 import App from '../App';
@@ -196,6 +196,11 @@ const sembrarTresDias = async () => {
     gastos: [{ categoria: 'mercaderia', monto: 244 }],
   });
 };
+
+// Las cifras de Resumen cuentan hasta su valor; con "Reducir movimiento" salen ya en su valor final.
+beforeEach(() => {
+  (AccessibilityInfo.isReduceMotionEnabled as jest.Mock).mockResolvedValue(true);
+});
 
 describe('Las 4 pestañas', () => {
   beforeEach(() => {

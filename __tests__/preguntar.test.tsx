@@ -461,9 +461,9 @@ describe('Chat "Preguntarle a mis datos": lo que se ve', () => {
       expect(letra.fontSize).toBeGreaterThanOrEqual(14);
       expect(letra.color).not.toBe(colors.accent);
     }
-    // El texto base del chat (las burbujas) es de 18.
-    expect(letras.find(l => l.testID === 'chat-burbuja-0-texto')?.fontSize).toBe(18);
-    expect(letras.find(l => l.testID === 'chat-burbuja-1-texto')?.fontSize).toBe(18);
+    // El texto base del chat (las burbujas) es el cuerpo: 16 con la letra Normal por defecto.
+    expect(letras.find(l => l.testID === 'chat-burbuja-0-texto')?.fontSize).toBe(16);
+    expect(letras.find(l => l.testID === 'chat-burbuja-1-texto')?.fontSize).toBe(16);
   });
 
   it('los textos del chat no dicen palabras técnicas ni de contabilidad', async () => {

@@ -59,6 +59,12 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
       in: window,
       launchOptions: nil
     )
+
+    // Entre el LaunchScreen y el primer pintado de JS la vista raíz de React Native se vería blanca.
+    // Con el magenta de la marca (#CA0358) el paso al splash de JS (SplashAnimado) es continuo.
+    window.rootViewController?.view.backgroundColor = UIColor(
+      red: 202 / 255, green: 3 / 255, blue: 88 / 255, alpha: 1
+    )
   }
 }
 

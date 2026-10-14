@@ -12,6 +12,7 @@ import {
   ChevronLeft,
   CircleHelp,
   Package,
+  SlidersHorizontal,
   Trash2,
   UserRound,
   Wallet,
@@ -25,6 +26,7 @@ import { FotoPerfilSheet } from '@components/organisms/FotoPerfilSheet';
 import {
   RESUMEN_AYUDA,
   resumenBorrar,
+  resumenConfiguracion,
   resumenDatos,
   resumenPagos,
   resumenProductos,
@@ -120,6 +122,13 @@ export const PerfilScreen = () => {
             summary={resumenProductos(productos)}
             onPress={ir('PerfilProductos')}
             testID="perfil-opcion-productos"
+          />
+          <OpcionPerfil
+            icon={SlidersHorizontal}
+            title="Configuración"
+            summary={resumenConfiguracion(perfil)}
+            onPress={ir('PerfilConfiguracion')}
+            testID="perfil-opcion-configuracion"
           />
           <OpcionPerfil
             icon={Trash2}

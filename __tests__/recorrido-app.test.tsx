@@ -35,10 +35,11 @@ afterEach(async () => {
 const texto = (n: ReactTestInstance | string): string =>
   typeof n === 'string' ? n : n.children.map(texto).join('');
 
+// El recorrido cuenta sus pasos hasta que el número se repite (~0,25 s): hay que darle ese tiempo.
 const asentar = async () => {
   for (let i = 0; i < 6; i += 1) {
     await act(async () => {
-      await new Promise(resolver => setTimeout(resolver, 0));
+      await new Promise(resolver => setTimeout(resolver, 80));
     });
   }
 };

@@ -5,6 +5,7 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { BarraNavegacion } from '@components/organisms/BarraNavegacion';
+import { BarraOcultaProvider } from '@context/BarraOcultaContext';
 import { InicioScreen } from '@screens/InicioScreen';
 import { HistorialScreen } from '@screens/HistorialScreen';
 import { ResumenScreen } from '@screens/ResumenScreen';
@@ -25,10 +26,12 @@ const barra = (props: React.ComponentProps<typeof BarraNavegacion>) => (
 );
 
 export const Tabs = () => (
-  <Tab.Navigator tabBar={barra} screenOptions={{ headerShown: false }}>
-    <Tab.Screen name="Inicio" component={InicioScreen} options={{ title: 'Inicio' }} />
-    <Tab.Screen name="Historial" component={HistorialScreen} options={{ title: 'Historial' }} />
-    <Tab.Screen name="Resumen" component={ResumenScreen} options={{ title: 'Resumen' }} />
-    <Tab.Screen name="Asistente" component={PreguntarScreen} options={{ title: 'Asistente' }} />
-  </Tab.Navigator>
+  <BarraOcultaProvider>
+    <Tab.Navigator tabBar={barra} screenOptions={{ headerShown: false }}>
+      <Tab.Screen name="Inicio" component={InicioScreen} options={{ title: 'Inicio' }} />
+      <Tab.Screen name="Historial" component={HistorialScreen} options={{ title: 'Historial' }} />
+      <Tab.Screen name="Resumen" component={ResumenScreen} options={{ title: 'Resumen' }} />
+      <Tab.Screen name="Asistente" component={PreguntarScreen} options={{ title: 'Asistente' }} />
+    </Tab.Navigator>
+  </BarraOcultaProvider>
 );

@@ -6,6 +6,7 @@ import com.facebook.react.ReactApplication
 import com.facebook.react.ReactHost
 import com.facebook.react.ReactNativeApplicationEntryPoint.loadReactNative
 import com.facebook.react.defaults.DefaultReactHost.getDefaultReactHost
+import com.wenkesj.voice.VoicePackage
 
 class MainApplication : Application(), ReactApplication {
 
@@ -14,8 +15,10 @@ class MainApplication : Application(), ReactApplication {
       context = applicationContext,
       packageList =
         PackageList(this).packages.apply {
-          // Packages that cannot be autolinked yet can be added manually here, for example:
-          // add(MyReactNativePackage())
+          // Reconocedor de voz de "Cuéntame tu día": ver android/.../wenkesj/voice/LEEME.md.
+          add(VoicePackage())
+          // Avisa desde JS cuándo quitar el splash nativo (ver SplashEstado.kt).
+          add(SplashNativoPackage())
         },
     )
   }

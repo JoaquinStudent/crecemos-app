@@ -3,8 +3,8 @@
 // "Cerrar día" es la acción principal de la app: va al centro, elevada, en el círculo magenta,
 // y NO es una pestaña (abre el formulario encima de todo). Ningún ícono va solo: cada ranura lleva
 // su etiqueta de texto de 14 px o más (UX, regla 1) y todo lo tocable mide 48 dp o más (regla 10).
-import React from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { Animated, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CommonActions } from '@react-navigation/native';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
@@ -16,6 +16,10 @@ import { PASOS, PasoGuia } from '@components/molecules/PasoGuia';
 import { Icon } from '@components/atoms/Icon';
 import { fechaLocal } from '@dominio/fecha';
 import { useCrecemos } from '@context/CrecemosProvider';
+import { useBarraOculta } from '@context/BarraOcultaContext';
+import { useAhora } from '@hooks/useAhora';
+import { useMedidasBarra } from '@hooks/useMedidasBarra';
+import { movimientoReducido } from '@hooks/useMovimientoReducido';
 import { useTecladoVisible } from '@hooks/useTecladoVisible';
 import {
   AIRE_ETIQUETA,
@@ -53,10 +57,50 @@ const ESCALA_MAXIMA = 1;
 export const BarraNavegacion = ({ state, navigation }: BottomTabBarProps) => {
   const insets = useSafeAreaInsets();
   const { cierres } = useCrecemos();
-  const hoyCerrado = cierres.some(c => c.fecha === fechaLocal(new Date()));
+  // `useAhora` renueva "hoy" al pasar la medianoche y al volver la app al frente: sin él la barra
+  // seguía mostrando "Hoy ✓" con el cierre de ayer.
+  const hoy = fechaLocal(useAhora());
+  const hoyCerrado = cierres.some(c => c.fecha === hoy);
   // Con el teclado abierto la barra se esconde: en Android con borde a borde el teclado se dibuja
   // encima de la app y la barra (una capa absoluta) quedaría tapada o flotando sobre el formulario.
   const teclado = useTecladoVisible();
+  // Al bajar el scroll la barra se desliza hacia abajo hasta salir de pantalla; al subir vuelve.
+  const { oculta, mostrar } = useBarraOculta();
+  const { alturaTotal } = useMedidasBarra();
+  const bajada = oculta.interpolate({ inputRange: [0, 1], outputRange: [0, alturaTotal] });
+  // Al cerrar el día el círculo hace un "pop" (rebota un poco) para confirmar que quedó hecho.
+  // Solo cuando pasa de abierto a cerrado estando la app en pantalla, no al arrancar ya cerrado.
+  const pop = useRef(new Animated.Value(1)).current;
+  const estabaCerrado = useRef(hoyCerrado);
+  useEffect(() => {
+    if (hoyCerrado && !estabaCerrado.current) {
+      let corriendo: Animated.CompositeAnimation | null = null;
+      let vivo = true;
+      movimientoReducido().then(reducido => {
+        if (!vivo || reducido) return;
+        pop.setValue(0.8);
+        corriendo = Animated.spring(pop, {
+          toValue: 1,
+          friction: 4,
+          tension: 140,
+          useNativeDriver: true,
+        });
+        corriendo.start();
+      });
+      estabaCerrado.current = hoyCerrado;
+      return () => {
+        vivo = false;
+        corriendo?.stop();
+      };
+    }
+    estabaCerrado.current = hoyCerrado;
+    return undefined;
+  }, [hoyCerrado, pop]);
+  // Cambiar de pestaña siempre la devuelve: la pantalla nueva empieza arriba.
+  const indice = state.index;
+  useEffect(() => {
+    mostrar();
+  }, [indice, mostrar]);
 
   const irA = (nombre: string, clave: string) => {
     const evento = navigation.emit({ type: 'tabPress', target: clave, canPreventDefault: true });
@@ -95,6 +139,7 @@ export const BarraNavegacion = ({ state, navigation }: BottomTabBarProps) => {
           variant={seleccionada ? 'captionStrong' : 'caption'}
           color={seleccionada ? 'primary' : 'textMuted'}
           numberOfLines={1}
+          sinEscalar
           maxFontSizeMultiplier={ESCALA_MAXIMA}
         >
           {ranura.etiqueta}
@@ -117,8 +162,12 @@ export const BarraNavegacion = ({ state, navigation }: BottomTabBarProps) => {
   if (teclado.visible) return null;
 
   return (
-    <View
-      style={[styles.barra, { paddingBottom: rellenoInferior(insets.bottom) }]}
+    <Animated.View
+      style={[
+        styles.barra,
+        { paddingBottom: rellenoInferior(insets.bottom) },
+        { transform: [{ translateY: bajada }] },
+      ]}
       pointerEvents="box-none"
       testID="barra-navegacion"
     >
@@ -135,13 +184,20 @@ export const BarraNavegacion = ({ state, navigation }: BottomTabBarProps) => {
       >
         {({ pressed }) => (
           <>
-            <View style={[styles.circulo, pressed && styles.circuloPresionado]}>
+            <Animated.View
+              style={[
+                styles.circulo,
+                pressed && styles.circuloPresionado,
+                { transform: [{ scale: pop }] },
+              ]}
+            >
               <Icon icon={hoyCerrado ? Check : ClipboardCheck} color="textInverse" size="xl" />
-            </View>
+            </Animated.View>
             <Text
               variant="captionStrong"
               color="primary"
               numberOfLines={1}
+              sinEscalar
               maxFontSizeMultiplier={ESCALA_MAXIMA}
               testID="tab-cerrar-dia-etiqueta"
             >
@@ -153,7 +209,7 @@ export const BarraNavegacion = ({ state, navigation }: BottomTabBarProps) => {
       </PasoGuia>
       {pestana(resumen)}
       {pestana(asistente)}
-    </View>
+    </Animated.View>
   );
 };
 

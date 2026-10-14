@@ -27,7 +27,9 @@ import { formatoFechaCorta, formatoSoles } from '@dominio/formato';
 import type { Ciclo, Producto, ResumenCiclo } from '@dominio/tipos';
 import { unidadSegunCantidad } from '@dominio/unidades';
 import { useCrecemos } from '@context/CrecemosProvider';
+import { useConteo } from '@hooks/useConteo';
 import { useDerivados } from '@hooks/useDerivados';
+import { useEsconderBarraAlDesplazar } from '@context/BarraOcultaContext';
 import { useMedidasBarra } from '@hooks/useMedidasBarra';
 import type { RootStackParamList } from '@navigation/RootStack';
 import type { TabsParamList } from '@navigation/Tabs';
@@ -53,15 +55,21 @@ export const ResumenScreen = () => {
   const { cicloActual: actual, cicloAnterior: anterior, resumenActual, resumenAnterior } = useDerivados();
   const navigation = useNavigation<ResumenNavigation>();
   const { rellenoContenido } = useMedidasBarra();
+  const esconderBarra = useEsconderBarraAlDesplazar();
 
 
   return (
     <SafeAreaView style={styles.pantalla} edges={['top']}>
-      <ScrollView contentContainerStyle={[styles.contenido, { paddingBottom: rellenoContenido }]}>
+      {/* El título va fuera del scroll: queda fijo mientras el contenido se desplaza. */}
+      <View style={styles.encabezado}>
         <Text variant="h1" accessibilityRole="header">
           Resumen
         </Text>
-
+      </View>
+      <ScrollView
+        {...esconderBarra}
+        contentContainerStyle={[styles.contenido, { paddingBottom: rellenoContenido }]}
+      >
         {cargando ? (
           <CargandoBloques bloques={3} alto={120} testID="resumen-cargando" />
         ) : actual && resumenActual ? (
@@ -132,6 +140,10 @@ const CicloActual = ({
   const ganancia = Math.max(resumen.teQueda, 0);
   const total = resumen.capital + ganancia;
   const capitalPorcentaje = porcentaje(resumen.capital, total);
+  // Las cifras cuentan hasta su valor; el lector de pantalla oye el valor final (accessibilityLabel).
+  const teQuedaMostrado = useConteo(resumen.teQueda);
+  const capitalMostrado = useConteo(resumen.capital);
+  const gananciaMostrada = useConteo(ganancia);
 
   // Lo que más plata dejó sin vender; en un empate, el primero por nombre.
   const masSobrante = mercaderia.reduce<(typeof mercaderia)[number] | null>(
@@ -158,10 +170,11 @@ const CicloActual = ({
           variant="hero"
           color={resumen.teQueda < 0 ? 'danger' : 'success'}
           testID="resumen-te-queda"
+          accessibilityLabel={formatoSoles(resumen.teQueda)}
           adjustsFontSizeToFit
           numberOfLines={1}
         >
-          {formatoSoles(resumen.teQueda)}
+          {formatoSoles(teQuedaMostrado)}
         </Text>
         <Text variant="caption" color="textMuted">
           Ventas menos gastos registrados. Incluye pagos pendientes de recibir.
@@ -200,16 +213,18 @@ const CicloActual = ({
             color="danger"
             style={styles.cifraCapital}
             testID="resumen-capital"
+            accessibilityLabel={`Capital ${formatoSoles(resumen.capital)}`}
           >
-            {`Capital ${formatoSoles(resumen.capital)}`}
+            {`Capital ${formatoSoles(capitalMostrado)}`}
           </Text>
           <Text
             variant="bodyStrong"
             color="success"
             style={styles.cifraCapital}
             testID="resumen-ganancia"
+            accessibilityLabel={`Resultado positivo ${formatoSoles(ganancia)}`}
           >
-            {`Resultado positivo ${formatoSoles(ganancia)}`}
+            {`Resultado positivo ${formatoSoles(gananciaMostrada)}`}
           </Text>
         </View>
 
@@ -312,7 +327,8 @@ const Comparacion = ({ actual, anterior }: { actual: ResumenCiclo; anterior: Res
 
 const styles = StyleSheet.create({
   pantalla: { flex: 1, backgroundColor: colors.background },
-  contenido: { padding: spacing.lg, gap: spacing.xl },
+  encabezado: { paddingHorizontal: spacing.lg, paddingTop: spacing.lg, paddingBottom: spacing.sm },
+  contenido: { padding: spacing.lg, paddingTop: spacing.md, gap: spacing.xl },
   seccion: { gap: spacing.md },
   comparacion: {
     flexDirection: 'row',

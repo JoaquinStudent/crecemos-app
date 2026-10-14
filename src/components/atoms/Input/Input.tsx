@@ -13,6 +13,8 @@ import { Eye, EyeOff, LucideIcon } from 'lucide-react-native';
 import { colors, radius, size, spacing, typography } from '@theme';
 import { Icon } from '@components/atoms/Icon';
 import { Text } from '@components/atoms/Text';
+import { escalarTexto } from '@dominio/ajustes';
+import { useAjustesVisuales } from '@context/AjustesVisualesContext';
 
 export interface InputProps extends TextInputProps {
   label?: string;
@@ -52,6 +54,8 @@ export const Input = forwardRef<InputRef, InputProps>(
   ) => {
     const [focused, setFocused] = useState(false);
     const [hidden, setHidden] = useState(!!secureTextEntry);
+    // Lo que se escribe en el campo también sigue el tamaño de letra elegido.
+    const { escala } = useAjustesVisuales();
     const iconColor = disabled ? 'disabled' : 'textMuted';
 
     // Si es contraseña y no se pasó rightIcon, se agrega el botón ver/ocultar
@@ -96,7 +100,12 @@ export const Input = forwardRef<InputRef, InputProps>(
             accessibilityLabel={label}
             accessibilityHint={error ?? helperText}
             accessibilityState={{ disabled }}
-            style={[styles.input, disabled && styles.inputDisabled, style]}
+            style={[
+              styles.input,
+              escalarTexto(typography.body, escala),
+              disabled && styles.inputDisabled,
+              style,
+            ]}
             onFocus={e => {
               setFocused(true);
               onFocus?.(e);

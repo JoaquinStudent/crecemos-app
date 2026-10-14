@@ -20,6 +20,12 @@ export interface Perfil {
   recordatorioActivo?: boolean;
   /** 'HH:MM' en 24 horas. Ausente o ilegible = 21:30. */
   recordatorioHora?: string;
+  /** Tamaño de la letra de la app. Ausente = 'normal'. */
+  tamanoLetra?: 'normal' | 'grande' | 'extra';
+  /** Vibra un instante al guardar el día. Ausente = sí. */
+  vibracion?: boolean;
+  /** Sin animaciones de la app, además de lo que pida el sistema. Ausente = no. */
+  reducirAnimaciones?: boolean;
   actualizadoEn: Instante;
 }
 

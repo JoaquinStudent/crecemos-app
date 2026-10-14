@@ -67,6 +67,8 @@ import { useAccionSegura } from '@hooks/useAccionSegura';
 import { useDerivados } from '@hooks/useDerivados';
 import { useAhora } from '@hooks/useAhora';
 import { useConteo } from '@hooks/useConteo';
+import { Aparecer } from '@components/molecules/Aparecer';
+import { useEsconderBarraAlDesplazar } from '@context/BarraOcultaContext';
 import { useMedidasBarra } from '@hooks/useMedidasBarra';
 import { useRecordatorio } from '@hooks/useRecordatorio';
 import { useCrecemos, type EstadoSemilla } from '@context/CrecemosProvider';
@@ -98,6 +100,7 @@ export const InicioScreen = () => {
     useCrecemos();
   const navigation = useNavigation<InicioNavigation>();
   const { rellenoContenido } = useMedidasBarra();
+  const esconderBarra = useEsconderBarraAlDesplazar();
   const ahora = useAhora();
   const hoy = fechaLocal(ahora);
   const [anotandoYape, setAnotandoYape] = useState(false);
@@ -134,7 +137,10 @@ export const InicioScreen = () => {
 
   return (
     <SafeAreaView style={styles.pantalla} edges={['top']}>
-      <ScrollGuiado contentContainerStyle={[styles.contenido, { paddingBottom: rellenoContenido }]}>
+      <ScrollGuiado
+        {...esconderBarra}
+        contentContainerStyle={[styles.contenido, { paddingBottom: rellenoContenido }]}
+      >
         <View style={styles.encabezado}>
           <View style={styles.saludo}>
             <Text variant="h2" testID="inicio-saludo">
@@ -171,24 +177,39 @@ export const InicioScreen = () => {
           <CargandoBloques bloques={3} alto={140} testID="inicio-cargando" />
         ) : ultimo && cicloActual && resumenActual ? (
           <>
-            <PasoGuia {...PASOS.teQueda}>
-              <TarjetaCiclo ciclo={cicloActual} resumen={resumenActual} />
-            </PasoGuia>
-            <UltimoDia fecha={ultimo.fecha} teQueda={calcularCierre(ultimo).teQueda} />
+            <Aparecer indice={0}>
+              <PasoGuia {...PASOS.teQueda}>
+                <TarjetaCiclo ciclo={cicloActual} resumen={resumenActual} />
+              </PasoGuia>
+            </Aparecer>
+            <Aparecer indice={1}>
+              <UltimoDia fecha={ultimo.fecha} teQueda={calcularCierre(ultimo).teQueda} />
+            </Aparecer>
             {semana ? (
-              <TarjetaSemana semana={semana} alPreguntar={() => preguntarAlAsistente(PREGUNTA_SEMANA)} />
+              <Aparecer indice={2}>
+                <TarjetaSemana
+                  semana={semana}
+                  alPreguntar={() => preguntarAlAsistente(PREGUNTA_SEMANA)}
+                />
+              </Aparecer>
             ) : null}
-            <PasoGuia {...PASOS.cuota} activo={meta !== null}>
-              <TarjetaMeta meta={meta} hoy={hoy} alAbrir={() => navigation.navigate('MiMeta')} />
-            </PasoGuia>
-            <Recomendaciones
-              recomendaciones={recomendaciones}
-              ciclos={ciclos.length}
-              alPreguntar={preguntarAlAsistente}
-            />
-            <PasoGuia {...PASOS.decidir} activo={recomendaciones.length === 0}>
-              <TarjetaManana plan={plan} />
-            </PasoGuia>
+            <Aparecer indice={3}>
+              <PasoGuia {...PASOS.cuota} activo={meta !== null}>
+                <TarjetaMeta meta={meta} hoy={hoy} alAbrir={() => navigation.navigate('MiMeta')} />
+              </PasoGuia>
+            </Aparecer>
+            <Aparecer indice={4}>
+              <Recomendaciones
+                recomendaciones={recomendaciones}
+                ciclos={ciclos.length}
+                alPreguntar={preguntarAlAsistente}
+              />
+            </Aparecer>
+            <Aparecer indice={5}>
+              <PasoGuia {...PASOS.decidir} activo={recomendaciones.length === 0}>
+                <TarjetaManana plan={plan} />
+              </PasoGuia>
+            </Aparecer>
             {frase ? (
               <TarjetaInsight frase={frase} alVer={() => navigation.navigate('QueMeDeja')} />
             ) : null}
