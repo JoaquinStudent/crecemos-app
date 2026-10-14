@@ -7,6 +7,7 @@
  */
 
 import { createElement } from 'react';
+import { AccessibilityInfo } from 'react-native';
 import ReactTestRenderer, { act, ReactTestInstance } from 'react-test-renderer';
 import { clearAllMockStorages } from '@react-native-async-storage/async-storage/jest';
 import App from '../../App';
@@ -310,6 +311,8 @@ describe('SPEC-03: Historial y ciclos de compra', () => {
 
   // @spec03_e10 — e2e: ver el ciclo después de dos cierres
   it('spec03_e10 e2e ver el ciclo despues de dos cierres', async () => {
+    // Las cifras de Resumen cuentan hasta su valor; con "Reducir movimiento" salen ya finales.
+    (AccessibilityInfo.isReduceMotionEnabled as jest.Mock).mockResolvedValue(true);
     // Given: la app sin datos, con el anticucho a S/ 10.00
     // When: se registra un cierre marcado "hoy compré mercadería" con S/ 150.00 de gasto y 20 anticuchos vendidos, luego otro al día siguiente con 15 vendidos, y se abre Resumen
     // Then: Resumen muestra el ciclo con capital "S/ 150.00" y "te queda" "S/ 200.00", e Historial muestra 2 grupos
