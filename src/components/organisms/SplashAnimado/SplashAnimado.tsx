@@ -100,6 +100,10 @@ export const SplashAnimado = ({ listo }: SplashAnimadoProps) => {
   return (
     <Animated.View
       style={[styles.fondo, { opacity: opacidad }]}
+      // Sin esto Android aplica la opacidad al fondo y a la imagen por separado y donde se
+      // superponen se compone dos veces: durante el desvanecimiento se veía un rectángulo más
+      // opaco alrededor del logo. Así todo el splash se desvanece como una sola capa.
+      needsOffscreenAlphaCompositing
       importantForAccessibility="no-hide-descendants"
       accessibilityElementsHidden
       testID="splash-animado"
