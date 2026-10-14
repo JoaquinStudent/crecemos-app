@@ -277,7 +277,12 @@ const SimuladorPrecio = ({
   const paso = formatoSoles(PASO_PRECIO);
 
   return (
-    <Card variant="bordered" style={styles.tarjeta} testID="queme-simulador">
+    <Card
+      variant="bordered"
+      style={styles.tarjetaSimulador}
+      wrapperStyle={styles.interiorSimulador}
+      testID="queme-simulador"
+    >
       <View style={styles.filaTitulo}>
         <Icon icon={Calculator} color="primary" size="md" />
         <Text variant="h3" accessibilityRole="header">
@@ -298,15 +303,17 @@ const SimuladorPrecio = ({
       ) : (
         <Text variant="bodyStrong">{producto.nombre}</Text>
       )}
-      <Text variant="label" color="textMuted">
-        Precio simulado
-      </Text>
-      <Text variant="h2" testID="queme-sim-precio">
-        {formatoSoles(simulacion.precioSimulado)}
-      </Text>
-      <Text variant="caption" color="textMuted" testID="queme-sim-actual">
-        {`Hoy cobras ${formatoSoles(simulacion.precioActual)}`}
-      </Text>
+      <View style={styles.bloquePrecio}>
+        <Text variant="label" color="textMuted">
+          Precio simulado
+        </Text>
+        <Text variant="h2" testID="queme-sim-precio">
+          {formatoSoles(simulacion.precioSimulado)}
+        </Text>
+        <Text variant="caption" color="textMuted" testID="queme-sim-actual">
+          {`Hoy cobras ${formatoSoles(simulacion.precioActual)}`}
+        </Text>
+      </View>
       <View style={styles.filaBotones}>
         <Button
           title={`Bajar ${paso}`}
@@ -420,6 +427,11 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   nombre: { flex: 1 },
+  // El simulador respira: más relleno arriba y abajo, y espacio entre sus bloques. El `gap` va en el
+  // contenedor interno de RNE (`wrapperStyle`): en el estilo de la tarjeta no se aplica.
+  tarjetaSimulador: { backgroundColor: colors.background, paddingVertical: spacing.xl },
+  interiorSimulador: { gap: spacing.lg },
+  bloquePrecio: { gap: spacing.xxs },
   filaTitulo: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   // Lado a lado y a partes iguales; si ni así caben (fuente muy grande) el segundo baja a su fila.
   filaBotones: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md },

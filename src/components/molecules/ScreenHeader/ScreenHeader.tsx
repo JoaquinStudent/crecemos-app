@@ -55,7 +55,12 @@ export const ScreenHeader = ({
           {title}
         </Text>
         {subtitle ? (
-          <Text variant="caption" color="textMuted" testID={subtitleTestID}>
+          <Text
+            variant="caption"
+            color="textMuted"
+            style={styles.subtitulo}
+            testID={subtitleTestID}
+          >
             {subtitle}
           </Text>
         ) : null}
@@ -76,4 +81,6 @@ const styles = StyleSheet.create({
   },
   fila: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   titulos: { flex: 1 },
+  // Un respiro entre el subtítulo y lo que sigue.
+  subtitulo: { marginBottom: spacing.sm },
 });
