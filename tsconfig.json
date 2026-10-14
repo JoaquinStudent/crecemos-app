@@ -8,14 +8,11 @@
       "@theme/*": ["./src/theme/*"],
       "@components/*": ["./src/components/*"],
       "@context/*": ["./src/context/*"],
-      "@utils/*": ["./src/utils/*"],
-      "@validations/*": ["./src/validations/*"],
       "@services/*": ["./src/services/*"],
       "@hooks/*": ["./src/hooks/*"],
       "@screens/*": ["./src/screens/*"],
       "@navigation/*": ["./src/navigation/*"],
       "@storage/*": ["./src/storage/*"],
-      "@types/*": ["./src/types/*"],
       "@dominio/*": ["./src/dominio/*"],
       "@analisis/*": ["./src/analisis/*"]
     }

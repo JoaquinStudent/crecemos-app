@@ -1,9 +1,11 @@
 // src/analisis/senales.ts
 // Señales para el banco y texto del reporte. Puro: sin React, sin reloj (AGENTS.md, regla 3).
 import { calcularCierre } from '@dominio/cierre';
+import { esEjemplo } from '@dominio/origen';
 import { diasEntre, restarDias } from '@dominio/fecha';
 import { formatoFechaCorta, formatoSoles, nombreMes, redondearSoles } from '@dominio/formato';
 import type { Cierre, FechaNegocio, MesCompleto, Perfil, Senales } from '@dominio/tipos';
+import { construirPasaporte, lineasTextoPasaporte } from './pasaporte';
 
 /** Ventana de la constancia: 90 días contando hoy. */
 export const VENTANA_DIAS = 90;
@@ -15,6 +17,10 @@ export const DIAS_PRIMER_MES = 7;
 export const DIAS_CONVINCENTE = 30;
 /** Tope del texto compartido (~2 KB, manejo-de-datos.md). */
 export const MAX_CARACTERES_REPORTE = 2000;
+
+/** Lo que dice el reporte cuando solo hay datos de la demostración. */
+export const AVISO_EJEMPLO =
+  'Datos de ejemplo: este reporte es una demostración, no son registros reales del negocio.';
 
 /** Largo máximo de cada parte de la identificación: así el texto nunca pasa del tope. */
 const MAX_ROTULO = 60;
@@ -68,7 +74,12 @@ const mesesCompletos = (
  * Las señales para el banco con la fecha de hoy como parámetro. Los cierres posteriores a `hoy` no
  * cuentan. No muta la entrada.
  */
-export const senalesBanco = (cierres: Cierre[], hoy: FechaNegocio): Senales => {
+export const senalesBanco = (todos: Cierre[], hoy: FechaNegocio): Senales => {
+  // Lo de ejemplo no es del negocio: queda fuera del reporte. Salvo que sea lo único que hay,
+  // así la demostración sigue funcionando (con el aviso `soloEjemplo`).
+  const propios = todos.filter(c => !esEjemplo(c));
+  const soloEjemplo = propios.length === 0 && todos.length > 0;
+  const cierres = soloEjemplo ? todos : propios;
   const hasta = cierres.filter(c => c.fecha <= hoy);
   const fechas = [...new Set(hasta.map(c => c.fecha))].sort();
   const registraDesde = fechas[0];
@@ -106,6 +117,7 @@ export const senalesBanco = (cierres: Cierre[], hoy: FechaNegocio): Senales => {
     antiguedadDias: diasEntre(registraDesde, hoy),
     enConstruccion: diasRegistrados < DIAS_CONVINCENTE,
     diasFaltantes: Math.max(0, DIAS_CONVINCENTE - diasRegistrados),
+    ...(soloEjemplo ? { soloEjemplo } : {}),
   };
 };
 
@@ -122,9 +134,10 @@ export const textoFaltan = (diasFaltantes: number): string =>
 
 /**
  * Texto plano del reporte (≤ 2,000 caracteres). Solo totales y promedios, más el nombre y el negocio
- * del perfil: nada del Yape, la ubicación ni de un cierre individual (RNF-08, regla 8).
+ * del perfil: nada del Yape, la ubicación ni de un cierre individual (RNF-08, regla 8). Con `hoy`
+ * suma la cuota de referencia y el código de constancia (el pasaporte); sin él, el reporte de siempre.
  */
-export const textoReporte = (s: Senales, perfil: Perfil | null): string => {
+export const textoReporte = (s: Senales, perfil: Perfil | null, hoy?: FechaNegocio): string => {
   const quien = [perfil?.nombre, perfil?.negocio]
     .map(parte => (parte ?? '').trim().slice(0, MAX_ROTULO))
     .filter(parte => parte !== '')
@@ -149,8 +162,10 @@ export const textoReporte = (s: Senales, perfil: Perfil | null): string => {
           s.diasRegistrados,
         )})`;
 
+  const pasaporte = hoy === undefined ? null : construirPasaporte(s, hoy);
   const lineas = [
     'Reporte de actividad del negocio',
+    ...(s.soloEjemplo ? [AVISO_EJEMPLO] : []),
     ...(quien === '' ? [] : [quien]),
     periodo,
     `Venta promedio mensual: ${hayMeses ? formatoSoles(s.ventaPromedioMensual) : sinMes}`,
@@ -168,6 +183,7 @@ export const textoReporte = (s: Senales, perfil: Perfil | null): string => {
       ? []
       : [`Registra desde el ${formatoFechaCorta(s.registraDesde)} (${dias(s.antiguedadDias)})`]),
     ...(s.enConstruccion ? [textoFaltan(s.diasFaltantes)] : []),
+    ...(pasaporte === null ? [] : lineasTextoPasaporte(pasaporte)),
     'Son totales registrados por el propio negocio en la app Crecemos; incluyen pagos pendientes de recibir y no incluyen movimientos individuales.',
   ];
   return lineas.join('\n');

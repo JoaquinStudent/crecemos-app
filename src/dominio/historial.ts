@@ -24,6 +24,7 @@ const movimientosDe = (c: Cierre): Movimiento[] => {
   const movimientos: Movimiento[] = [];
   if (efectivo > 0) {
     movimientos.push({
+      id: `${c.id}:efectivo`,
       tipo: 'venta',
       etiqueta: ETIQUETA_VENTA,
       metodo: 'Efectivo',
@@ -33,6 +34,7 @@ const movimientosDe = (c: Cierre): Movimiento[] => {
   }
   if (c.montoYape > 0) {
     movimientos.push({
+      id: `${c.id}:yape`,
       tipo: 'venta',
       etiqueta: ETIQUETA_VENTA,
       metodo: 'Yape',
@@ -40,15 +42,16 @@ const movimientosDe = (c: Cierre): Movimiento[] => {
       porCobrar: c.yapePendiente && !c.cobradoEn,
     });
   }
-  for (const gasto of c.gastos) {
+  c.gastos.forEach((gasto, i) => {
     movimientos.push({
+      id: `${c.id}:gasto-${i}`,
       tipo: 'gasto',
       etiqueta: ETIQUETA_GASTO[gasto.categoria],
       metodo: null,
       monto: redondearSoles(-gasto.monto),
       porCobrar: false,
     });
-  }
+  });
   return movimientos;
 };
 
@@ -87,3 +90,24 @@ export const armarHistorial = (cierres: Cierre[], filtro: FiltroHistorial): Grup
         },
       ];
     });
+
+/** Lo que dejó el mes en curso: la suma de lo que te quedó cada día cerrado de ese mes. */
+export interface ResumenMes {
+  /** 'YYYY-MM'. */
+  mes: string;
+  /** Ventas menos gastos de los días cerrados del mes (incluye el Yape por cobrar). */
+  neto: number;
+  /** Días con cierre en el mes. */
+  dias: number;
+}
+
+/** El resumen del mes de `hoy` ('YYYY-MM-DD'). Sin cierres en el mes: neto 0 y 0 días. */
+export const resumenDelMes = (cierres: Cierre[], hoy: string): ResumenMes => {
+  const mes = hoy.slice(0, 7);
+  const delMes = cierres.filter(c => c.fecha.slice(0, 7) === mes);
+  return {
+    mes,
+    neto: redondearSoles(delMes.reduce((total, c) => total + calcularCierre(c).teQueda, 0)),
+    dias: delMes.length,
+  };
+};

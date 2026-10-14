@@ -7,6 +7,8 @@
 // ayer" no: esa es una pregunta y sigue su camino). Las frases nunca llevan una cifra ni prometen
 // algo que el chat no sepa hacer.
 
+import { normalizarTexto } from './texto';
+
 export type CategoriaCharla = 'saludo' | 'agradecimiento' | 'despedida' | 'ayuda';
 
 export interface RespuestaCharla {
@@ -71,20 +73,10 @@ const FRASES: Record<CategoriaCharla, readonly string[]> = {
     '¡Nos vemos{n}! Cuando quieras, vuelves a preguntarme.',
   ],
   ayuda: [
-    `Soy tu ayudante para revisar tus números. Te puedo decir cuánto vendiste un día, cuál es tu mejor y tu peor día, qué producto tiene mayor diferencia estimada por unidad, cuánto te deben, cuánto puedes sacar para la casa y cómo vas contra el ciclo pasado. ${AYUDA_FIN}`,
-    `Aquí te ayudo a entender tu negocio. Pregúntame por tus ventas de un día, tu mejor o peor día, la diferencia estimada por unidad de cada producto, lo que te deben, lo que puedes sacar para la casa o cómo vas contra el ciclo pasado. ${AYUDA_FIN}`,
+    `Soy tu ayudante para revisar tus números. Te puedo decir cuánto vendiste un día, cuál es tu mejor y tu peor día, qué producto te deja más por porción, cuánto te deben, cuánto puedes sacar para la casa y cómo vas contra el ciclo pasado. ${AYUDA_FIN}`,
+    `Aquí te ayudo a entender tu negocio. Pregúntame por tus ventas de un día, tu mejor o peor día, lo que te deja cada producto por porción, lo que te deben, lo que puedes sacar para la casa o cómo vas contra el ciclo pasado. ${AYUDA_FIN}`,
   ],
 };
-
-/** Minúsculas, sin tildes ni signos, letras repetidas 3 o más veces reducidas a una, y sin espacios de sobra. */
-const normalizar = (texto: string): string =>
-  texto
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/[^a-z0-9ñ]+/g, ' ')
-    .replace(/(.)\1{2,}/g, '$1')
-    .trim();
 
 /** Una cuenta simple y estable del texto: la misma entrada siempre elige la misma frase. */
 const hashDe = (texto: string): number => {
@@ -132,7 +124,7 @@ const categoriasDe = (normal: string): Set<CategoriaCharla> | null => {
  */
 export const responderCharla = (texto: string, nombre?: string): RespuestaCharla | null => {
   if (typeof texto !== 'string' || texto.length > MAX_CARACTERES) return null;
-  const normal = normalizar(texto);
+  const normal = normalizarTexto(texto);
   const halladas = categoriasDe(normal);
   if (halladas === null) return null;
   const categoria = PRIORIDAD.find(c => halladas.has(c));

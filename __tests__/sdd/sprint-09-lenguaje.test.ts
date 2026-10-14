@@ -35,7 +35,8 @@ describe('SPEC-09 · nombres y lenguaje', () => {
       { productoId: 'a', nombre: 'Plato', seVende: 10, teDeja: 2, ganancia: 20 },
       { productoId: 'b', nombre: 'Vaso', seVende: 5, teDeja: 4, ganancia: 20 },
     ]);
-    expect(frase).toContain('diferencia estimada');
+    expect(frase).toContain('te deja');
+    expect(frase).not.toMatch(/diferencia estimada|precio menos costo/);
     expect(textoReporte({ constancia: 0, diasRegistrados: 0, diasTranscurridos: 0,
       ventaPromedioMensual: 0, gananciaPromedioMensual: 0, meses: [], mesesCompletos: 0,
       antiguedadDias: 0, enConstruccion: true, diasFaltantes: 30 }, null))

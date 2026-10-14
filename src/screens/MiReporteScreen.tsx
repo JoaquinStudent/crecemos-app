@@ -6,20 +6,39 @@
 // PDF en el teléfono y abre la hoja de compartir; "Compartir solo el texto" comparte texto plano.
 // No entra del mock el selector de periodo (el periodo es fijo).
 import React, { useMemo, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { ChevronLeft, CircleCheck, Lock, Share2 } from 'lucide-react-native';
+import { CircleCheck, Lock, Share2 } from 'lucide-react-native';
 import { colors, radius, spacing } from '@theme';
 import { Text } from '@components/atoms/Text';
 import { Button } from '@components/atoms/Button';
 import { Icon } from '@components/atoms/Icon';
+import { ProgressBar } from '@components/atoms/ProgressBar';
 import { AvatarPerfil } from '@components/molecules/AvatarPerfil';
+import { Callout } from '@components/molecules/Callout';
+import { CargandoBloques } from '@components/molecules/CargandoBloques';
+import { CodigoQR } from '@components/molecules/CodigoQR';
+import { ScreenHeader } from '@components/molecules/ScreenHeader';
 import { htmlReporte, NOMBRE_ARCHIVO_PDF } from '@analisis/htmlReporte';
+import {
+  AVISO_EJEMPLO_SECCION,
+  construirPasaporte,
+  explicacionCuota,
+  modulosQR,
+  NOTA_CODIGO,
+  NOTA_CUOTA,
+  SIN_CONSTANCIA_MES,
+  textoCuota,
+  TITULO_CODIGO,
+  TITULO_CUOTA,
+  type Pasaporte,
+} from '@analisis/pasaporte';
 import {
   DIAS_CONVINCENTE,
   diasRegistradosTexto,
+  AVISO_EJEMPLO,
   senalesBanco,
   textoFaltan,
   textoReporte,
@@ -43,6 +62,8 @@ const TEXTO_AYUDA_PDF = 'El PDF lleva solo totales. No lleva tu Yape ni tus movi
 const TITULO_PDF = 'Reporte de actividad del negocio';
 /** Foto de la identidad en la hoja de pantalla, en dp. */
 const TAMANO_FOTO = 56;
+/** Lado del QR en la hoja de pantalla, en dp. */
+const TAMANO_QR = 132;
 
 /** Alto de la zona de las barras: la del mes mayor la llena entera. */
 const ALTO_BARRAS = 96;
@@ -66,7 +87,7 @@ const rangoEnPalabras = (primero: string, ultimo: string): string =>
     : `${formatoFechaCorta(primero)} — ${formatoFechaCorta(ultimo)}`;
 
 export const MiReporteScreen = () => {
-  const { cierres, perfil } = useCrecemos();
+  const { cierres, perfil, cargando } = useCrecemos();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList, 'MiReporte'>>();
   const insets = useSafeAreaInsets();
 
@@ -74,7 +95,8 @@ export const MiReporteScreen = () => {
     const fecha = fechaLocal(new Date());
     return { senales: senalesBanco(cierres, fecha), hoy: fecha };
   }, [cierres]);
-  const texto = useMemo(() => textoReporte(senales, perfil), [senales, perfil]);
+  const texto = useMemo(() => textoReporte(senales, perfil, hoy), [senales, perfil, hoy]);
+  const pasaporte = useMemo(() => construirPasaporte(senales, hoy), [senales, hoy]);
 
   // El mensaje amable del último fallo (o nada). Cerrar la hoja sin compartir no es un fallo.
   const [mensajeError, setMensajeError] = useState<string | null>(null);
@@ -128,29 +150,24 @@ export const MiReporteScreen = () => {
   return (
     <SafeAreaView style={styles.pantalla} edges={['top']} testID="reporte-pantalla">
       <ScrollView contentContainerStyle={styles.contenido}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Atrás"
-          onPress={() => navigation.goBack()}
-          style={styles.atras}
-          testID="reporte-atras"
-        >
-          <Icon icon={ChevronLeft} color="primary" size="lg" />
-          <Text variant="bodyStrong" color="primary">
-            Atrás
-          </Text>
-        </Pressable>
+        <ScreenHeader
+          title="Mi reporte"
+          subtitle="Para mostrarle a tu banco"
+          onBack={() => navigation.goBack()}
+          backTestID="reporte-atras"
+        />
 
-        <View>
-          <Text variant="h1" accessibilityRole="header">
-            Mi reporte
-          </Text>
-          <Text variant="caption" color="textMuted">
-            Para mostrarle a tu banco
-          </Text>
-        </View>
+        {cargando ? (
+          <CargandoBloques bloques={2} alto={160} testID="reporte-cargando" />
+        ) : null}
 
-        {senales.enConstruccion ? <EnConstruccion senales={senales} /> : null}
+        {cargando ? null : senales.soloEjemplo ? (
+          <Callout title="Datos de ejemplo" testID="reporte-aviso-ejemplo">
+            {AVISO_EJEMPLO}
+          </Callout>
+        ) : null}
+
+        {cargando ? null : senales.enConstruccion ? <EnConstruccion senales={senales} /> : null}
 
         <View style={styles.privacidad} testID="reporte-aviso-privacidad">
           <Icon icon={Lock} color="primary" size="lg" />
@@ -163,12 +180,12 @@ export const MiReporteScreen = () => {
           </Text>
         </View>
 
-        <Hoja senales={senales} perfil={perfil} />
+        {cargando ? null : <Hoja senales={senales} perfil={perfil} pasaporte={pasaporte} />}
       </ScrollView>
 
       {/* Los botones viven FUERA del scroll, en un pie fijo: siempre a la mano del pulgar. */}
       <View style={[styles.pie, { paddingBottom: spacing.lg + insets.bottom }]}>
-        {sinDias ? (
+        {sinDias && !cargando ? (
           <Text variant="bodySmall" color="textMuted" align="center" testID="reporte-ayuda-vacio">
             {TEXTO_AYUDA_VACIO}
           </Text>
@@ -189,7 +206,7 @@ export const MiReporteScreen = () => {
           leftIcon={Share2}
           size="lg"
           fullWidth
-          disabled={sinDias || preparando}
+          disabled={sinDias || preparando || cargando}
           onPress={compartirComoPdf}
           testID="reporte-compartir-pdf"
         />
@@ -198,7 +215,7 @@ export const MiReporteScreen = () => {
           variant="outline"
           size="md"
           fullWidth
-          disabled={sinDias || preparando}
+          disabled={sinDias || preparando || cargando}
           onPress={compartirComoTexto}
           testID="reporte-compartir"
         />
@@ -213,29 +230,33 @@ export const MiReporteScreen = () => {
 /** Aviso de que aún faltan días, con una barra de progreso: el naranja es solo el relleno. */
 const EnConstruccion = ({ senales }: { senales: Senales }) => {
   const registrados = DIAS_CONVINCENTE - senales.diasFaltantes;
-  const progreso = Math.min(100, Math.max(0, Math.round((registrados / DIAS_CONVINCENTE) * 100)));
   return (
-    <View style={styles.construccion} testID="reporte-en-construccion">
+    <Callout testID="reporte-en-construccion">
       <Text variant="bodyStrong" testID="reporte-faltan">
         {textoFaltan(senales.diasFaltantes)}
       </Text>
-      <View
-        style={styles.pista}
-        accessibilityRole="progressbar"
-        accessibilityValue={{ min: 0, max: DIAS_CONVINCENTE, now: registrados }}
+      <ProgressBar
+        value={registrados / DIAS_CONVINCENTE}
+        accessibilityLabel="Días registrados"
+        tone="accent"
+        height={12}
+        style={styles.progreso}
         testID="reporte-progreso"
-      >
-        <View
-          style={[styles.relleno, { width: `${progreso}%` }]}
-          testID="reporte-progreso-relleno"
-        />
-      </View>
-    </View>
+      />
+    </Callout>
   );
 };
 
 /** La vista previa como un documento: lo mismo que viaja en el texto, en una hoja blanca. */
-const Hoja = ({ senales, perfil }: { senales: Senales; perfil: Perfil }) => {
+const Hoja = ({
+  senales,
+  perfil,
+  pasaporte,
+}: {
+  senales: Senales;
+  perfil: Perfil;
+  pasaporte: Pasaporte | null;
+}) => {
   const quien = [perfil.nombre, perfil.negocio]
     .map(parte => parte.trim())
     .filter(parte => parte !== '')
@@ -251,7 +272,7 @@ const Hoja = ({ senales, perfil }: { senales: Senales; perfil: Perfil }) => {
       style={[styles.hoja, senales.enConstruccion && styles.hojaAtenuada]}
       testID="reporte-hoja"
     >
-      <Text variant="label" color="primary" style={styles.marca}>
+      <Text variant="labelStrong" color="primary" style={styles.marca}>
         Crecemos
       </Text>
       <Text variant="bodyStrong">Reporte de actividad del negocio</Text>
@@ -296,6 +317,8 @@ const Hoja = ({ senales, perfil }: { senales: Senales; perfil: Perfil }) => {
 
       {hayMeses ? <Barras meses={senales.meses} /> : null}
 
+      {pasaporte !== null ? <SeccionPasaporte pasaporte={pasaporte} /> : null}
+
       {hayDias ? (
         <View style={styles.pieHoja}>
           <Icon icon={CircleCheck} color="success" size="lg" />
@@ -308,6 +331,71 @@ const Hoja = ({ senales, perfil }: { senales: Senales; perfil: Perfil }) => {
           </Text>
         </View>
       ) : null}
+    </View>
+  );
+};
+
+/**
+ * El pasaporte para el banco: la cuota de referencia, los días registrados por mes y el código de
+ * constancia con su QR. Todo en palabras y con su aclaración: es una referencia, no una aprobación.
+ */
+const SeccionPasaporte = ({ pasaporte }: { pasaporte: Pasaporte }) => {
+  const modulos = useMemo(() => modulosQR(pasaporte.textoQR), [pasaporte.textoQR]);
+  const { cuota, constanciaMensual, codigo, soloEjemplo } = pasaporte;
+  const marca = soloEjemplo ? (
+    <Text variant="captionStrong" color="primary">
+      {AVISO_EJEMPLO_SECCION}
+    </Text>
+  ) : null;
+  return (
+    <View style={styles.pasaporte} testID="reporte-pasaporte">
+      <View style={styles.linea} />
+
+      <View style={styles.bloque} testID="reporte-cuota-bloque">
+        <Text variant="labelStrong">{TITULO_CUOTA}</Text>
+        {marca}
+        <Text variant="bodyStrong" testID="reporte-cuota">
+          {textoCuota(cuota)}
+        </Text>
+        {cuota.disponible ? (
+          <Text variant="bodySmall" color="textMuted" testID="reporte-cuota-explicacion">
+            {explicacionCuota(cuota)}
+          </Text>
+        ) : null}
+        <Text variant="bodySmall" color="textMuted" testID="reporte-cuota-nota">
+          {NOTA_CUOTA}
+        </Text>
+      </View>
+
+      <View style={styles.bloque} testID="reporte-constancia-bloque">
+        <Text variant="labelStrong">Constancia de registro por mes</Text>
+        {marca}
+        {constanciaMensual.length === 0 ? (
+          <Text variant="bodySmall" color="textMuted" testID="reporte-constancia-sin-mes">
+            {SIN_CONSTANCIA_MES}
+          </Text>
+        ) : (
+          constanciaMensual.map(m => (
+            <Text variant="bodySmall" key={m.mes} testID={`reporte-constancia-mes-${m.mes}`}>
+              {m.frase}
+            </Text>
+          ))
+        )}
+      </View>
+
+      <View style={styles.bloque} testID="reporte-codigo-bloque">
+        <Text variant="labelStrong">{TITULO_CODIGO}</Text>
+        {marca}
+        <View style={styles.codigoFila}>
+          <CodigoQR modulos={modulos} codigo={codigo} size={TAMANO_QR} testID="reporte-qr" />
+          <Text variant="bodyStrong" style={styles.codigoTexto} testID="reporte-codigo">
+            {codigo}
+          </Text>
+        </View>
+        <Text variant="bodySmall" color="textMuted" testID="reporte-codigo-nota">
+          {NOTA_CODIGO}
+        </Text>
+      </View>
     </View>
   );
 };
@@ -339,8 +427,7 @@ const Barras = ({ meses }: { meses: MesCompleto[] }) => {
       {meses.map(m => (
         <View key={m.mes} style={styles.columna}>
           <Text
-            variant="caption"
-            style={styles.monto}
+            variant="captionStrong"
             align="center"
             testID={`reporte-monto-${m.mes}`}
           >
@@ -364,30 +451,8 @@ const Barras = ({ meses }: { meses: MesCompleto[] }) => {
 const styles = StyleSheet.create({
   pantalla: { flex: 1, backgroundColor: colors.background },
   contenido: { padding: spacing.lg, gap: spacing.lg, paddingBottom: spacing.xl },
-  atras: {
-    alignSelf: 'flex-start',
-    minHeight: 48,
-    minWidth: 48,
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginLeft: -spacing.xs,
-  },
-  construccion: {
-    gap: spacing.md,
-    backgroundColor: colors.accentSoft,
-    borderLeftWidth: 4,
-    borderLeftColor: colors.accent,
-    borderRadius: radius.lg,
-    padding: spacing.lg,
-  },
-  pista: {
-    height: 12,
-    borderRadius: radius.full,
-    overflow: 'hidden',
-    backgroundColor: colors.border,
-  },
-  // El naranja es solo relleno: las letras del aviso van en oscuro.
-  relleno: { height: '100%', borderRadius: radius.full, backgroundColor: colors.accent },
+  // El naranja es solo relleno de la barra: las letras del aviso van en oscuro.
+  progreso: { marginTop: spacing.sm },
   privacidad: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -411,7 +476,7 @@ const styles = StyleSheet.create({
     elevation: 1,
   },
   hojaAtenuada: { opacity: OPACIDAD_EN_CONSTRUCCION },
-  marca: { fontWeight: '700', letterSpacing: 0.5 },
+  marca: { letterSpacing: 0.5 },
   identidad: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   quien: { flex: 1 },
   linea: { height: 1, backgroundColor: colors.border, marginVertical: spacing.sm },
@@ -431,7 +496,6 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
   },
   columna: { flex: 1, alignItems: 'center', gap: spacing.xs },
-  monto: { fontWeight: '600' },
   zonaBarra: { height: ALTO_BARRAS, width: 40, justifyContent: 'flex-end' },
   barra: {
     width: '100%',
@@ -439,6 +503,10 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 6,
     borderTopRightRadius: 6,
   },
+  pasaporte: { gap: spacing.md },
+  bloque: { gap: spacing.xs },
+  codigoFila: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  codigoTexto: { flex: 1 },
   pieHoja: {
     flexDirection: 'row',
     alignItems: 'center',

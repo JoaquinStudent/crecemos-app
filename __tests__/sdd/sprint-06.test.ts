@@ -235,7 +235,7 @@ describe('SPEC-06: Reporte para el banco y cierre de entrega', () => {
           actualizadoEn: INSTANTE,
         };
         await guardarPerfil(perfil);
-        const esperado = textoReporte(senalesBanco(cierres, HOY), perfil);
+        const esperado = textoReporte(senalesBanco(cierres, HOY), perfil, HOY);
         expect(esperado).toContain('Venta promedio mensual: S/ 5,120.00');
 
         await montarApp();

@@ -187,7 +187,7 @@ describe('SPEC-05: Motor de decisiones', () => {
     const g = gananciaPorProducto(cierresDeOctubre(), '2026-10-01');
 
     expect(insight(g)).toBe(
-      'La pancita se vende más. La diferencia estimada por unidad del anticucho es S/ 0.80 mayor (precio menos costo estimado).',
+      'La pancita se vende más, pero el anticucho te deja S/ 0.80 más por cada uno.',
     );
   });
 
@@ -230,7 +230,7 @@ describe('SPEC-05: Motor de decisiones', () => {
     expect(r).toContainEqual({
       reglaId: 'precio',
       prioridad: 2,
-      mensaje: 'La diferencia estimada por unidad de Anticucho bajó S/ 0.60 desde julio (precio menos costo estimado). Revisa el precio.',
+      mensaje: 'Lo que te deja el anticucho por porción bajó S/ 0.60 desde julio. Revisa el precio.',
     });
   
   });

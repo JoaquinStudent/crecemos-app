@@ -12,6 +12,8 @@ export const MENSAJES = {
   precio: 'El precio tiene que ser mayor a cero',
   costo: 'El costo no puede ser negativo',
   numeroYape: 'El número de Yape tiene 9 dígitos',
+  negativo: 'No puede ser negativo',
+  gasto: 'El gasto tiene que ser mayor a cero',
 } as const;
 
 export type ResultadoValidacion = { ok: true } | { ok: false; errores: Record<string, string> };
@@ -21,13 +23,17 @@ const esquemaCierre = (productos: Producto[]) =>
     .object({
       fecha: z.string().optional(),
       lineas: z.array(
-        z.object({ productoId: z.string(), preparadas: z.number(), sobrantes: z.number() }),
+        z.object({
+          productoId: z.string(),
+          preparadas: z.number().min(0, MENSAJES.negativo),
+          sobrantes: z.number().min(0, MENSAJES.negativo),
+        }),
       ),
-      montoYape: z.number(),
+      montoYape: z.number().min(0, MENSAJES.negativo),
       gastos: z.array(
         z.object({
           categoria: z.enum(['mercaderia', 'carbon', 'movilidad', 'gas', 'otro']),
-          monto: z.number(),
+          monto: z.number().gt(0, MENSAJES.gasto),
         }),
       ),
       abreCiclo: z.boolean().optional(),

@@ -6,7 +6,7 @@
 import { calcularCierre, editarCierre, nuevoCierre } from '@dominio/cierre';
 import { ETIQUETA_GASTO } from '@dominio/categorias';
 import { mercaderiaDelCiclo } from '@dominio/ciclo';
-import { armarHistorial, mensajeBorrar } from '@dominio/historial';
+import { armarHistorial, mensajeBorrar, resumenDelMes } from '@dominio/historial';
 import { cambiarPrecio } from '@dominio/producto';
 import { PRODUCTOS_POR_DEFECTO } from '@dominio/productosPorDefecto';
 import type { Ciclo, Cierre, DatosCierre, Gasto, LineaCierre, Perfil } from '@dominio/tipos';
@@ -95,15 +95,37 @@ describe('armarHistorial', () => {
 
     expect(grupo.movimientos).toEqual([
       {
+        id: 'c-2026-10-05:efectivo',
         tipo: 'venta',
         etiqueta: 'Venta del día',
         metodo: 'Efectivo',
         monto: 154,
         porCobrar: false,
       },
-      { tipo: 'venta', etiqueta: 'Venta del día', metodo: 'Yape', monto: 46, porCobrar: true },
-      { tipo: 'gasto', etiqueta: 'Mercadería', metodo: null, monto: -60, porCobrar: false },
-      { tipo: 'gasto', etiqueta: 'Movilidad', metodo: null, monto: -14, porCobrar: false },
+      {
+        id: 'c-2026-10-05:yape',
+        tipo: 'venta',
+        etiqueta: 'Venta del día',
+        metodo: 'Yape',
+        monto: 46,
+        porCobrar: true,
+      },
+      {
+        id: 'c-2026-10-05:gasto-0',
+        tipo: 'gasto',
+        etiqueta: 'Mercadería',
+        metodo: null,
+        monto: -60,
+        porCobrar: false,
+      },
+      {
+        id: 'c-2026-10-05:gasto-1',
+        tipo: 'gasto',
+        etiqueta: 'Movilidad',
+        metodo: null,
+        monto: -14,
+        porCobrar: false,
+      },
     ]);
   });
 
@@ -166,7 +188,14 @@ describe('armarHistorial', () => {
     expect(grupos).toHaveLength(1);
     expect(grupos[0].fecha).toBe('2026-10-05');
     expect(grupos[0].movimientos).toEqual([
-      { tipo: 'venta', etiqueta: 'Venta del día', metodo: 'Yape', monto: 46, porCobrar: true },
+      {
+        id: 'c-2026-10-05:yape',
+        tipo: 'venta',
+        etiqueta: 'Venta del día',
+        metodo: 'Yape',
+        monto: 46,
+        porCobrar: true,
+      },
     ]);
     expect(grupos[0].neto).toBe(46);
   });
@@ -184,6 +213,18 @@ describe('armarHistorial', () => {
     expect(armarHistorial([propio], 'porCobrar')).toEqual([]);
   });
 
+  it('cada movimiento tiene un id estable y único, también con filtros', () => {
+    const todosLosIds = armarHistorial(todos, 'todo').flatMap(g => g.movimientos.map(m => m.id));
+    expect(new Set(todosLosIds).size).toBe(todosLosIds.length);
+    // El id del gasto no depende del filtro: sigue siendo el de su posición en el cierre.
+    const soloGastos = armarHistorial([diaConYape], 'gastos')[0].movimientos.map(m => m.id);
+    expect(soloGastos).toEqual(['c-2026-10-05:gasto-0', 'c-2026-10-05:gasto-1']);
+    // Y es el mismo si se vuelve a armar.
+    expect(armarHistorial(todos, 'todo').flatMap(g => g.movimientos.map(m => m.id))).toEqual(
+      todosLosIds,
+    );
+  });
+
   it('el neto se redondea a dos decimales', () => {
     const decimal = cierreDe('2026-10-05', {
       lineas: [{ ...linea('Chicha', 3, 0.1) }],
@@ -191,6 +232,47 @@ describe('armarHistorial', () => {
     });
     // 0.30000000000000004 − 0.2 → 0.1
     expect(armarHistorial([decimal], 'todo')[0].neto).toBe(0.1);
+  });
+});
+
+describe('resumenDelMes', () => {
+  const dia = (fecha: string, vendidas: number, gasto = 0) =>
+    cierreDe(fecha, {
+      lineas: [linea('Anticucho', vendidas, 10)],
+      gastos: gasto > 0 ? [{ categoria: 'gas', monto: gasto }] : [],
+    });
+
+  it('suma lo que te quedó cada día del mes de hoy y cuenta los días', () => {
+    const cierres = [dia('2026-10-04', 10, 20), dia('2026-10-05', 20), dia('2026-10-06', 5, 80)];
+
+    expect(resumenDelMes(cierres, '2026-10-11')).toEqual({ mes: '2026-10', neto: 250, dias: 3 });
+  });
+
+  it('no cuenta los días de otros meses (ni del mismo mes de otro año)', () => {
+    const cierres = [dia('2026-09-30', 100), dia('2025-10-05', 50), dia('2026-10-01', 10)];
+
+    expect(resumenDelMes(cierres, '2026-10-11')).toEqual({ mes: '2026-10', neto: 100, dias: 1 });
+  });
+
+  it('puede ser negativo (gastaste más de lo que vendiste)', () => {
+    expect(resumenDelMes([dia('2026-10-04', 1, 40)], '2026-10-11').neto).toBe(-30);
+  });
+
+  it('sin días en el mes, neto 0 y 0 días', () => {
+    expect(resumenDelMes([dia('2026-09-04', 10)], '2026-10-11')).toEqual({
+      mes: '2026-10',
+      neto: 0,
+      dias: 0,
+    });
+    expect(resumenDelMes([], '2026-10-11').dias).toBe(0);
+  });
+
+  it('redondea a dos decimales', () => {
+    const c = cierreDe('2026-10-05', {
+      lineas: [linea('Chicha', 3, 0.1)],
+      gastos: [{ categoria: 'gas', monto: 0.2 }],
+    });
+    expect(resumenDelMes([c], '2026-10-11').neto).toBe(0.1);
   });
 });
 

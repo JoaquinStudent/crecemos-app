@@ -24,7 +24,6 @@ import type {
   ContextoAnalisis,
   FechaNegocio,
   Gasto,
-  Hecho,
   LineaCierre,
   Perfil,
   Producto,
@@ -41,8 +40,9 @@ import {
   senalesDeJuicio,
   SIMBOLO_SEMAFORO,
 } from '@analisis/semaforo';
-import { extraerCifras, validarRedaccion } from '@analisis/validarRedaccion';
-import { consultar, redactarRespuesta } from '@services/jev';
+import { extraerCifras } from '@analisis/cifras';
+import { planificarManana } from '@analisis/planificador';
+import { consultar } from '@services/jev';
 import { PERFIL_POR_DEFECTO } from '@dominio/perfil';
 import { PRODUCTOS_POR_DEFECTO } from '@dominio/productosPorDefecto';
 import { guardarCierre, guardarPerfil, importarSemilla } from '@storage/repositorio';
@@ -397,7 +397,7 @@ const conApp = async (
 
 const textoSemilla = () => readFileSync(RUTA_SEMILLA, 'utf8');
 /** Abre el chat desde el botón flotante de Inicio y escribe + toca "Preguntar". */
-const abrirElChat = () => tocar('inicio-preguntar');
+const abrirElChat = () => tocar('tab-asistente');
 const preguntar = async (texto: string) => {
   await escribir('preguntar-campo', texto);
   await tocar('preguntar-enviar');
@@ -488,7 +488,7 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
     const hecho = responderConsulta(consulta, ctxDe(cierres));
 
     expect(hecho.frase).toBe(
-      'El anticucho tiene la mayor diferencia estimada entre precio y costo: S/ 1.80 por porción, S/ 486.00 en total.',
+      'El anticucho es el que más te deja: S/ 1.80 por porción, S/ 486.00 en total.',
     );
     expect(hecho.intencion).toBe('productoQueMasDeja');
   });
@@ -571,11 +571,12 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
       const caida = redDeLaApp(null);
       await conApp(caida, async () => {
         await abrirElChat();
-        await preguntar('¿cuánto vendí ayer?');
+        await preguntar('cuéntame un chiste');
 
         const pantalla = textosEn('preguntar-pantalla');
-        expect(pantalla).toContain(
-          'Necesitas internet para esto. Revisa tu conexión e inténtalo otra vez.',
+        // Sin red y sin poder entender la pregunta en el teléfono: avisa y ofrece tres preguntas.
+        expect(pantalla.join(' | ')).toContain(
+          'Sin internet no pude entender tu pregunta. Prueba con una de estas:',
         );
         // Ningún código ni mensaje técnico, en ninguna parte de la pantalla.
         expect(pantalla.join(' | ')).not.toMatch(CODIGOS_TECNICOS);
@@ -617,59 +618,6 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
       // Ni el nombre, ni el Yape, ni ningún dato de un cierre salen del teléfono.
       noFiltraNadaDeFreddy(JSON.stringify(llamadasDe(fetchSim)[0]), cierres, perfil);
     })();
-  });
-
-  // @spec08_e8 — Al redactor solo viaja el hecho ya calculado
-  it('spec08_e8 al redactor solo viaja el hecho ya calculado', () => {
-    // Given: la respuesta calculada "Ayer, martes 6 de octubre, vendiste S/ 205.00."
-    // When: se pide la redacción
-    // Then: la petición es exactamente el tipo "redactar" con la intención y las cifras de ese hecho, y no contiene el perfil, el Yape ni ningún cierre
-    return (async () => {
-      const { cierres, perfil } = datosDeFreddy();
-      const hecho = responderConsulta(
-        jevInterpreta({ intencion: 'ventaDelDia', producto: 'ninguno', dia: 'ayer', confianza: 0.9 }),
-        ventaDeAyer(),
-      );
-      expect(hecho.frase).toBe(FRASE_AYER);
-      const fetchSim = jest
-        .fn()
-        .mockResolvedValue(respuestaJson({ texto: 'Ayer, martes 6 de octubre, te entraron S/ 205.00.' }));
-
-      const resultado = await redactarRespuesta(fetchSim as unknown as typeof fetch, URL_JEV, hecho);
-
-      expect(resultado.ok).toBe(true);
-      expect(fetchSim).toHaveBeenCalledTimes(1);
-      const [url, init] = llamadasDe(fetchSim)[0];
-      expect(url).toBe(URL_JEV);
-      // Exactamente el tipo "redactar" y el hecho ya calculado: la intención, la frase y las cifras.
-      expect(JSON.parse(init.body ?? '')).toEqual({
-        tipo: 'redactar',
-        hecho: { intencion: 'ventaDelDia', frase: FRASE_AYER, cifras: ['6', '205.00'] },
-      });
-      expect(init.headers).toEqual({ 'Content-Type': 'application/json' });
-      // El perfil, el Yape y los cierres no viajan.
-      noFiltraNadaDeFreddy(JSON.stringify(llamadasDe(fetchSim)[0]), cierres, perfil);
-    })();
-  });
-
-  // @spec08_e9 — Una redacción con una cifra distinta se descarta
-  it('spec08_e9 una redaccion con una cifra distinta se descarta', () => {
-    // Given: el hecho "vendiste S/ 205.00" y un redactor que responde "Ayer vendiste S/ 250.00"
-    // When: se valida la redacción
-    // Then: se descarta y la pantalla muestra la frase fija con "S/ 205.00"
-    const frase = 'vendiste S/ 205.00';
-    const hecho: Hecho = { intencion: 'ventaDelDia', frase, cifras: extraerCifras(frase) };
-
-    const resultado = validarRedaccion('Ayer vendiste S/ 250.00', hecho);
-
-    // Se descarta: no hay texto que mostrar, y lo que se muestra es la frase fija del código.
-    expect(resultado).toEqual({ ok: false, motivo: 'CIFRA_NUEVA' });
-    expect(hecho.frase).toContain('S/ 205.00');
-    // Con la cifra correcta, en cambio, la redacción sí pasa.
-    expect(validarRedaccion('Ayer vendiste S/ 205.00', hecho)).toEqual({
-      ok: true,
-      texto: 'Ayer vendiste S/ 205.00',
-    });
   });
 
   // @spec08_e10 — Si el redactor falla o tarda, se muestra la frase fija
@@ -888,11 +836,11 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
         interpretar: () => respuestaJson(interpretacion('ventaDelDia', 'ayer')),
       });
       await conApp(red, async () => {
-        // En Inicio, con la semilla cargada: el botón flotante dice "Preguntar" y no abre nada solo.
+        // En Inicio, con la semilla cargada: la pestaña "Asistente" no abre nada solo.
         expect(hayNodo('inicio-saludo')).toBe(true);
         expect(hayNodo('preguntar-pantalla')).toBe(false);
 
-        await tocar('inicio-preguntar');
+        await tocar('tab-asistente');
 
         // Se abre el chat con las preguntas sugeridas visibles.
         expect(hayNodo('preguntar-pantalla')).toBe(true);
@@ -900,9 +848,9 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
         for (const sugerida of PREGUNTAS_SUGERIDAS) expect(pantalla).toContain(sugerida);
         expect(red.tiposDelChat()).toEqual([]);
 
-        // "Atrás" vuelve a Inicio, y todavía no se envió ninguna petición.
-        await tocar('preguntar-atras');
-        expect(hayNodo('preguntar-pantalla')).toBe(false);
+        // El chat es una pestaña (sin "Atrás"): volver a Inicio no envía nada.
+        expect(hayNodo('preguntar-atras')).toBe(false);
+        await tocar('tab-inicio');
         expect(hayNodo('inicio-saludo')).toBe(true);
         expect(red.tiposDelChat()).toEqual([]);
       });
@@ -1225,50 +1173,37 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
     })();
   });
 
-  // @spec08_e21 — El botón flotante es solo el robot, con etiqueta accesible
-  it('spec08_e21 el boton flotante es solo el robot con etiqueta accesible', () => {
+  // @spec08_e21 — El Asistente es una pestaña con texto visible (ya no hay botón flotante)
+  it('spec08_e21 el asistente es una pestana con texto y no hay boton flotante', () => {
     // Given: la app en Inicio
-    // When: se mira el botón flotante que abre el chat
-    // Then: es un botón redondo de al menos 48 dp que muestra solo el ícono de un robot, sin texto, y su etiqueta accesible es "Preguntar"
+    // When: se mira la barra de navegación
+    // Then: la pestaña "Asistente" lleva su ícono y su texto visible, mide al menos 48 dp, y el botón flotante ya no existe
     return (async () => {
       await conApp(redDeLaApp(null), async () => {
-        const boton = raiz().findAll(n => n.props.testID === 'inicio-preguntar' && esHost(n, 'View'))[0];
-        expect(boton).toBeDefined();
-        // Solo el ícono: ningún texto dentro del botón; la etiqueta es solo para el lector de pantalla.
-        expect(boton.findAll(n => esHost(n, 'Text'))).toHaveLength(0);
-        expect(boton.props.accessibilityRole).toBe('button');
-        expect(boton.props.accessibilityLabel).toBe('Preguntar');
-        const iconos = boton
-          .findAll(n => typeof (n.type as { displayName?: string }).displayName === 'string')
-          .map(n => (n.type as { displayName: string }).displayName);
-        expect(iconos).toContain('Bot');
-        // Redondo y de 48 dp o más.
-        const estilo = StyleSheet.flatten(boton.props.style);
-        expect(estilo.width).toBeGreaterThanOrEqual(48);
+        expect(hayNodo('inicio-preguntar')).toBe(false);
+        const pestana = raiz().findAll(n => n.props.testID === 'tab-asistente' && esHost(n, 'View'))[0];
+        expect(pestana).toBeDefined();
+        expect(pestana.props.accessibilityRole).toBe('tab');
+        expect(pestana.findAll(n => esHost(n, 'Text')).map(textoCompleto)).toEqual(['Asistente']);
+        const estilo = StyleSheet.flatten(pestana.props.style);
         expect(estilo.height).toBeGreaterThanOrEqual(48);
-        expect(estilo.borderRadius).toBeGreaterThanOrEqual((estilo.height as number) / 2);
-        expect(estilo.backgroundColor).toBe(colors.primary);
       });
     })();
   });
 
   // @spec08_e22 — "Qué comprar mañana" sin producto responde para todos los productos
   it('spec08_e22 que comprar manana sin producto responde para todos', () => {
-    // Given: dos ciclos cerrados donde, en cada uno, sobraron 6 y 4 porciones de anticucho y nada de pancita, y que Jev interpreta "recomiéndame qué comprar más mañana" como la intención "cuánto preparar" sin producto
+    // Given: tres jueves de historial donde sobraron 4 porciones de anticucho y nada de pancita, y que Jev interpreta "recomiéndame qué comprar más mañana" como la intención "cuánto preparar" sin producto
     // When: se calcula la respuesta
-    // Then: la respuesta es "Para mañana, según lo que te sobró: anticucho, prepara 4 porciones menos; pancita, te alcanza lo que preparas." con las mismas cifras y reglas que para un solo producto, y las cifras van a la redacción como siempre; con menos de dos ciclos sale la frase fija de siempre
+    // Then: la respuesta sale del mismo planificador que la tarjeta "Para mañana" (mismas cifras y palabras), y las cifras van a la redacción como siempre; con pocas muestras lo dice
     return (async () => {
       const dosProductos = PRODUCTOS_POR_DEFECTO.slice(0, 2);
-      const cierres = [
-        cierreDe('2026-09-14', {
-          abreCiclo: true,
-          lineas: [linea('Anticucho', 20, 6, 10, 8.2), linea('Pancita', 30, 0, 9, 8)],
-        }),
-        cierreDe('2026-09-28', {
-          abreCiclo: true,
+      const jueves = ['2026-09-17', '2026-09-24', '2026-10-01'];
+      const cierres = jueves.map(f =>
+        cierreDe(f, {
           lineas: [linea('Anticucho', 20, 4, 10, 8.2), linea('Pancita', 30, 0, 9, 8)],
         }),
-      ];
+      );
       const ctx = ctxDe(cierres, dosProductos);
       const consulta = jevInterpreta({
         intencion: 'cuantoPreparar',
@@ -1277,17 +1212,14 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
         confianza: 0.72,
       });
       const hecho = responderConsulta(consulta, ctx);
-      expect(hecho.frase).toBe(
-        'Para mañana, según lo que te sobró: anticucho, prepara 4 porciones menos; pancita, te alcanza lo que preparas.',
-      );
-      // Las mismas cifras que para un solo producto: la del anticucho es la que sale de cuantoPreparar.
-      const solo = responderConsulta(
-        jevInterpreta({ intencion: 'cuantoPreparar', producto: 'anticucho', dia: 'ninguno', confianza: 0.9 }),
-        ctx,
-      );
-      expect(solo.frase).toContain('Prepara 4 porciones menos');
-      // Las cifras van a la redacción como siempre.
-      expect(hecho.cifras).toEqual(['4']);
+      const plan = planificarManana(cierres, dosProductos, HOY);
+      expect(hecho.frase).toMatch(/^Mañana es jueves: prepara /);
+      for (const s of plan.sugerencias) {
+        expect(hecho.frase.toLowerCase()).toContain(s.texto.toLowerCase());
+      }
+      expect(hecho.frase).toContain('18 porciones de anticucho (2 menos que el último jueves)');
+      expect(hecho.frase).toContain('33 porciones de pancita (+3 más que el último jueves)');
+      expect(hecho.cifras).toEqual(extraerCifras(hecho.frase));
       const servidor = servidorSimulado({
         interpretar: responde({ ...interpretacion('cuantoPreparar'), confianza: 0.72 }),
         redactar: responde({ texto: 'Para mañana, anticucho: prepara 4 porciones menos. De pancita, igual.' }),
@@ -1301,9 +1233,9 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
       );
       expect(r).toMatchObject({ tipo: 'respuesta', redactada: false });
       expect(servidor.tipos()).not.toContain('redactar');
-      // Con menos de dos ciclos, la frase fija de siempre.
+      // Con pocas muestras, lo dice con las palabras de la tarjeta.
       expect(responderConsulta(consulta, ctxDe([cierres[0]], dosProductos)).frase).toBe(
-        'Todavía no cierras un ciclo completo. Cuando compres mercadería otra vez, te lo calculo.',
+        'Mañana es jueves. Aún no tengo suficientes jueves para sugerirte.',
       );
     })();
   });
@@ -1367,7 +1299,7 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
         jevInterpreta({ intencion: 'cuantoPreparar', producto: 'anticucho', dia: 'ninguno', confianza: 0.9 }),
         ctx,
       );
-      expect(paraTodos.frase).toMatch(/^Para mañana/);
+      expect(paraTodos.frase).toMatch(/^Mañana es /);
       expect(paraTodos.frase).not.toBe(soloAnticucho.frase);
       const red = redDeLaApp(texto, {
         interpretar: cuerpo =>

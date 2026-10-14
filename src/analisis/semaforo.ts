@@ -5,13 +5,12 @@
 // abajo. El juicio es del modelo; la aritmética es del código. Puro: sin red, sin reloj, sin React
 // (AGENTS.md, reglas 3, 12 y 13). La fecha de hoy entra por `ctx.hoy`.
 import { z } from 'zod';
-import { mercaderiaDelCiclo, resumirCiclo } from '@dominio/ciclo';
+import { resumirCiclo } from '@dominio/ciclo';
 import { totalPorCobrar } from '@dominio/cobro';
 import { diasEntre } from '@dominio/fecha';
 import { redondearSoles } from '@dominio/formato';
 import { requiereRevision } from '@dominio/producto';
 import type {
-  Ciclo,
   Consulta,
   ContextoAnalisis,
   Hecho,
@@ -27,8 +26,6 @@ import {
   cicloCerradoYActual,
   DIAS_COBRO_VENCIDO,
   peorDiaMedido,
-  SOBRANTES_MINIMOS,
-  sobranteDeDosCiclos,
   UMBRAL_COBRO_SOLES,
 } from './reglas';
 
@@ -50,8 +47,6 @@ export const DIAS_COBRO_RECIENTE = 3;
 export const PCT_HOLGURA_POCA = 10;
 /** cuantoSacarParaLaCasa: hasta este % es media; más es mucha. */
 export const PCT_HOLGURA_MEDIA = 30;
-/** cuantoPreparar: hasta este % de lo preparado, lo que sobra es poco. */
-export const PCT_SOBRA_POCO = 10;
 /** revisarPrecio: una caída de esta cantidad de soles por porción o más es fuerte. */
 export const CAIDA_FUERTE_SOLES = 1;
 /** revisarPrecio: una caída de este % del margen anterior o más es fuerte. */
@@ -79,7 +74,6 @@ export const INTENCIONES_JUZGABLES: readonly IntencionId[] = [
   'compararCiclo',
   'cuantoPorCobrar',
   'cuantoSacarParaLaCasa',
-  'cuantoPreparar',
   'revisarPrecio',
   'peorDia',
 ];
@@ -143,32 +137,6 @@ const cuantoSacarParaLaCasa = (ctx: ContextoAnalisis): SenalesJuicio | null => {
   return { resultado: 'ganancia', holgura };
 };
 
-/** Lo que sobró y lo que se preparó de ese producto en un ciclo. */
-const sobrantesYPreparadas = (
-  ciclo: Ciclo,
-  productoId: string,
-): { sobrantes: number; preparadas: number } => {
-  const m = mercaderiaDelCiclo(ciclo).find(x => x.productoId === productoId);
-  return { sobrantes: (m?.preparadas ?? 0) - (m?.vendidas ?? 0), preparadas: m?.preparadas ?? 0 };
-};
-
-const cuantoPreparar = (consulta: Consulta, ctx: ContextoAnalisis): SenalesJuicio | null => {
-  const id = consulta.producto;
-  const ciclos = cicloCerradoYActual(ctx);
-  if (id === undefined || ciclos === null) return null;
-  const sobrante = sobranteDeDosCiclos(ctx, id);
-  if (sobrante === null) return null;
-  if (sobrante.cantidad === 0) return { sobra: 'nada', repite: 'no' };
-  const a = sobrantesYPreparadas(ciclos.cerrado, id);
-  const b = sobrantesYPreparadas(ciclos.actual, id);
-  // Manda el ciclo en que menos sobró, en proporción a lo que se preparó (producto cruzado, sin dividir).
-  const menor = a.sobrantes * b.preparadas <= b.sobrantes * a.preparadas ? a : b;
-  return {
-    sobra: menor.sobrantes * 100 <= PCT_SOBRA_POCO * menor.preparadas ? 'poco' : 'mucho',
-    repite: sobrante.cantidad >= SOBRANTES_MINIMOS ? 'si' : 'no',
-  };
-};
-
 const revisarPrecio = (consulta: Consulta, ctx: ContextoAnalisis): SenalesJuicio | null => {
   const producto = productoDe(consulta, ctx);
   if (producto === undefined) return null;
@@ -204,8 +172,6 @@ export const senalesDeJuicio = (
       return cuantoPorCobrar(ctx);
     case 'cuantoSacarParaLaCasa':
       return cuantoSacarParaLaCasa(ctx);
-    case 'cuantoPreparar':
-      return cuantoPreparar(consulta, ctx);
     case 'revisarPrecio':
       return revisarPrecio(consulta, ctx);
     default:
@@ -214,15 +180,30 @@ export const senalesDeJuicio = (
 };
 
 /**
+ * Intenciones cuya frase y cifras NO salen del teléfono porque traen montos o fechas de los cobros
+ * (el Yape que le deben): al servidor solo viajan las señales con nombre ("plazo: vencido",
+ * "monto: alto"). El juicio no las necesita: Jev juzga con las señales, no hace cuentas.
+ */
+const SIN_CIFRAS_AL_SERVIDOR: readonly IntencionId[] = ['cuantoPorCobrar'];
+
+/** La frase neutra que reemplaza a la real cuando la real traería montos o fechas de cobros. */
+export const FRASE_NEUTRA_COBROS = 'Tienes pagos por cobrar.';
+
+/**
  * El cuerpo de la petición para juzgar: la intención, la frase, las cifras y las señales. Nada más:
  * ni el perfil, ni el Yape, ni un cierre. Copia lo que recibe y deja fuera cualquier otra llave.
+ * En `cuantoPorCobrar` no va la frase real ni las cifras (monto y fecha del Yape por cobrar): va
+ * una frase neutra, sin cifras, y las señales de vocabulario cerrado.
  */
-export const armarHechoParaJuicio = (hecho: Hecho, senales: SenalesJuicio): HechoJuicio => ({
-  intencion: hecho.intencion,
-  frase: hecho.frase,
-  cifras: [...hecho.cifras],
-  senales: { ...senales },
-});
+export const armarHechoParaJuicio = (hecho: Hecho, senales: SenalesJuicio): HechoJuicio => {
+  const reservado = SIN_CIFRAS_AL_SERVIDOR.includes(hecho.intencion);
+  return {
+    intencion: hecho.intencion,
+    frase: reservado ? FRASE_NEUTRA_COBROS : hecho.frase,
+    cifras: reservado ? [] : [...hecho.cifras],
+    senales: { ...senales },
+  };
+};
 
 const esquemaJuicio = z.object({
   semaforo: z.enum(['bien', 'ojo', 'urgente']),

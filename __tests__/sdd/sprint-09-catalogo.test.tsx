@@ -144,6 +144,7 @@ describe('SPEC-09 catálogo configurable', () => {
     const tocar = async (id: string) => { await act(async () => { await nodo(id, 'onPress').props.onPress(); }); };
     const escribir = async (id: string, valor: string) => { await act(async () => { nodo(id, 'onChangeText').props.onChangeText(valor); }); };
     await tocar('abrir-perfil');
+    await tocar('perfil-opcion-productos');
     await tocar('agregar-producto');
     await escribir('producto-nombre', 'Pan con queso');
     await escribir('producto-unidad', 'sándwich');
@@ -152,12 +153,15 @@ describe('SPEC-09 catálogo configurable', () => {
     await tocar('guardar-producto');
     const producto = (await listarProductos())[0];
     expect(producto).toMatchObject({ nombre: 'Pan con queso', unidad: 'sándwich', precioVenta: 5, costoUnitario: 2 });
+    await tocar('seccion-atras');
     await tocar('perfil-atras');
     await tocar('tab-cerrar-dia');
     expect(app.root.findAll(n => n.props.testID === `preparadas-${producto.id}`).length).toBeGreaterThan(0);
     await escribir(`preparadas-${producto.id}`, '4');
     await escribir(`sobrantes-${producto.id}`, '1');
     await tocar('guardar-dia');
+    // El modal muestra "Tu día quedó cuadrado": "Listo" lo cierra y deja ver Inicio.
+    await tocar('cierre-listo');
     expect((await listarCierres())[0].lineas[0]).toMatchObject({ productoId: producto.id, nombre: 'Pan con queso', precioUnitario: 5, costoUnitario: 2 });
   });
 
@@ -169,6 +173,7 @@ describe('SPEC-09 catálogo configurable', () => {
     const escribir = async (id: string, valor: string) => { await act(async () => { nodo(id, 'onChangeText').props.onChangeText(valor); }); };
     const valor = (id: string) => app.root.findAll(n => n.props.testID === id && typeof n.props.value === 'string')[0].props.value;
     await tocar('abrir-perfil');
+    await tocar('perfil-opcion-productos');
     await tocar('agregar-producto');
     await escribir('producto-nombre', 'Café');
     await escribir('producto-precio', '0.');

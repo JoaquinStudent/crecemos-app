@@ -37,7 +37,6 @@ import {
   PCT_HOLGURA_POCA,
   PCT_MAGNITUD_MEDIA,
   PCT_MAGNITUD_PEQUENA,
-  PCT_SOBRA_POCO,
   senalesDeJuicio,
   SIMBOLO_SEMAFORO,
 } from '@analisis/semaforo';
@@ -174,13 +173,6 @@ const cierreDeCiclo = (venta: number): ContextoAnalisis =>
     cierreDe('2026-10-01', { abreCiclo: true, lineas: [linea('Anticucho', 10, 0, 10, 8)] }),
   ]);
 
-/** Rachi en dos ciclos de 100 porciones: sobraron `antes` y `ahora`. */
-const rachiEnDosCiclos = (antes: number, ahora_: number): ContextoAnalisis =>
-  ctxDe([
-    cierreDe('2026-09-14', { abreCiclo: true, lineas: [linea('Rachi', 100, antes, 9, 7.6)] }),
-    cierreDe('2026-09-28', { abreCiclo: true, lineas: [linea('Rachi', 100, ahora_, 9, 7.6)] }),
-  ]);
-
 /** El anticucho se vendía a S/ 10 con costo `costoAntes` el 2026-07-09 (90 días); hoy cuesta `costoHoy`. */
 const precioCambiado = (
   costoAntes: number,
@@ -214,17 +206,16 @@ describe('esJuzgable', () => {
     'compararCiclo',
     'cuantoPorCobrar',
     'cuantoSacarParaLaCasa',
-    'cuantoPreparar',
     'revisarPrecio',
     'peorDia',
   ];
 
-  it('las doce intenciones: seis se juzgan y seis no', () => {
+  it('las doce intenciones: cinco se juzgan y siete no', () => {
     expect(INTENCIONES).toHaveLength(12);
     for (const i of INTENCIONES) {
       expect([i.id, esJuzgable(i.id)]).toEqual([i.id, JUZGABLES.includes(i.id)]);
     }
-    expect(INTENCIONES.filter(i => esJuzgable(i.id))).toHaveLength(6);
+    expect(INTENCIONES.filter(i => esJuzgable(i.id))).toHaveLength(5);
   });
 
   it('la lista de intenciones juzgables es exactamente esa', () => {
@@ -239,6 +230,7 @@ describe('esJuzgable', () => {
       'productoQueMasDeja',
       'productoQueMasSeVende',
       'cuandoRecupereCapital',
+      'cuantoPreparar', // lo responde el planificador, sin veredicto
       'noEntendi',
     ] as const) {
       expect(senales(consultaDe(id), ctx)).toBeNull();
@@ -259,10 +251,9 @@ describe('señales sin datos suficientes: null', () => {
     expect(senales(consultaDe('compararCiclo'), ctxDe([cicloDe('2026-09-28', 200)]))).toBeNull();
   });
 
-  it('cuantoSacarParaLaCasa y cuantoPreparar: con menos de dos ciclos', () => {
+  it('cuantoSacarParaLaCasa: con menos de dos ciclos', () => {
     const uno = ctxDe([cicloDe('2026-09-28', 200)]);
     expect(senales(consultaDe('cuantoSacarParaLaCasa'), uno)).toBeNull();
-    expect(senales(consultaDe('cuantoPreparar', 'p-anticucho'), uno)).toBeNull();
   });
 
   it('cuantoPorCobrar: nada por cobrar, o ya cobrado', () => {
@@ -276,9 +267,7 @@ describe('señales sin datos suficientes: null', () => {
     expect(senales(consultaDe('peorDia'), semanas(10, 10))).toBeNull();
   });
 
-  it('cuantoPreparar y revisarPrecio: sin producto o con uno que la app no tiene', () => {
-    const dos = rachiEnDosCiclos(5, 5);
-    expect(senales(consultaDe('cuantoPreparar'), dos)).toBeNull();
+  it('revisarPrecio: sin producto o con uno que la app no tiene', () => {
     expect(senales(consultaDe('revisarPrecio'), precioCambiado(8.2, 8.8))).toBeNull();
     expect(senales(consultaDe('revisarPrecio', 'p-rachi'), precioCambiado(8.2, 8.8))).toBeNull();
     expect(
@@ -476,38 +465,6 @@ describe('cuantoSacarParaLaCasa: resultado y holgura', () => {
   });
 });
 
-describe('cuantoPreparar: sobra y repite', () => {
-  it('los umbrales tienen nombre', () => {
-    expect(PCT_SOBRA_POCO).toBe(10);
-  });
-
-  it.each([
-    [10, 10, 'poco', 'si'], // 10 % en cada ciclo: el borde es poco
-    [11, 11, 'mucho', 'si'],
-    [2, 2, 'poco', 'no'], // sobró en los dos, pero menos de 3 porciones
-    [3, 3, 'poco', 'si'],
-    [20, 3, 'poco', 'si'], // manda el ciclo en que menos sobró
-    [50, 12, 'mucho', 'si'],
-    [0, 40, 'nada', 'no'],
-    [40, 0, 'nada', 'no'],
-    [0, 0, 'nada', 'no'],
-  ])('sobraron %s y %s de 100: sobra %s, repite %s', (antes, ahora_, sobra, repite) => {
-    expect(
-      senales(consultaDe('cuantoPreparar', 'p-rachi'), rachiEnDosCiclos(antes, ahora_)),
-    ).toEqual({
-      sobra,
-      repite,
-    });
-  });
-
-  it('un producto que no se preparó en esos ciclos no sobra', () => {
-    expect(senales(consultaDe('cuantoPreparar', 'p-pancita'), rachiEnDosCiclos(10, 10))).toEqual({
-      sobra: 'nada',
-      repite: 'no',
-    });
-  });
-});
-
 describe('revisarPrecio: caída y plazo', () => {
   it('los umbrales tienen nombre', () => {
     expect([CAIDA_PRECIO_SOLES, CAIDA_FUERTE_SOLES, PCT_CAIDA_FUERTE]).toEqual([0.3, 1, 30]);
@@ -684,7 +641,7 @@ describe('interpretarJuicio', () => {
 });
 
 describe('las señales no mutan lo que reciben', () => {
-  it('con todo congelado, las seis intenciones juzgables no lanzan y dan lo mismo dos veces', () => {
+  it('con todo congelado, las cinco intenciones juzgables no lanzan y dan lo mismo dos veces', () => {
     const ctx = ctxDe(
       [
         cierreDe('2026-07-09', { abreCiclo: true, lineas: [linea('Anticucho', 20, 0, 10, 8.2)] }),
@@ -721,12 +678,11 @@ describe('recorrido con la semilla real', () => {
     consultaDe('compararCiclo'),
     consultaDe('cuantoPorCobrar'),
     consultaDe('cuantoSacarParaLaCasa'),
-    consultaDe('cuantoPreparar', 'p-rachi'),
     consultaDe('revisarPrecio', 'p-anticucho'),
     consultaDe('peorDia'),
   ];
 
-  it('las seis intenciones juzgables devuelven señales y viajan sin nada de Freddy', () => {
+  it('las cinco intenciones juzgables devuelven señales y viajan sin nada de Freddy', () => {
     for (const consulta of consultas) {
       const s = senalesDeJuicio(consulta, ctx);
       expect(s).not.toBeNull();
@@ -743,13 +699,12 @@ describe('recorrido con la semilla real', () => {
     expect(dice(consultas[0])).toEqual({ tendencia: 'baja', magnitud: 'grande' });
     expect(dice(consultas[1])).toEqual({ plazo: 'vencido', monto: 'alto' });
     expect(dice(consultas[2])).toEqual({ resultado: 'ganancia', holgura: 'mucha' });
-    expect(dice(consultas[3])).toEqual({ sobra: 'mucho', repite: 'si' });
     // Los precios de la semilla se cambiaron hace 84 días: todavía dentro de los 90
-    expect(dice(consultas[4])).toEqual({ caida: 'leve', plazo: '90dias' });
-    expect(dice(consultas[5])).toEqual({ brecha: 'grande', datos: 'suficientes' });
+    expect(dice(consultas[3])).toEqual({ caida: 'leve', plazo: '90dias' });
+    expect(dice(consultas[4])).toEqual({ brecha: 'grande', datos: 'suficientes' });
   });
 
-  it('las doce intenciones de la semilla: solo las seis juzgables traen señales', () => {
+  it('las doce intenciones de la semilla: solo las cinco juzgables traen señales', () => {
     for (const i of INTENCIONES) {
       const s = senalesDeJuicio(consultaDe(i.id, 'p-rachi'), ctx);
       expect(s !== null).toBe(esJuzgable(i.id));

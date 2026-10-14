@@ -7,8 +7,9 @@ import { calcularCierre } from '@dominio/cierre';
 import { agruparCiclos, resumirCiclo, textoCapital } from '@dominio/ciclo';
 import { totalPorCobrar } from '@dominio/cobro';
 import { diaSemana, restarDias } from '@dominio/fecha';
-import { formatoFecha, formatoSoles } from '@dominio/formato';
+import { formatoFecha, formatoSoles, redondearSoles } from '@dominio/formato';
 import { teDeja } from '@dominio/producto';
+import { singularUnidad, unidadSegunCantidad } from '@dominio/unidades';
 import type {
   Cierre,
   Consulta,
@@ -20,9 +21,9 @@ import type {
   Producto,
 } from '@dominio/tipos';
 import { articulo, extremosDeVentas, gananciaPorProducto } from './metricas';
+import { planificarManana, textoPorciones } from './planificador';
 import {
   caidaDePrecio,
-  cicloCerradoYActual,
   CICLOS_MINIMOS,
   cobroMensaje,
   comparacionMensaje,
@@ -30,9 +31,8 @@ import {
   mejorDiaDeLaSemana,
   peorDiaDeLaSemana,
   retiroMensaje,
-  sobranteDeDosCiclos,
 } from './reglas';
-import { extraerCifras } from './validarRedaccion';
+import { extraerCifras } from './cifras';
 
 export interface Intencion {
   id: IntencionId;
@@ -221,12 +221,8 @@ const unidadDe = (ctx: ContextoAnalisis, productoId: string): string =>
   ctx.productos.find(p => p.id === productoId)?.unidad ?? 'porcion';
 
 /** '1 porción', '410 porciones', '1 vaso', '12 vasos'. */
-const cantidad = (n: number, unidad: string): string => {
-  const uno = unidad === 'porcion' ? 'porción' : unidad;
-  const varios =
-    unidad === 'porcion' ? 'porciones' : /[aeiouáéíóú]$/i.test(uno) ? `${uno}s` : `${uno}es`;
-  return `${conMiles(n)} ${n === 1 ? uno : varios}`;
-};
+const cantidad = (n: number, unidad: string): string =>
+  `${conMiles(n)} ${unidadSegunCantidad(n, unidad)}`;
 
 /** "El anticucho" o "La pancita", para empezar una frase. */
 const conArticulo = (nombre: string): string =>
@@ -238,9 +234,6 @@ export const productoDe = (consulta: Consulta, ctx: ContextoAnalisis): Producto 
 
 const pedirProducto = (intencion: IntencionId): Hecho =>
   hecho(intencion, '¿De cuál producto? Escribe su nombre como aparece en tu catálogo.');
-
-/** 'rachi' de 'p-rachi' cuando el producto no aparece en la lista de la app. */
-const nombreDeId = (id: string): string => id.replace(/^p-/, '');
 
 /** El último cierre con fecha de hoy o anterior que cumple el filtro; los posteriores a hoy no cuentan. */
 const ultimoCierre = (
@@ -303,7 +296,7 @@ const productoQueMasDeja = (ctx: ContextoAnalisis): Hecho => {
   const porUnidad = cantidad(1, unidadDe(ctx, p.productoId)).replace(/^1 /, '');
   return hecho(
     'productoQueMasDeja',
-    `${conArticulo(nombre)} tiene la mayor diferencia estimada entre precio y costo: ${formatoSoles(
+    `${conArticulo(nombre)} es ${articulo(nombre) === 'la' ? 'la' : 'el'} que más te deja: ${formatoSoles(
       p.teDeja,
     )} por ${porUnidad}, ${formatoSoles(p.ganancia)} en total.`,
   );
@@ -332,62 +325,39 @@ const cuantoPorCobrar = (ctx: ContextoAnalisis): Hecho =>
 const cuantoSacarParaLaCasa = (ctx: ContextoAnalisis): Hecho =>
   hecho(
     'cuantoSacarParaLaCasa',
-    agruparCiclos(ctx.cierres).length < CICLOS_MINIMOS ? SIN_CICLO_CERRADO : retiroMensaje(ctx),
+    (ctx.ciclos ?? agruparCiclos(ctx.cierres)).length < CICLOS_MINIMOS ? SIN_CICLO_CERRADO : retiroMensaje(ctx),
   );
 
-/** Los productos con datos en los dos últimos ciclos: primero los de la app, en su orden; luego los demás. */
-const productosConDatos = (ctx: ContextoAnalisis): string[] => {
-  const ciclos = cicloCerradoYActual(ctx);
-  if (ciclos === null) return [];
-  const vistos = new Set<string>();
-  for (const ciclo of [ciclos.cerrado, ciclos.actual]) {
-    for (const c of ciclo.cierres) for (const l of c.lineas) vistos.add(l.productoId);
-  }
-  const conocidos = ctx.productos.map(p => p.id);
-  const activos = ctx.productos.filter(p => p.activo && vistos.has(p.id)).map(p => p.id);
-  const otros = [...vistos].filter(id => !conocidos.includes(id)).sort();
-  return [...activos, ...otros];
-};
-
-/** "Qué compro mañana" sin producto: la misma cuenta de un producto, para todos los que tienen datos. */
-const cuantoPrepararTodos = (ctx: ContextoAnalisis): Hecho => {
-  const conDatos = productosConDatos(ctx);
-  if (agruparCiclos(ctx.cierres).length < CICLOS_MINIMOS) {
-    return hecho('cuantoPreparar', SIN_CICLO_CERRADO);
-  }
-  const partes: string[] = [];
-  for (const id of conDatos) {
-    const sobrante = sobranteDeDosCiclos(ctx, id);
-    if (sobrante === null) continue;
-    const producto = ctx.productos.find(p => p.id === id);
-    const nombre = (producto?.nombre ?? sobrante.nombre ?? nombreDeId(id)).toLowerCase();
-    partes.push(
-      sobrante.cantidad === 0
-        ? `${nombre}, te alcanza lo que preparas`
-        : `${nombre}, prepara ${cantidad(sobrante.cantidad, producto?.unidad ?? 'porcion')} menos`,
-    );
-  }
-  if (partes.length === 0) return hecho('cuantoPreparar', POCAS_VENTAS);
-  return hecho('cuantoPreparar', `Para mañana, según lo que te sobró: ${partes.join('; ')}.`);
-};
+/**
+ * "¿Cuánto preparo mañana?": la MISMA cuenta y las MISMAS palabras que la tarjeta "Para mañana" de
+ * Inicio (`planificarManana`). Con `consulta.producto` responde solo de ese producto; sin él, o si la
+ * app no lo tiene, de todos los activos. Sin muestras suficientes lo dice, no inventa.
+ */
+/** "Igual que…" → "igual que…" para ir entre paréntesis; "+8 más…" queda igual. */
+const enMinuscula = (texto: string): string => `${texto.charAt(0).toLowerCase()}${texto.slice(1)}`;
 
 const cuantoPreparar = (consulta: Consulta, ctx: ContextoAnalisis): Hecho => {
-  if (consulta.producto === undefined) return cuantoPrepararTodos(ctx);
-  const sobrante = sobranteDeDosCiclos(ctx, consulta.producto);
-  if (sobrante === null) return hecho('cuantoPreparar', SIN_CICLO_CERRADO);
-  const producto = ctx.productos.find(p => p.id === consulta.producto);
-  const nombre = producto?.nombre ?? sobrante.nombre ?? nombreDeId(consulta.producto);
-  if (sobrante.cantidad === 0) {
-    return hecho(
-      'cuantoPreparar',
-      `Con lo que preparas de ${nombre.toLowerCase()} te alcanza: en los últimos dos ciclos no registraste sobrantes.`,
-    );
+  const plan = planificarManana(ctx.cierres, ctx.productos, ctx.hoy);
+  const propia = plan.sugerencias.filter(s => s.productoId === consulta.producto);
+  const sugerencias = propia.length > 0 ? propia : plan.sugerencias;
+  if (sugerencias.length === 0) {
+    return hecho('cuantoPreparar', `Mañana es ${plan.dia}. Todavía no tengo productos para sugerirte.`);
   }
-  const menos = cantidad(sobrante.cantidad, producto?.unidad ?? 'porcion');
-  return hecho(
-    'cuantoPreparar',
-    `Registraste sobrantes de ${nombre} en dos ciclos seguidos. Prepara ${menos} menos.`,
+  const conDatos = sugerencias.filter(s => !s.datosInsuficientes && s.porciones !== null);
+  const sinDatos = sugerencias.filter(s => s.datosInsuficientes);
+  if (conDatos.length === 0) {
+    return hecho('cuantoPreparar', `Mañana es ${plan.dia}. ${sinDatos[0].texto}.`);
+  }
+  const partes = conDatos.map(
+    s => `${textoPorciones(s.porciones ?? 0, s.unidad)} de ${s.nombre.toLowerCase()} (${enMinuscula(s.texto)})`,
   );
+  let frase = `Mañana es ${plan.dia}: prepara ${partes.join('; ')}.`;
+  if (sinDatos.length > 0) {
+    const nombres = sinDatos.map(s => s.nombre.toLowerCase()).join(' y ');
+    frase += ` De ${nombres}: ${enMinuscula(sinDatos[0].texto)}.`;
+  }
+  const capital = redondearSoles(conDatos.reduce((total, s) => total + s.capital, 0));
+  return hecho('cuantoPreparar', `${frase} Pondrías ${formatoSoles(capital)} de mercadería.`);
 };
 
 const compararCiclo = (ctx: ContextoAnalisis): Hecho => {
@@ -406,16 +376,16 @@ const revisarPrecio = (consulta: Consulta, ctx: ContextoAnalisis): Hecho => {
   if (caida !== null) {
     return hecho(
       'revisarPrecio',
-      `La diferencia estimada por unidad de ${producto.nombre} bajó ${formatoSoles(
-        caida.caida,
-      )} desde ${caida.mes} (precio menos costo estimado). Revisa el precio.`,
+      `Lo que te deja ${articulo(producto.nombre)} ${producto.nombre.toLowerCase()} por ${singularUnidad(
+        producto.unidad,
+      )} bajó ${formatoSoles(caida.caida)} desde ${caida.mes}. Revisa el precio.`,
     );
   }
   const nombre = producto.nombre.toLowerCase();
   const del = articulo(nombre) === 'la' ? 'de la' : 'del';
   return hecho(
     'revisarPrecio',
-    `El precio ${del} ${nombre} no muestra una caída: diferencia estimada ${formatoSoles(
+    `El precio ${del} ${nombre} no muestra una caída: te deja ${formatoSoles(
       teDeja(producto).monto,
     )} por ${cantidad(1, producto.unidad).replace(/^1 /, '')}.`,
   );

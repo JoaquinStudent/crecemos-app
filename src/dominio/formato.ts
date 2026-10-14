@@ -15,11 +15,16 @@ export const formatoSoles = (n: number): string => {
   return `${n < 0 ? '-' : ''}S/ ${conMiles}.${decimales}`;
 };
 
+/**
+ * Limpia lo que se escribe en un campo de monto. La coma cuenta como punto. Se conserva el
+ * primer separador decimal y hasta 2 decimales; todo lo que venga desde un segundo separador
+ * se descarta: '1.2.3' → '1.2' (antes salía '1.23', un monto distinto del que se escribió).
+ */
 export const sanitizeAmount = (text: string): string => {
   const normalized = text.replace(/,/g, '.').replace(/[^0-9.]/g, '');
-  const [integer, ...decimals] = normalized.split('.');
-  if (decimals.length === 0) return integer;
-  return `${integer}.${decimals.join('').slice(0, 2)}`;
+  const [integer, decimals] = normalized.split('.');
+  if (decimals === undefined) return integer;
+  return `${integer}.${decimals.slice(0, 2)}`;
 };
 
 export const parseAmount = (text: string): number => {

@@ -361,7 +361,9 @@ describe('SPEC-04: Cobros pendientes y carga inicial desde el Mock API', () => {
       execFileSync('node', [RUTA_GENERADOR], { stdio: 'pipe' });
       const segunda = readFileSync(RUTA_SEMILLA);
       expect(primera.equals(segunda)).toBe(true);
-      expect(primera.equals(antes)).toBe(true);
+      // Git en Windows puede entregar el archivo con CRLF: se compara el contenido, no el fin de línea.
+      const sinCR = (b: Buffer) => b.toString('utf8').split('\r\n').join('\n');
+      expect(sinCR(primera)).toBe(sinCR(antes));
     } finally {
       writeFileSync(RUTA_SEMILLA, antes);
     }
@@ -429,7 +431,7 @@ describe('SPEC-04: Cobros pendientes y carga inicial desde el Mock API', () => {
       const teQueda = textoDe('inicio-te-queda');
       expect(teQueda).not.toBe('S/ 0.00');
       expect(teQueda).toBe(formatoSoles(calcularCierre(ultimo).teQueda));
-      expect(textosEnPantalla()).toContain('Resultado registrado');
+      expect(textosEnPantalla()).toContain('Tu último día');
       // "Yape por cobrar" con su total y sus pagos.
       expect(textosEnPantalla()).toContain('Yape por cobrar');
       expect(textoDe('inicio-por-cobrar-total')).toBe(formatoSoles(porCobrar.total));

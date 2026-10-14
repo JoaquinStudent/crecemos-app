@@ -1,11 +1,7 @@
-// src/theme/index.ts
-import { colors } from './colors';
-import { typography } from './typography';
-import { spacing, radius } from './spacing';
-
+// src/theme/index.tsx
+// Punto de entrada único del tema. `@rneui/*` NO se reexporta desde acá: el puente con
+// React Native Elements vive en `./rneTheme` y solo lo usan los componentes.
 export * from './colors';
 export * from './typography';
 export * from './spacing';
-
-export const theme = { colors, typography, spacing, radius } as const;
-export type Theme = typeof theme;
+export * from './elevation';

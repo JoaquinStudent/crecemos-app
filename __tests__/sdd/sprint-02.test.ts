@@ -250,9 +250,11 @@ describe('SPEC-02: Perfil y productos con precio vigente', () => {
 
     // Desde Inicio al Perfil, y ahí, el precio del anticucho a S/ 11.00.
     await tocar('abrir-perfil');
+    await tocar('perfil-opcion-productos');
     await tocar('cambiar-precio-p-anticucho');
     await escribir('precio-input', '11');
     await tocar('guardar-precio');
+    await tocar('seccion-atras');
     await tocar('perfil-atras');
 
     // Hoy: 10 anticuchos preparados, ninguno sobrante; la pantalla ya muestra el precio nuevo.
@@ -261,9 +263,11 @@ describe('SPEC-02: Perfil y productos con precio vigente', () => {
     await escribir('preparadas-p-anticucho', '10');
     await escribir('sobrantes-p-anticucho', '0');
     await tocar('guardar-dia');
+    // El modal muestra "Tu día quedó cuadrado": "Listo" lo cierra y deja ver Inicio.
+    await tocar('cierre-listo');
 
-    // Inicio muestra la venta de hoy.
-    expect(textos()).toContain('+ S/ 110.00');
+    // Inicio muestra el resultado de hoy en la fila "Tu último día" (sin gastos, es la venta de hoy).
+    expect(textos()).toContain('S/ 110.00');
 
     // Ayer se verifica en los datos: el Historial llega en el Sprint-03.
     const cierres = await listarCierres();

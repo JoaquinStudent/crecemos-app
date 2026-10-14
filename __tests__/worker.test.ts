@@ -59,16 +59,6 @@ const interpretar = (...texto: unknown[]) => ({
   tipo: 'interpretar',
   texto: texto.length > 0 ? texto[0] : '¿cuánto vendí ayer?',
 });
-const HECHO = {
-  intencion: 'ventaDelDia',
-  frase: 'Ayer, martes 6 de octubre, vendiste S/ 205.00.',
-  cifras: ['6', '205.00'],
-};
-const redactar = (...hecho: unknown[]) => ({
-  tipo: 'redactar',
-  hecho: hecho.length > 0 ? hecho[0] : HECHO,
-});
-
 /** Lo que clasifica el modelo para "cuánto vendí ayer". */
 const AYER = { intencion: 'ventaDelDia', dia: 'ayer', confianza: 0.95 };
 
@@ -274,45 +264,33 @@ describe('servidor: validación de lo que llega', () => {
     expect(cuerpoDe(1).state).toBe('¿cuánto vendí ayer?');
   });
 
-  it('redactar: un hecho mal formado se rechaza antes de llamar a nadie', async () => {
+  it('juzgar: un hecho mal formado se rechaza antes de llamar a nadie', async () => {
     conOpenRouter();
     const malos: unknown[] = [
       undefined,
       null,
       'texto',
       [],
-      { ...HECHO, intencion: 'hackear' },
-      { ...HECHO, intencion: 7 },
-      { ...HECHO, frase: '' },
-      { ...HECHO, frase: '   ' },
-      { ...HECHO, frase: 'a'.repeat(301) },
-      { ...HECHO, frase: 42 },
-      { ...HECHO, cifras: 'uno' },
-      { ...HECHO, cifras: undefined },
-      { ...HECHO, cifras: Array.from({ length: 13 }, (_, i) => String(i)) },
-      { ...HECHO, cifras: ['1'.repeat(25)] },
-      { ...HECHO, cifras: [205] },
+      { ...HECHO_JUICIO, intencion: 'hackear' },
+      { ...HECHO_JUICIO, intencion: 7 },
+      { ...HECHO_JUICIO, frase: '' },
+      { ...HECHO_JUICIO, frase: '   ' },
+      { ...HECHO_JUICIO, frase: 'a'.repeat(301) },
+      { ...HECHO_JUICIO, frase: 42 },
+      { ...HECHO_JUICIO, cifras: 'uno' },
+      { ...HECHO_JUICIO, cifras: undefined },
+      { ...HECHO_JUICIO, cifras: Array.from({ length: 13 }, (_, i) => String(i)) },
+      { ...HECHO_JUICIO, cifras: ['1'.repeat(25)] },
+      { ...HECHO_JUICIO, cifras: [205] },
     ];
     for (const malo of malos) {
-      const r = await llamar(redactar(malo));
+      const r = await llamar(juzgar(malo));
       expect(r.status).toBe(400);
       expect(await jsonDe(r)).toEqual({ error: 'SOLICITUD_INVALIDA' });
     }
     expect(openrouter).not.toHaveBeenCalled();
   });
 
-  it('redactar: el límite exacto sí pasa (frase de 300, 12 cifras de 24)', async () => {
-    conOpenRouter(chat({ texto: 'Listo.' }));
-    const hecho = {
-      intencion: 'noEntendi',
-      frase: 'a'.repeat(300),
-      cifras: Array.from({ length: 12 }, () => '1'.repeat(24)),
-    };
-
-    const r = await llamar(redactar(hecho));
-
-    expect(r.status).toBe(200);
-  });
 });
 
 describe('servidor: interpretar', () => {
@@ -697,93 +675,6 @@ describe('servidor: interpretar', () => {
   });
 });
 
-describe('servidor: redactar', () => {
-  it('pide solo a DeepSeek, con proveedores de EE. UU., sin retención y con la frase como entrada', async () => {
-    conOpenRouter(chat({ texto: 'Ayer, martes 6 de octubre, te entraron S/ 205.00.' }));
-
-    const r = await llamar(redactar());
-
-    expect(r.status).toBe(200);
-    expect(await r.text()).toBe('{"texto":"Ayer, martes 6 de octubre, te entraron S/ 205.00."}');
-    expect(openrouter).toHaveBeenCalledTimes(1);
-    expect(llamadasA()[0][0]).toBe(URL_OPENROUTER);
-    const cuerpo = cuerpoDe(0);
-    // Redactar no cambió: sigue siendo una sola llamada de chat a DeepSeek, nunca a la API tipada de Jev.
-    expect(llamadasA().every(([url]) => url !== URL_SYSTEMONE)).toBe(true);
-    expect(cuerpo.questions).toBeUndefined();
-    expect(cuerpo.model).toBe('deepseek/deepseek-v4-flash');
-    expect(cuerpo.provider).toEqual({
-      only: ['deepinfra', 'parasail', 'cloudflare'],
-      data_collection: 'deny',
-      require_parameters: true,
-    });
-    const formato = cuerpo.response_format;
-    expect(formato.type).toBe('json_schema');
-    expect(formato.json_schema.strict).toBe(true);
-    expect(formato.json_schema.schema).toMatchObject({
-      type: 'object',
-      properties: { texto: { type: 'string', maxLength: 280 } },
-      required: ['texto'],
-      additionalProperties: false,
-    });
-    const [sistema, usuario] = cuerpo.messages;
-    expect(sistema.role).toBe('system');
-    expect(sistema.content).toContain('Reescribe la frase con otras palabras');
-    expect(sistema.content).toContain('EXACTAMENTE');
-    expect(sistema.content).toContain('no agregues ninguna cifra');
-    expect(sistema.content).toContain('no uses emojis ni enlaces');
-    expect(usuario.role).toBe('user');
-    expect(usuario.content).toContain(HECHO.frase);
-    for (const cifra of HECHO.cifras) expect(usuario.content).toContain(cifra);
-  });
-
-  it('el texto se devuelve recortado', async () => {
-    conOpenRouter(chat({ texto: '  Hoy vendiste S/ 205.00.  ' }));
-
-    const r = await llamar(redactar());
-
-    expect(await jsonDe(r)).toEqual({ texto: 'Hoy vendiste S/ 205.00.' });
-  });
-
-  it('DeepSeek caído, vacío, largo o con la forma equivocada es 502 NO_DISPONIBLE', async () => {
-    const malas: Array<Response | Error> = [
-      errorDeOpenRouter(404),
-      errorDeOpenRouter(502),
-      new Error('Network connection lost'),
-      chat('no es json'),
-      chat({ texto: '' }),
-      chat({ texto: '   ' }),
-      chat({ texto: 'a'.repeat(281) }),
-      chat({ texto: 205 }),
-      chat({ otra: 'cosa' }),
-      chat([]),
-    ];
-    for (const mala of malas) {
-      conOpenRouter(mala);
-      const r = await llamar(redactar());
-      expect(r.status).toBe(502);
-      expect(await jsonDe(r)).toEqual({ error: 'NO_DISPONIBLE' });
-      expect(openrouter).toHaveBeenCalledTimes(1);
-    }
-  });
-
-  it('un texto de exactamente 280 caracteres sí pasa', async () => {
-    conOpenRouter(chat({ texto: 'a'.repeat(280) }));
-
-    const r = await llamar(redactar());
-
-    expect(r.status).toBe(200);
-  });
-
-  it('solo reenvía el texto: nada más del cuerpo de OpenRouter', async () => {
-    conOpenRouter(chat({ texto: 'Listo.', secreto: 'x' }));
-
-    const r = await llamar(redactar());
-
-    expect(await jsonDe(r)).toEqual({ texto: 'Listo.' });
-  });
-});
-
 describe('servidor: juzgar', () => {
   it('pide SOLO a Jev, por la API tipada, con una pregunta "choice" bien/ojo/urgente y sin retención de datos', async () => {
     conOpenRouter(JEV_OJO());
@@ -1039,8 +930,6 @@ describe('servidor: privacidad', () => {
     camino('interpretar con Jev', [JEV_AYER()], interpretar()),
     camino('interpretar con el respaldo', [errorDeOpenRouter(404), chat(AYER)], interpretar()),
     camino('interpretar sin servicio', [errorDeOpenRouter(404), new Error('x')], interpretar()),
-    camino('redactar', [chat({ texto: 'Vendiste S/ 205.00.' })], redactar()),
-    camino('redactar con falla', [errorDeOpenRouter(500)], redactar()),
     camino('juzgar', [JEV_OJO()], juzgar()),
     camino('juzgar con falla', [errorDeOpenRouter(502)], juzgar()),
     camino('solicitud inválida', [], '{ roto'),
@@ -1055,7 +944,7 @@ describe('servidor: privacidad', () => {
         llamadas += 1;
       }
     }
-    expect(llamadas).toBeGreaterThanOrEqual(9);
+    expect(llamadas).toBeGreaterThanOrEqual(7);
   });
 
   it('solo las llamadas a DeepSeek restringen los proveedores con "only"', async () => {
@@ -1079,7 +968,7 @@ describe('servidor: privacidad', () => {
         expect(JSON.stringify(otros)).not.toContain(CLAVE);
       }
     }
-    expect(llamadas).toBeGreaterThanOrEqual(9);
+    expect(llamadas).toBeGreaterThanOrEqual(7);
   });
 
   it('no escribe ningún log: ni la pregunta, ni la frase, ni nada', async () => {
@@ -1187,7 +1076,7 @@ describe('servidor: consistencia con la app', () => {
 
   it('las intenciones que se juzgan son exactamente las de la app', () => {
     expect(INTENCIONES_JUZGABLES).toEqual([...JUZGABLES_APP]);
-    expect(INTENCIONES_JUZGABLES).toHaveLength(6);
+    expect(INTENCIONES_JUZGABLES).toHaveLength(5);
   });
 
   it('cada intención y cada día del Worker los acepta la app', () => {

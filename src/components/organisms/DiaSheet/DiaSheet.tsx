@@ -1,14 +1,13 @@
 // src/components/organisms/DiaSheet/DiaSheet.tsx
 // Hoja inferior de un día del Historial: "Editar este día" y "Borrar este día", con texto.
 // Es la vía de tocar la fila (UX, regla 3): ningún gesto es la única forma de editar o borrar.
-// Mismo patrón que CambiarPrecioSheet: Modal de React Native y los botones en un pie fijo,
+// Se apoya en el BottomSheet base: los botones van en un pie fijo,
 // fuera del ScrollView.
 //
 // "Borrar este día" no borra: cambia la hoja a la confirmación con la consecuencia en soles
 // (UX, regla 8) y recién "Sí, borrar" llama a `eliminarDia`.
 import React, { useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StyleSheet, View } from 'react-native';
 import { colors, radius, spacing } from '@theme';
 import { Text } from '@components/atoms/Text';
 import { Button } from '@components/atoms/Button';
@@ -16,6 +15,9 @@ import { calcularCierre } from '@dominio/cierre';
 import { formatoFecha, formatoSoles } from '@dominio/formato';
 import { mensajeBorrar } from '@dominio/historial';
 import type { Cierre, FechaNegocio } from '@dominio/tipos';
+import { MensajeError } from '@components/atoms/MensajeError';
+import { BottomSheet } from '@components/organisms/BottomSheet';
+import { useAccionSegura } from '@hooks/useAccionSegura';
 import { useCrecemos } from '@context/CrecemosProvider';
 
 export interface DiaSheetProps {
@@ -27,13 +29,10 @@ export interface DiaSheetProps {
   onEditar: (fecha: FechaNegocio) => void;
 }
 
-export const DiaSheet = ({ cierre, visible, onClose, onEditar }: DiaSheetProps) => (
-  <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-    {cierre ? (
-      <Contenido key={cierre.id} cierre={cierre} onClose={onClose} onEditar={onEditar} />
-    ) : null}
-  </Modal>
-);
+export const DiaSheet = ({ cierre, visible, onClose, onEditar }: DiaSheetProps) =>
+  visible && cierre ? (
+    <Contenido key={cierre.id} cierre={cierre} onClose={onClose} onEditar={onEditar} />
+  ) : null;
 
 const Contenido = ({
   cierre,
@@ -45,144 +44,107 @@ const Contenido = ({
   onEditar: (fecha: FechaNegocio) => void;
 }) => {
   const { eliminarDia, productos } = useCrecemos();
-  const insets = useSafeAreaInsets();
   const [confirmando, setConfirmando] = useState(false);
-  const [borrando, setBorrando] = useState(false);
   const teQueda = calcularCierre(cierre).teQueda;
 
-  const borrar = async () => {
-    setBorrando(true);
-    try {
+  // Si borrar falla, la hoja sigue abierta en la confirmación y lo dice (antes no pasaba nada).
+  const { ejecutar: borrar, ejecutando: borrando, mensajeError } = useAccionSegura(
+    async () => {
       await eliminarDia(cierre.id);
       onClose();
-    } finally {
-      setBorrando(false);
-    }
-  };
+    },
+    'No pudimos borrar este día. Inténtalo otra vez.',
+  );
 
   return (
-    <View style={styles.fondo}>
-      {/* Tocar fuera cierra la hoja; "Cancelar" es la vía visible (ningún gesto es la única vía). */}
-      <Pressable style={styles.afuera} onPress={onClose} accessible={false} />
-      <View style={styles.hoja}>
-        <ScrollView contentContainerStyle={styles.contenido}>
-          <Text variant="h2" accessibilityRole="header" testID="hoja-dia-fecha">
-            {formatoFecha(cierre.fecha)}
-          </Text>
+    <BottomSheet
+      visible
+      onClose={onClose}
+      accessibilityLabel="Opciones del día"
+      footer={
+        confirmando ? (
+          <>
+            <Button
+              title="Sí, borrar"
+              variant="danger"
+              size="lg"
+              fullWidth
+              loading={borrando}
+              onPress={() => borrar()}
+              testID="confirmar-borrar"
+            />
+            <Button
+              title="No, volver"
+              variant="outline"
+              fullWidth
+              onPress={() => setConfirmando(false)}
+              testID="no-borrar"
+            />
+          </>
+        ) : (
+          <>
+            <Button
+              title="Editar este día"
+              size="lg"
+              fullWidth
+              onPress={() => onEditar(cierre.fecha)}
+              testID="hoja-editar"
+            />
+            <Button
+              title="Borrar este día"
+              variant="outline"
+              fullWidth
+              onPress={() => setConfirmando(true)}
+              testID="hoja-borrar"
+            />
+            <Button
+              title="Cancelar"
+              variant="ghost"
+              fullWidth
+              onPress={onClose}
+              testID="hoja-cancelar"
+            />
+          </>
+        )
+      }
+    >
+      <Text variant="h2" accessibilityRole="header" testID="hoja-dia-fecha">
+        {formatoFecha(cierre.fecha)}
+      </Text>
 
-          <View style={styles.resultado}>
-            <Text variant="label">Resultado registrado</Text>
-            <Text
-              variant="amount"
-              color={teQueda < 0 ? 'danger' : 'success'}
-              testID="hoja-dia-te-queda"
-            >
-              {formatoSoles(teQueda)}
-            </Text>
-            <Text variant="caption" color="textMuted">
-              Ventas menos gastos registrados. Incluye pagos pendientes de recibir.
-            </Text>
-          </View>
-
-          {cierre.lineas.map(linea => (
-            <Text
-              key={linea.productoId}
-              variant="bodySmall"
-              testID={`hoja-producto-${linea.productoId}`}
-            >
-              {`${productos.find(p => p.id === linea.productoId)?.nombre ?? linea.nombre}: ${
-                linea.preparadas - linea.sobrantes
-              } vendidas · ${formatoSoles(
-                (linea.preparadas - linea.sobrantes) * linea.precioUnitario,
-              )}`}
-            </Text>
-          ))}
-
-          {confirmando ? (
-            <Text
-              variant="bodyStrong"
-              accessibilityLiveRegion="polite"
-              testID="hoja-borrar-mensaje"
-            >
-              {mensajeBorrar(cierre)}
-            </Text>
-          ) : null}
-        </ScrollView>
-
-        <View style={[styles.pie, { paddingBottom: spacing.lg + insets.bottom }]}>
-          {confirmando ? (
-            <>
-              <Button
-                title="Sí, borrar"
-                variant="danger"
-                size="lg"
-                fullWidth
-                loading={borrando}
-                onPress={borrar}
-                testID="confirmar-borrar"
-              />
-              <Button
-                title="No, volver"
-                variant="outline"
-                fullWidth
-                onPress={() => setConfirmando(false)}
-                testID="no-borrar"
-              />
-            </>
-          ) : (
-            <>
-              <Button
-                title="Editar este día"
-                size="lg"
-                fullWidth
-                onPress={() => onEditar(cierre.fecha)}
-                testID="hoja-editar"
-              />
-              <Button
-                title="Borrar este día"
-                variant="outline"
-                fullWidth
-                onPress={() => setConfirmando(true)}
-                testID="hoja-borrar"
-              />
-              <Button
-                title="Cancelar"
-                variant="ghost"
-                fullWidth
-                onPress={onClose}
-                testID="hoja-cancelar"
-              />
-            </>
-          )}
-        </View>
+      <View style={styles.resultado}>
+        <Text variant="label">Resultado registrado</Text>
+        <Text variant="amount" color={teQueda < 0 ? 'danger' : 'success'} testID="hoja-dia-te-queda">
+          {formatoSoles(teQueda)}
+        </Text>
+        <Text variant="caption" color="textMuted">
+          Ventas menos gastos registrados. Incluye pagos pendientes de recibir.
+        </Text>
       </View>
-    </View>
+
+      {cierre.lineas.map(linea => (
+        <Text key={linea.productoId} variant="bodySmall" testID={`hoja-producto-${linea.productoId}`}>
+          {`${productos.find(p => p.id === linea.productoId)?.nombre ?? linea.nombre}: Vendiste ${
+            linea.preparadas - linea.sobrantes
+          } · ${formatoSoles((linea.preparadas - linea.sobrantes) * linea.precioUnitario)}`}
+        </Text>
+      ))}
+
+      {confirmando ? (
+        <Text variant="bodyStrong" accessibilityLiveRegion="polite" testID="hoja-borrar-mensaje">
+          {mensajeBorrar(cierre)}
+        </Text>
+      ) : null}
+      <MensajeError mensaje={mensajeError} testID="hoja-borrar-error" />
+    </BottomSheet>
   );
 };
 
 const styles = StyleSheet.create({
-  fondo: { flex: 1, justifyContent: 'flex-end', backgroundColor: colors.overlay },
-  afuera: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
-  hoja: {
-    maxHeight: '92%',
-    backgroundColor: colors.background,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    overflow: 'hidden',
-  },
-  contenido: { padding: spacing.lg, gap: spacing.lg },
   resultado: {
     backgroundColor: colors.surface,
     borderRadius: radius.lg,
     padding: spacing.lg,
     gap: spacing.xs,
-  },
-  pie: {
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
-    gap: spacing.xs,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-    backgroundColor: colors.background,
   },
 });

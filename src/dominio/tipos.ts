@@ -16,8 +16,18 @@ export interface Perfil {
   /** Si el Yape no está a su nombre: de quién es y qué es para Freddy (hermana, esposa…). */
   yapeTitular?: string;
   yapeParentesco?: string;
+  /** Recordatorio diario "¿Cerramos tu día?". Ausente = apagado (perfiles guardados antes). */
+  recordatorioActivo?: boolean;
+  /** 'HH:MM' en 24 horas. Ausente o ilegible = 21:30. */
+  recordatorioHora?: string;
   actualizadoEn: Instante;
 }
+
+/**
+ * De dónde salió un dato. Sin el campo (los datos viejos) vale 'propio'. Lo de la demostración
+ * se marca 'ejemplo' para poder borrarlo y dejarlo fuera del reporte al banco.
+ */
+export type Origen = 'ejemplo' | 'propio';
 
 export interface Producto {
   id: string;
@@ -27,6 +37,8 @@ export interface Producto {
   costoUnitario: number;
   actualizadoEn: FechaNegocio;
   activo: boolean;
+  /** Ausente = 'propio'. */
+  origen?: Origen;
 }
 
 export interface LineaCierre {
@@ -56,6 +68,8 @@ export interface Cierre {
   abreCiclo: boolean;
   creadoEn: Instante;
   actualizadoEn: Instante;
+  /** Ausente = 'propio'. */
+  origen?: Origen;
 }
 
 /** Lo que entrega el formulario de cierre, antes de copiar precios y costos. */
@@ -104,6 +118,8 @@ export type FiltroHistorial = 'todo' | 'ingresos' | 'gastos' | 'porCobrar';
 
 /** Una fila del historial. Monto positivo = ingreso; negativo = gasto. */
 export interface Movimiento {
+  /** Estable: id del cierre + qué movimiento es. Sirve de llave en las listas. */
+  id: string;
   tipo: 'venta' | 'gasto';
   etiqueta: string;
   /** `null` en los gastos. */
@@ -153,6 +169,8 @@ export interface ContextoAnalisis {
   cierres: Cierre[];
   productos: Producto[];
   hoy: FechaNegocio;
+  /** `agruparCiclos(cierres)` ya calculado; si falta, cada regla lo agrupa por su cuenta. */
+  ciclos?: Ciclo[];
 }
 
 /** Las doce preguntas que el chat "Preguntarle a mis datos" sabe responder (Sprint-08). */
@@ -303,4 +321,6 @@ export interface Senales {
   enConstruccion: boolean;
   /** Cuántos días más hacen falta para llegar a 30; nunca negativo. */
   diasFaltantes: number;
+  /** Solo hay datos de ejemplo: el reporte sirve para la demostración, no es del negocio real. */
+  soloEjemplo?: boolean;
 }

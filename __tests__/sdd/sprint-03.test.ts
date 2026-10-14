@@ -331,6 +331,7 @@ describe('SPEC-03: Historial y ciclos de compra', () => {
       await escribir('monto-gasto', '150');
       await tocar('agregar-gasto'); // la categoría Mercadería viene marcada
       await tocar('guardar-dia');
+      await tocar('cierre-listo');
       expect(textoDe('inicio-te-queda')).toBe('S/ 50.00');
 
       // Día 2: otro día, 15 anticuchos vendidos y nada de compra.
@@ -339,6 +340,7 @@ describe('SPEC-03: Historial y ciclos de compra', () => {
       await escribir('preparadas-p-anticucho', '15');
       await escribir('sobrantes-p-anticucho', '0');
       await tocar('guardar-dia');
+      await tocar('cierre-listo');
       expect(textoDe('inicio-te-queda')).toBe('S/ 150.00');
 
       // Resumen: un ciclo de 2 días. Venta 350.00 − capital 150.00 = te queda 200.00.

@@ -4,40 +4,61 @@
 // salen del dominio (`gananciaPorProducto`, `insight`): la pantalla solo los dibuja.
 // No entran del mock: el selector "Lo que más dejó / Lo que más se vendió", la proyección en
 // soles ni "Octubre · N ciclos" (el periodo son los últimos 30 días).
-import React, { useMemo } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { ChevronLeft, Lightbulb } from 'lucide-react-native';
+import {
+  Calculator,
+  Lightbulb,
+  RotateCcw,
+  TriangleAlert,
+} from 'lucide-react-native';
 import { colors, radius, spacing } from '@theme';
 import { Text } from '@components/atoms/Text';
 import { Button } from '@components/atoms/Button';
 import { Icon } from '@components/atoms/Icon';
+import { ProgressBar } from '@components/atoms/ProgressBar';
+import type { ProgressBarTone } from '@components/atoms/ProgressBar';
+import { Callout } from '@components/molecules/Callout';
+import { Card } from '@components/molecules/Card';
+import { EmptyState } from '@components/molecules/EmptyState';
+import { CargandoBloques } from '@components/molecules/CargandoBloques';
+import { ChipGroup } from '@components/molecules/ChipGroup';
+import { ScreenHeader } from '@components/molecules/ScreenHeader';
 import { gananciaPorProducto, insight } from '@analisis/metricas';
+import {
+  AVISO_SUBIR_DE_A_POCO,
+  MAXIMO_AUMENTO,
+  moverDelta,
+  PASO_PRECIO,
+  simularPrecio,
+} from '@analisis/simulador';
 import { agruparCiclos } from '@dominio/ciclo';
+import { alertaDeCostos } from '@dominio/estacionalidad';
 import { fechaLocal, restarDias } from '@dominio/fecha';
 import { formatoSoles } from '@dominio/formato';
-import type { GananciaProducto, Producto } from '@dominio/tipos';
+import type { Cierre, GananciaProducto, Producto } from '@dominio/tipos';
+import { cantidadConUnidad, singularUnidad } from '@dominio/unidades';
 import { useCrecemos } from '@context/CrecemosProvider';
 import type { RootStackParamList } from '@navigation/RootStack';
+
+/** Ancho mínimo de cada botón de subir/bajar: dos caben en 360 dp; con fuente grande se apilan. */
+const BOTON_PASO_MINIMO = 120;
 
 /** El periodo que mira la pantalla: los últimos 30 días, contando el día 30. */
 const DIAS_DEL_PERIODO = 30;
 
-// Ancho de una barra respecto de la mayor de su tipo: la mayor llega al 100 %.
-const ancho = (valor: number, mayor: number): `${number}%` =>
-  `${mayor > 0 ? Math.max(0, Math.round((valor / mayor) * 100)) : 0}%`;
+// Avance de una barra respecto de la mayor de su tipo (0 a 1): la mayor llega al 100 %.
+const avance = (valor: number, mayor: number): number =>
+  mayor > 0 ? Math.max(0, Math.round((valor / mayor) * 100)) / 100 : 0;
 
 const unidadDe = (productos: Producto[], productoId: string): Producto['unidad'] =>
   productos.find(p => p.id === productoId)?.unidad ?? 'unidad';
 
-const cantidadEnPalabras = (n: number, unidad: Producto['unidad']): string => {
-  if (unidad === 'vaso') return `${n} ${n === 1 ? 'vaso' : 'vasos'}`;
-  if (unidad === 'porcion') return `${n} ${n === 1 ? 'porción' : 'porciones'}`;
-  const nombre = unidad.trim() || 'unidad';
-  return `${n} ${n === 1 ? nombre : `${nombre}s`}`;
-};
+const cantidadEnPalabras = (n: number, unidad: Producto['unidad']): string =>
+  cantidadConUnidad(n, unidad);
 
 const periodoEnPalabras = (ciclos: number): string =>
   ciclos > 0
@@ -48,7 +69,12 @@ export const QueMeDejaScreen = () => {
   const { cierres, productos, cargando } = useCrecemos();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList, 'QueMeDeja'>>();
 
-  const desde = restarDias(fechaLocal(new Date()), DIAS_DEL_PERIODO);
+  const hoy = fechaLocal(new Date());
+  const desde = restarDias(hoy, DIAS_DEL_PERIODO);
+  const alertaCostos = useMemo(
+    () => alertaDeCostos(hoy, cierres, productos),
+    [hoy, cierres, productos],
+  );
   const ganancias = useMemo(
     () => gananciaPorProducto(cierres, desde, productos),
     [cierres, desde, productos],
@@ -62,56 +88,46 @@ export const QueMeDejaScreen = () => {
   return (
     <SafeAreaView style={styles.pantalla} edges={['top']} testID="queme-pantalla">
       <ScrollView contentContainerStyle={styles.contenido}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Atrás"
-          onPress={() => navigation.goBack()}
-          style={styles.atras}
-          testID="queme-atras"
-        >
-          <Icon icon={ChevronLeft} color="primary" size="lg" />
-          <Text variant="bodyStrong" color="primary">
-            Atrás
-          </Text>
-        </Pressable>
+        <ScreenHeader
+          title="Qué me deja cada uno"
+          subtitle={periodoEnPalabras(ciclos)}
+          onBack={() => navigation.goBack()}
+          backTestID="queme-atras"
+          subtitleTestID="queme-periodo"
+        />
 
-        <View>
-          <Text variant="h1" accessibilityRole="header">
-            Comparar productos
-          </Text>
-          <Text variant="caption" color="textMuted" testID="queme-periodo">
-            {periodoEnPalabras(ciclos)}
-          </Text>
-        </View>
-
-        {cargando ? null : ganancias.length === 0 ? (
-          <View style={styles.vacio} testID="queme-vacio">
-            <Text variant="h3">Todavía no hay días cerrados</Text>
-            <Text color="textMuted" style={styles.separado}>
-              Cierra tu día y aquí verás las unidades vendidas y la diferencia estimada por unidad
-              de cada producto.
-            </Text>
-            <Button
-              title="Cerrar mi día"
-              size="lg"
-              fullWidth
-              style={styles.separado}
-              testID="queme-cerrar-dia"
-              onPress={() => navigation.popTo('Tabs', { screen: 'CerrarDia' })}
-            />
-          </View>
+        {cargando ? (
+          <CargandoBloques bloques={3} alto={140} testID="queme-cargando" />
+        ) : ganancias.length === 0 ? (
+          <EmptyState
+            title="Todavía no hay días cerrados"
+            text="Cierra tu día y aquí verás cuánto vendes y cuánto te deja cada producto."
+            actionLabel="Cerrar mi día"
+            onAction={() => navigation.navigate('CerrarDia')}
+            testID="queme-vacio"
+            actionTestID="queme-cerrar-dia"
+          />
         ) : (
           <>
+            {alertaCostos ? (
+              <Callout icon={TriangleAlert} testID="queme-alerta-costos">
+                <Text variant="bodyStrong" testID="queme-alerta-costos-texto">
+                  {alertaCostos}
+                </Text>
+              </Callout>
+            ) : null}
+
             {frase ? (
-              <View style={styles.insight} testID="queme-insight">
-                <Icon icon={Lightbulb} color="accent" size="lg" />
-                <Text variant="bodyStrong" style={styles.insightTexto} testID="queme-insight-texto">
+              <Callout icon={Lightbulb} testID="queme-insight">
+                <Text variant="bodyStrong" testID="queme-insight-texto">
                   {frase}
                 </Text>
-              </View>
+              </Callout>
             ) : null}
 
             <Tarjetas ganancias={ganancias} productos={productos} />
+
+            <SimuladorPrecio ganancias={ganancias} productos={productos} cierres={cierres} />
 
             <Text variant="caption" color="textMuted" align="center" testID="queme-nota">
               Calculado con lo que registraste. Mientras más cierres tus días, más preciso.
@@ -150,13 +166,18 @@ const Tarjetas = ({
         const vendes = g.productoId === masVendido?.productoId;
         const deja = g.productoId === masDeja?.productoId;
         return (
-          <View key={g.productoId} style={styles.tarjeta} testID={`queme-tarjeta-${g.productoId}`}>
+          <Card
+            key={g.productoId}
+            variant="bordered"
+            style={styles.tarjeta}
+            testID={`queme-tarjeta-${g.productoId}`}
+          >
             {vendes || deja ? (
               <View style={styles.etiquetas}>
                 {vendes ? (
                   <View style={[styles.etiqueta, styles.etiquetaVendes]}>
                     <Text
-                      variant="caption"
+                      variant="captionStrong"
                       style={styles.etiquetaTexto}
                       testID={`queme-etiqueta-vendes-${g.productoId}`}
                     >
@@ -167,11 +188,11 @@ const Tarjetas = ({
                 {deja ? (
                   <View style={[styles.etiqueta, styles.etiquetaDeja]}>
                     <Text
-                      variant="caption"
+                      variant="captionStrong"
                       style={styles.etiquetaTexto}
                       testID={`queme-etiqueta-deja-${g.productoId}`}
                     >
-                      Mayor diferencia por unidad
+                      El que más te deja
                     </Text>
                   </View>
                 ) : null}
@@ -190,110 +211,192 @@ const Tarjetas = ({
             <FilaBarra
               etiqueta="Se vende"
               cifra={cantidadEnPalabras(g.seVende, unidad)}
-              ancho={ancho(g.seVende, mayorVende)}
-              relleno={colors.primary}
-              fondo={colors.primarySoft}
+              avance={avance(g.seVende, mayorVende)}
+              tono="primary"
               idBarra={`queme-barra-vende-${g.productoId}`}
               idCifra={`queme-cifra-vende-${g.productoId}`}
+              idEtiqueta={`queme-etiqueta-barra-vende-${g.productoId}`}
             />
             <FilaBarra
-              etiqueta="Diferencia estimada total"
+              etiqueta="Lo que te deja en total"
               cifra={formatoSoles(g.ganancia)}
-              ancho={ancho(g.ganancia, mayorGanancia)}
-              relleno={colors.success}
-              fondo={colors.successSoft}
+              avance={avance(g.ganancia, mayorGanancia)}
+              tono="success"
               idBarra={`queme-barra-deja-${g.productoId}`}
               idCifra={`queme-cifra-deja-${g.productoId}`}
+              idEtiqueta={`queme-etiqueta-barra-deja-${g.productoId}`}
             />
 
             <Text variant="caption" color="textMuted" testID={`queme-detalle-${g.productoId}`}>
               {`${cantidadEnPalabras(
                 g.seVende,
                 unidad,
-              )} · Diferencia estimada por unidad: ${formatoSoles(
-                g.teDeja,
-              )} (precio menos costo estimado)`}
+              )} · Te deja ${formatoSoles(g.teDeja)} por ${singularUnidad(unidad)}`}
             </Text>
-          </View>
+          </Card>
         );
       })}
     </View>
   );
 };
 
+/**
+ * "¿Y si subo el precio?": solo una cuenta, no cambia ningún precio. Dos botones con texto (subir y
+ * bajar de a S/ 0.50, hasta S/ 3 más que hoy) y el precio simulado a la vista. Nada de deslizadores.
+ */
+const SimuladorPrecio = ({
+  ganancias,
+  productos,
+  cierres,
+}: {
+  ganancias: GananciaProducto[];
+  productos: Producto[];
+  cierres: Cierre[];
+}) => {
+  // Solo los productos activos que se vendieron en el periodo, en el orden de las tarjetas.
+  const candidatos = useMemo(
+    () =>
+      ganancias
+        .map(g => productos.find(p => p.id === g.productoId))
+        .filter((p): p is Producto => p !== undefined && p.activo),
+    [ganancias, productos],
+  );
+  const [elegido, setElegido] = useState('');
+  const [delta, setDelta] = useState(0);
+  const producto = candidatos.find(p => p.id === elegido) ?? candidatos[0];
+  const simulacion = useMemo(
+    () => (producto ? simularPrecio(cierres, producto, delta) : null),
+    [cierres, producto, delta],
+  );
+  if (!producto || !simulacion) return null;
+
+  const elegir = (id: string) => {
+    setElegido(id);
+    setDelta(0);
+  };
+  const paso = formatoSoles(PASO_PRECIO);
+
+  return (
+    <Card variant="bordered" style={styles.tarjeta} testID="queme-simulador">
+      <View style={styles.filaTitulo}>
+        <Icon icon={Calculator} color="primary" size="md" />
+        <Text variant="h3" accessibilityRole="header">
+          ¿Y si subo el precio?
+        </Text>
+      </View>
+      {candidatos.length > 1 ? (
+        // Una sola fila que se desliza hasta el borde de la tarjeta: ningún nombre se corta ni se apila.
+        <ChipGroup
+          label="Producto"
+          layout="scroll"
+          style={styles.chipsProducto}
+          options={candidatos.map(p => ({ value: p.id, label: p.nombre }))}
+          value={producto.id}
+          onChange={elegir}
+          testIDPrefix="queme-sim-producto"
+        />
+      ) : (
+        <Text variant="bodyStrong">{producto.nombre}</Text>
+      )}
+      <Text variant="label" color="textMuted">
+        Precio simulado
+      </Text>
+      <Text variant="h2" testID="queme-sim-precio">
+        {formatoSoles(simulacion.precioSimulado)}
+      </Text>
+      <Text variant="caption" color="textMuted" testID="queme-sim-actual">
+        {`Hoy cobras ${formatoSoles(simulacion.precioActual)}`}
+      </Text>
+      <View style={styles.filaBotones}>
+        <Button
+          title={`Bajar ${paso}`}
+          variant="outline"
+          disabled={delta <= 0}
+          style={styles.botonPaso}
+          testID="queme-sim-bajar"
+          onPress={() => setDelta(moverDelta(delta, -1))}
+        />
+        <Button
+          title={`Subir ${paso}`}
+          variant="outline"
+          disabled={delta >= MAXIMO_AUMENTO}
+          style={styles.botonPaso}
+          testID="queme-sim-subir"
+          onPress={() => setDelta(moverDelta(delta, 1))}
+        />
+      </View>
+      {delta > 0 ? (
+        <Button
+          title="Volver al precio actual"
+          variant="ghost"
+          leftIcon={RotateCcw}
+          style={styles.alineadoIzquierda}
+          testID="queme-sim-volver"
+          onPress={() => setDelta(0)}
+        />
+      ) : null}
+      <Text variant="bodyStrong" testID="queme-sim-frase">
+        {simulacion.frase}
+      </Text>
+      {simulacion.avisoSubirDeAPoco && simulacion.hayDatos ? (
+        <Callout icon={TriangleAlert} testID="queme-sim-aviso">
+          <Text variant="bodySmall">{AVISO_SUBIR_DE_A_POCO}</Text>
+        </Callout>
+      ) : null}
+      <Text variant="caption" color="textMuted" testID="queme-sim-nota">
+        Es solo una estimación con lo que vendiste en tus últimos ciclos. No cambia tus precios.
+      </Text>
+    </Card>
+  );
+};
+
 interface FilaBarraProps {
   etiqueta: string;
   cifra: string;
-  ancho: `${number}%`;
-  relleno: string;
-  fondo: string;
+  /** 0 a 1, respecto de la mayor de su tipo. */
+  avance: number;
+  tono: ProgressBarTone;
   idBarra: string;
   idCifra: string;
+  idEtiqueta?: string;
 }
 
-// Etiqueta a la izquierda, la barra y su cifra en palabras al lado: ningún porcentaje suelto.
+// La etiqueta va arriba, a todo el ancho (a 360 dp no cabe "Lo que te deja en total" en una
+// columna angosta); debajo, la barra y su cifra en palabras al lado: ningún porcentaje suelto.
 const FilaBarra = ({
   etiqueta,
   cifra,
-  ancho: anchoBarra,
-  relleno,
-  fondo,
+  avance: avanceBarra,
+  tono,
   idBarra,
   idCifra,
+  idEtiqueta,
 }: FilaBarraProps) => (
-  <View style={styles.filaBarra}>
-    <Text variant="label" color="textMuted" style={styles.etiquetaBarra}>
+  <View style={styles.bloqueBarra}>
+    <Text variant="label" color="textMuted" testID={idEtiqueta}>
       {etiqueta}
     </Text>
-    <View style={[styles.pista, { backgroundColor: fondo }]}>
-      <View
-        style={[styles.relleno, { width: anchoBarra, backgroundColor: relleno }]}
+    <View style={styles.filaBarra}>
+      <ProgressBar
+        value={avanceBarra}
+        accessibilityLabel={etiqueta}
+        tone={tono}
+        height={12}
+        style={styles.pista}
         testID={idBarra}
       />
+      <Text variant="label" style={styles.cifra} testID={idCifra}>
+        {cifra}
+      </Text>
     </View>
-    <Text variant="label" style={styles.cifra} testID={idCifra}>
-      {cifra}
-    </Text>
   </View>
 );
 
 const styles = StyleSheet.create({
   pantalla: { flex: 1, backgroundColor: colors.background },
   contenido: { padding: spacing.lg, gap: spacing.lg, paddingBottom: spacing.xxl },
-  atras: {
-    alignSelf: 'flex-start',
-    minHeight: 48,
-    minWidth: 48,
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginLeft: -spacing.xs,
-  },
-  separado: { marginTop: spacing.md },
-  vacio: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.lg,
-    padding: spacing.lg,
-  },
-  insight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    backgroundColor: colors.accentSoft,
-    borderLeftWidth: 4,
-    borderLeftColor: colors.accent,
-    borderRadius: radius.lg,
-    padding: spacing.lg,
-  },
-  insightTexto: { flex: 1 },
   lista: { gap: spacing.md },
-  tarjeta: {
-    backgroundColor: colors.background,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.lg,
-    padding: spacing.lg,
-    gap: spacing.sm,
-  },
+  tarjeta: { backgroundColor: colors.background, gap: spacing.sm },
   etiquetas: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -308,7 +411,7 @@ const styles = StyleSheet.create({
   etiquetaVendes: { backgroundColor: colors.accentSoft },
   etiquetaDeja: { backgroundColor: colors.successSoft },
   // Letra oscura sobre fondo suave: el naranja nunca es el color del texto.
-  etiquetaTexto: { color: colors.text, fontWeight: '600' },
+  etiquetaTexto: { color: colors.text },
   filaEntre: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -316,9 +419,16 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   nombre: { flex: 1 },
-  filaBarra: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 28 },
-  etiquetaBarra: { width: 72 },
-  pista: { flex: 1, height: 12, borderRadius: radius.full, overflow: 'hidden' },
-  relleno: { height: '100%', borderRadius: radius.full },
-  cifra: { minWidth: 92, textAlign: 'right' },
+  filaTitulo: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  // Lado a lado y a partes iguales; si ni así caben (fuente muy grande) el segundo baja a su fila.
+  filaBotones: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md },
+  botonPaso: { flex: 1, minWidth: BOTON_PASO_MINIMO },
+  // La fila de productos llega al borde de la tarjeta (su relleno es spacing.lg) y se desliza.
+  chipsProducto: { marginHorizontal: -spacing.lg },
+  alineadoIzquierda: { alignSelf: 'flex-start' },
+  bloqueBarra: { gap: spacing.xs },
+  filaBarra: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, minHeight: 28 },
+  pista: { flex: 1 },
+  // Sin ancho fijo: la cifra ocupa lo que necesita y la barra se queda con el resto.
+  cifra: { flexShrink: 0, textAlign: 'right' },
 });

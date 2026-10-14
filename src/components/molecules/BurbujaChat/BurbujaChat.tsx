@@ -4,8 +4,8 @@
 // cosas a la vez, para que ninguna dependa solo del color: la palabra ("Bien", "Ojo", "Urgente"),
 // un símbolo distinto (check, alerta, sirena) y un fondo suave distinto. La letra va siempre en
 // oscuro sobre ese fondo: el naranja nunca es color de texto (UX, regla 5).
-import React from 'react';
-import { StyleSheet, View } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { Animated, StyleSheet, View } from 'react-native';
 import { CircleCheck, Siren, TriangleAlert, type LucideIcon } from 'lucide-react-native';
 import { colors, radius, spacing } from '@theme';
 import { Text } from '@components/atoms/Text';
@@ -13,6 +13,7 @@ import { Icon } from '@components/atoms/Icon';
 import { ETIQUETA_SEMAFORO, SIMBOLO_SEMAFORO } from '@analisis/semaforo';
 import type { ColorName } from '@theme';
 import type { Semaforo } from '@dominio/tipos';
+import { movimientoReducido } from '@hooks/useMovimientoReducido';
 
 /** El ícono de cada símbolo; los nombres salen de `SIMBOLO_SEMAFORO`, que no sabe de pantallas. */
 const ICONO_DEL_SIMBOLO: Record<string, LucideIcon> = {
@@ -39,18 +40,35 @@ export interface BurbujaChatProps {
   texto: string;
   /** El juicio de Jev. Sin él, la burbuja sale normal. */
   semaforo?: Semaforo;
+  /** Un aviso de falla (sin internet, muchas preguntas…): otro tono, un ícono y la palabra "Aviso". */
+  error?: boolean;
+  /** Se respondió con la clasificación del teléfono, sin red: lleva una notita visible. */
+  sinInternet?: boolean;
   /** El de la burbuja; el texto, la palabra y el símbolo llevan este mismo con un sufijo. */
   testID: string;
 }
 
-export const BurbujaChat = ({ autor, texto, semaforo, testID }: BurbujaChatProps) => {
+export const TEXTO_SIN_INTERNET_NOTA = 'Respondí sin internet';
+
+export const BurbujaChat = ({
+  autor,
+  texto,
+  semaforo,
+  error,
+  sinInternet,
+  testID,
+}: BurbujaChatProps) => {
   const esPregunta = autor === 'freddy';
   const estilo = semaforo ? ESTILO_SEMAFORO[semaforo] : null;
   const palabra = semaforo ? ETIQUETA_SEMAFORO[semaforo] : null;
   const etiqueta = esPregunta
     ? `Tu pregunta: ${texto}`
+    : error
+    ? `Aviso: ${texto}`
     : palabra
     ? `Respuesta, ${palabra}: ${texto}`
+    : sinInternet
+    ? `Respuesta, ${TEXTO_SIN_INTERNET_NOTA.toLowerCase()}: ${texto}`
     : `Respuesta: ${texto}`;
 
   return (
@@ -60,11 +78,18 @@ export const BurbujaChat = ({ autor, texto, semaforo, testID }: BurbujaChatProps
       style={[
         styles.burbuja,
         esPregunta ? styles.pregunta : styles.respuesta,
-        estilo && styles.conSemaforo,
+        (estilo || error) && styles.conSemaforo,
+        error && styles.error,
         estilo && { backgroundColor: estilo.fondo, borderLeftColor: colors[estilo.fuerte] },
       ]}
       testID={testID}
     >
+      {error ? (
+        <View style={styles.semaforo} testID={`${testID}-aviso`}>
+          <Icon icon={TriangleAlert} color="danger" size="lg" />
+          <Text variant="bodyStrong">Aviso</Text>
+        </View>
+      ) : null}
       {semaforo && estilo && palabra ? (
         <View style={styles.semaforo} testID={`${testID}-semaforo`}>
           <View testID={`${testID}-semaforo-simbolo`}>
@@ -80,6 +105,11 @@ export const BurbujaChat = ({ autor, texto, semaforo, testID }: BurbujaChatProps
         </View>
       ) : null}
       <Text testID={`${testID}-texto`}>{texto}</Text>
+      {sinInternet && !esPregunta ? (
+        <Text variant="caption" color="textMuted" testID={`${testID}-sin-internet`}>
+          {TEXTO_SIN_INTERNET_NOTA}
+        </Text>
+      ) : null}
     </View>
   );
 };
@@ -100,5 +130,60 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   conSemaforo: { borderLeftWidth: 4 },
+  // Una falla no es una respuesta: fondo rojo suave y borde rojo, con letra oscura.
+  error: { backgroundColor: colors.dangerSoft, borderLeftColor: colors.danger, borderColor: colors.dangerSoft },
+  puntos: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 26 },
+  punto: { width: 10, height: 10, borderRadius: radius.full, backgroundColor: colors.textMuted },
   semaforo: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
 });
+
+const PUNTOS = [0, 1, 2];
+const PASO_MS = 300;
+
+/**
+ * La burbuja de "el asistente está pensando": tres puntos que laten uno tras otro. Sin texto
+ * visible (el lector de pantalla oye "El asistente está pensando"). Con "Reducir movimiento" los
+ * puntos quedan quietos.
+ */
+export const BurbujaPensando = ({ testID }: { testID: string }) => {
+  const opacidades = useRef(PUNTOS.map(() => new Animated.Value(0.35))).current;
+
+  useEffect(() => {
+    let vivo = true;
+    let ciclo: Animated.CompositeAnimation | null = null;
+    movimientoReducido().then(reducido => {
+      if (!vivo || reducido) return;
+      ciclo = Animated.loop(
+        Animated.stagger(
+          PASO_MS / 2,
+          opacidades.map(o =>
+            Animated.sequence([
+              Animated.timing(o, { toValue: 1, duration: PASO_MS, useNativeDriver: true }),
+              Animated.timing(o, { toValue: 0.35, duration: PASO_MS, useNativeDriver: true }),
+            ]),
+          ),
+        ),
+      );
+      ciclo.start();
+    });
+    return () => {
+      vivo = false;
+      ciclo?.stop();
+    };
+  }, [opacidades]);
+
+  return (
+    <View
+      accessible
+      accessibilityRole="progressbar"
+      accessibilityLabel="El asistente está pensando"
+      accessibilityLiveRegion="polite"
+      style={[styles.burbuja, styles.respuesta, styles.puntos]}
+      testID={testID}
+    >
+      {opacidades.map((opacidad, i) => (
+        <Animated.View key={i} style={[styles.punto, { opacity: opacidad }]} />
+      ))}
+    </View>
+  );
+};

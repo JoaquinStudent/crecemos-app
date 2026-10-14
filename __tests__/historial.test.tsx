@@ -11,6 +11,7 @@ import { clearAllMockStorages } from '@react-native-async-storage/async-storage/
 import App from '../App';
 import { colors } from '@theme';
 import { nuevoCierre } from '@dominio/cierre';
+import { fechaLocal } from '@dominio/fecha';
 import { ETIQUETA_GASTO } from '@dominio/categorias';
 import { cambiarPrecio } from '@dominio/producto';
 import { PRODUCTOS_POR_DEFECTO } from '@dominio/productosPorDefecto';
@@ -73,6 +74,16 @@ const montarApp = async () => {
     if (!encontrado) throw new Error(`No hay ningún interruptor con testID "${testID}"`);
     return encontrado;
   };
+  // El avance (0 a 100) y el color de relleno de una barra de progreso.
+  const barra = (testID: string) => {
+    const encontrada = app.root.findAll(
+      n => n.props.testID === testID && n.props.accessibilityValue !== undefined,
+    )[0];
+    if (!encontrada) throw new Error(`No hay ninguna barra con testID "${testID}"`);
+    return encontrada;
+  };
+  const avanceDe = (testID: string) => barra(testID).props.accessibilityValue.now as number;
+  const colorDeBarra = (testID: string) => barra(testID).props.color as string;
   const estiloDe = (testID: string) => {
     const vista = app.root.findAll(n => esHost(n, 'View') && n.props.testID === testID)[0];
     if (!vista) throw new Error(`No hay ninguna vista con testID "${testID}"`);
@@ -118,6 +129,8 @@ const montarApp = async () => {
     valorDe,
     interruptor,
     estiloDe,
+    avanceDe,
+    colorDeBarra,
     cuantos,
     pestanaActiva,
     titulosDeDia,
@@ -194,13 +207,14 @@ describe('Las 4 pestañas', () => {
     if (app) await act(async () => app.unmount());
   });
 
-  it('cada pestaña lleva su texto: Inicio, Cerrar mi día, Historial y Resumen', async () => {
+  it('cada pestaña lleva su texto: Inicio, Historial, Cerrar día, Resumen y Asistente', async () => {
     const { botonDe } = await montarApp();
     const etiquetas: Record<string, string> = {
       'tab-inicio': 'Inicio',
-      'tab-cerrar-dia': 'Cerrar mi día',
       'tab-historial': 'Historial',
+      'tab-cerrar-dia': 'Cerrar día',
       'tab-resumen': 'Resumen',
+      'tab-asistente': 'Asistente',
     };
 
     // El ícono acompaña, nunca va solo: el botón de la pestaña trae el texto.
@@ -237,9 +251,12 @@ describe('Cerrar mi día: interruptor y categorías', () => {
 
     expect(textos()).toContain('Hoy compré mercadería');
     expect(interruptor('hoy-compre-mercaderia').props.value).toBe(false);
-    expect(interruptor('hoy-compre-mercaderia').props.accessibilityLabel).toBe(
-      'Hoy compré mercadería',
+    // La fila entera se anuncia como UN interruptor, con su etiqueta de texto.
+    const fila = montada!.root.findAll(
+      n => n.props.accessibilityRole === 'switch' && n.props.accessibilityLabel === 'Hoy compré mercadería',
     );
+    expect(fila.length).toBeGreaterThan(0);
+    expect(fila[0].props.accessibilityState.checked).toBe(false);
   });
 
   it('encendido, el cierre guardado abre ciclo; apagado, no', async () => {
@@ -250,14 +267,15 @@ describe('Cerrar mi día: interruptor y categorías', () => {
     expect(interruptor('hoy-compre-mercaderia').props.value).toBe(true);
     await escribir('preparadas-p-anticucho', '10');
     await tocar('guardar-dia');
+    await tocar('cierre-listo');
 
     const guardados = await listarCierres();
     expect(guardados).toHaveLength(1);
     expect(guardados[0].abreCiclo).toBe(true);
 
-    // Al volver, el formulario está vacío y el interruptor, apagado.
+    // Al volver, hoy ya está cerrado: se muestra ese cierre para editarlo, no un formulario en blanco.
     await tocar('tab-cerrar-dia');
-    expect(interruptor('hoy-compre-mercaderia').props.value).toBe(false);
+    expect(interruptor('hoy-compre-mercaderia').props.value).toBe(true);
   });
 
   it('un cierre sin tocar el interruptor no abre ciclo', async () => {
@@ -291,13 +309,13 @@ describe('Historial', () => {
   });
 
   it('sin cierres invita a cerrar el día y el botón lleva a "Cerrar mi día"', async () => {
-    const { tocar, textos, existe, pestanaActiva } = await montarApp();
+    const { tocar, textos, existe } = await montarApp();
     await tocar('tab-historial');
 
     expect(textos()).toContain('Aún no cierras ningún día');
     expect(existe('historial-vacio')).toBe(true);
     await tocar('historial-cerrar-dia');
-    expect(pestanaActiva('tab-cerrar-dia')).toBe(true);
+    expect(existe('guardar-dia')).toBe(true);
   });
 
   it('un grupo por día, del más reciente al más antiguo, con su neto y color', async () => {
@@ -315,6 +333,78 @@ describe('Historial', () => {
     expect(textoDe('dia-neto-c-2026-10-05')).toBe('+ S/ 186.00');
     expect(textoDe('dia-neto-c-2026-10-04')).toBe('+ S/ 40.00');
     expect(colorDe('dia-neto-c-2026-10-06')).toBe(colors.success);
+  });
+
+  it('el encabezado de cada día centra el título y la píldora del neto en la misma línea', async () => {
+    await sembrarTresDias();
+    const { tocar, estiloDe } = await montarApp();
+    await tocar('tab-historial');
+
+    expect(estiloDe('dia-c-2026-10-06')).toMatchObject({ alignItems: 'center', flexDirection: 'row' });
+    expect(estiloDe('dia-c-2026-10-06').minHeight).toBeGreaterThanOrEqual(48);
+    expect(estiloDe('pastilla-neto-c-2026-10-06').alignSelf).toBe('center');
+  });
+
+  it('arriba resume el mes: "Este mes · + S/ X ganados", sin contar otros meses', async () => {
+    const hoy = fechaLocal(new Date());
+    await sembrar(hoy, {
+      lineas: [{ productoId: 'p-anticucho', preparadas: 10, sobrantes: 0 }],
+      gastos: [{ categoria: 'gas', monto: 20 }],
+    });
+    await sembrar('2020-01-15', {
+      lineas: [{ productoId: 'p-anticucho', preparadas: 50, sobrantes: 0 }],
+    });
+    const { tocar, textoDe } = await montarApp();
+    await tocar('tab-historial');
+
+    expect(textoDe('historial-periodo-titulo')).toBe('Este mes');
+    expect(textoDe('historial-periodo-monto')).toBe('+ S/ 80.00');
+    expect(textoDe('historial-periodo-palabra')).toBe('ganados');
+  });
+
+  it('si el mes va en negativo dice "en rojo" y si no hay días, lo avisa', async () => {
+    const hoy = fechaLocal(new Date());
+    await sembrar(hoy, {
+      lineas: [{ productoId: 'p-anticucho', preparadas: 1, sobrantes: 0 }],
+      gastos: [{ categoria: 'gas', monto: 40 }],
+    });
+    const rojo = await montarApp();
+    await rojo.tocar('tab-historial');
+    expect(rojo.textoDe('historial-periodo-monto')).toBe('− S/ 30.00');
+    expect(rojo.textoDe('historial-periodo-palabra')).toBe('en rojo');
+    expect(rojo.colorDe('historial-periodo-monto')).toBe(colors.danger);
+  });
+
+  it('un mes sin días cerrados dice que aún no cierras días', async () => {
+    await sembrar('2020-01-15', {
+      lineas: [{ productoId: 'p-anticucho', preparadas: 5, sobrantes: 0 }],
+    });
+    const { tocar, textoDe, existe } = await montarApp();
+    await tocar('tab-historial');
+
+    expect(textoDe('historial-periodo-vacio')).toBe('Aún no cierras días este mes');
+    expect(existe('historial-periodo-monto')).toBe(false);
+  });
+
+  it('bajo cada monto hay una palabra: Ingreso, Gasto o Por cobrar', async () => {
+    await sembrarTresDias();
+    const { tocar, textoDe } = await montarApp();
+    await tocar('tab-historial');
+
+    expect(textoDe('fila-c-2026-10-05-0-tipo')).toBe('Ingreso');
+    expect(textoDe('fila-c-2026-10-05-1-por-cobrar')).toBe('Por cobrar');
+    expect(textoDe('fila-c-2026-10-05-2-tipo')).toBe('Gasto');
+  });
+
+  it('las filas usan el id estable del movimiento como llave, no su posición', async () => {
+    await sembrarTresDias();
+    const { tocar } = await montarApp();
+    await tocar('tab-historial');
+
+    const lista = montada!.root.findAll(
+      n => n.props.testID === 'historial-lista' && typeof n.props.keyExtractor === 'function',
+    )[0];
+    expect(lista.props.keyExtractor({ id: 'c-2026-10-05:gasto-0' }, 7)).toBe('c-2026-10-05:gasto-0');
   });
 
   it('un día con neto negativo lleva el signo menos y el rojo', async () => {
@@ -528,7 +618,7 @@ describe('Editar un día desde Historial', () => {
 
     await abrirEdicion(app);
 
-    expect(app.pestanaActiva('tab-cerrar-dia')).toBe(true);
+    expect(app.existe('guardar-dia')).toBe(true);
     expect(app.textos()).toContain('Editando el lunes 5 de octubre');
     expect(app.textos()).toContain('Guardar los cambios');
     expect(app.textos()).toContain('Cancelar');
@@ -564,7 +654,10 @@ describe('Editar un día desde Historial', () => {
     await app.escribir('preparadas-p-anticucho', '30');
     expect(app.textoDe('cerrar-te-queda')).toBe('S/ 286.00'); // 30 × S/ 10.00 − S/ 14.00
     await app.tocar('guardar-dia');
+    expect(app.textos()).toContain('Tu día quedó cuadrado');
+    await app.tocar('cierre-listo');
 
+    expect(app.existe('guardar-dia')).toBe(false);
     expect(app.pestanaActiva('tab-historial')).toBe(true);
     const despues = await listarCierres();
     expect(despues).toHaveLength(3); // se reemplazó, no se duplicó
@@ -581,6 +674,7 @@ describe('Editar un día desde Historial', () => {
     const app = await montarApp();
     await abrirEdicion(app);
     await app.tocar('guardar-dia');
+    await app.tocar('cierre-listo');
 
     await app.tocar('tab-cerrar-dia');
 
@@ -648,13 +742,14 @@ describe('Editar un día desde Historial', () => {
     expect(editado.lineas[0].precioUnitario).toBe(10);
   });
 
-  it('salir de la edición por la barra de pestañas la cancela: al volver el formulario está vacío', async () => {
+  it('salir de la edición con "Atrás" la cancela: al volver el formulario está vacío', async () => {
     await sembrarTresDias();
     const app = await montarApp();
     await abrirEdicion(app);
     expect(app.textos()).toContain('Editando el lunes 5 de octubre');
 
-    await app.tocar('tab-inicio');
+    await app.tocar('cerrar-atras');
+    expect(app.existe('guardar-dia')).toBe(false);
     await app.tocar('tab-cerrar-dia');
 
     expect(app.textos()).not.toContain('Editando el lunes 5 de octubre');
@@ -671,7 +766,7 @@ describe('Editar un día desde Historial', () => {
     await app.tocar('guardar-dia');
 
     expect(app.textos()).toContain('No te pueden sobrar más de los que preparaste');
-    expect(app.pestanaActiva('tab-cerrar-dia')).toBe(true); // sigue editando
+    expect(app.existe('guardar-dia')).toBe(true); // sigue editando
     expect(app.textos()).toContain('Guardar los cambios');
     const intacto = (await listarCierres()).find(c => c.fecha === '2026-10-05')!;
     expect(intacto.lineas[0].sobrantes).toBe(0);
@@ -714,14 +809,14 @@ describe('Resumen', () => {
   };
 
   it('sin cierres invita a cerrar el día y el botón lleva a "Cerrar mi día"', async () => {
-    const { tocar, textos, existe, pestanaActiva } = await montarApp();
+    const { tocar, textos, existe } = await montarApp();
     await tocar('tab-resumen');
 
     expect(textos()).toContain('Aún no cierras ningún día');
     expect(existe('resumen-vacio')).toBe(true);
     expect(existe('resumen-te-queda')).toBe(false);
     await tocar('resumen-cerrar-dia');
-    expect(pestanaActiva('tab-cerrar-dia')).toBe(true);
+    expect(existe('guardar-dia')).toBe(true);
   });
 
   it('muestra el ciclo actual: rango, "Te queda" grande y capital recuperado', async () => {
@@ -760,12 +855,13 @@ describe('Resumen', () => {
     await tocar('tab-resumen');
 
     expect(existe('mercaderia-p-chicha')).toBe(false); // la chicha era del ciclo del 1 de octubre
-    expect(textos().some(t => t.includes('1 de octubre'))).toBe(false);
+    // Se exige que no haya un dígito antes: el 11 de octubre también contiene "1 de octubre" y no es el día del ciclo anterior.
+    expect(textos().some(t => /(^|\D)1 de octubre/.test(t))).toBe(false);
   });
 
   it('"Tu mercadería": lo vendido de lo preparado, con su barra y su porcentaje', async () => {
     await sembrarCicloActual();
-    const { tocar, textos, textoDe, colorDe, estiloDe, existe } = await montarApp();
+    const { tocar, textos, textoDe, colorDe, avanceDe, colorDeBarra, existe } = await montarApp();
     await tocar('tab-resumen');
 
     expect(textos()).toContain('Tu mercadería');
@@ -774,12 +870,12 @@ describe('Resumen', () => {
     expect(textoDe('mercaderia-p-rachi-texto')).toBe('Rachi — vendiste 11 de 16 porciones');
     expect(textoDe('mercaderia-p-anticucho-porcentaje')).toBe('95%');
     expect(textoDe('mercaderia-p-rachi-porcentaje')).toBe('69%');
-    expect(estiloDe('mercaderia-p-anticucho-barra').width).toBe('95%');
-    expect(estiloDe('mercaderia-p-rachi-barra').width).toBe('69%');
+    expect(avanceDe('mercaderia-p-anticucho-barra')).toBe(95);
+    expect(avanceDe('mercaderia-p-rachi-barra')).toBe(69);
     expect(existe('mercaderia-p-pancita')).toBe(false); // no se preparó pancita
     // Verde si vendió el 70 % o más; naranja de relleno por debajo, jamás de texto.
-    expect(estiloDe('mercaderia-p-anticucho-barra').backgroundColor).toBe(colors.success);
-    expect(estiloDe('mercaderia-p-rachi-barra').backgroundColor).toBe(colors.accent);
+    expect(colorDeBarra('mercaderia-p-anticucho-barra')).toBe(colors.success);
+    expect(colorDeBarra('mercaderia-p-rachi-barra')).toBe(colors.accent);
     expect(colorDe('mercaderia-p-anticucho-porcentaje')).toBe(colors.success);
     expect(colorDe('mercaderia-p-rachi-porcentaje')).not.toBe(colors.accent);
   });
@@ -821,6 +917,21 @@ describe('Resumen', () => {
     expect(textoDe('resumen-ganancia')).toBe('Resultado positivo S/ 0.00');
     expect(estiloDe('resumen-barra-capital').width).toBe('100%');
     expect(estiloDe('resumen-barra-ganancia').width).toBe('0%');
+  });
+
+  it('la barra capital/ganancia se anuncia como barra de progreso con su valor, y las de mercadería también', async () => {
+    await sembrarCicloActual();
+    const { tocar } = await montarApp();
+    await tocar('tab-resumen');
+
+    const barras = montada!.root.findAll(
+      n => n.props.accessibilityRole === 'progressbar' && n.props.accessibilityValue !== undefined,
+    );
+    const porId = (id: string) => barras.find(b => b.props.testID === id)?.props;
+    expect(porId('resumen-barra')?.accessibilityLabel).toBe('Capital contra resultado positivo');
+    expect(porId('resumen-barra')?.accessibilityValue.now).toBe(51);
+    expect(porId('mercaderia-p-anticucho-barra')?.accessibilityValue.now).toBe(95);
+    expect(porId('mercaderia-p-anticucho-barra')?.accessibilityLabel).toBe('Vendido de Anticucho');
   });
 
   it('sin gastos no hay capital: ni línea de capital ni segmento rojo', async () => {
@@ -950,7 +1061,7 @@ describe('Resumen: comparación con el ciclo anterior', () => {
     expect(colorDe('resumen-comparacion-anterior')).not.toBe(colors.accent);
   });
 
-  it('igual: dice que ganó lo mismo, y el ícono va en verde', async () => {
+  it('igual: dice que ganó lo mismo, y el ícono va en un tono neutro (ni verde ni rojo)', async () => {
     await sembrarAnterior();
     await sembrarActual(30, 86); // S/ 300.00 − S/ 86.00 = S/ 214.00, igual que el anterior
     const { tocar, textoDe, colorDelIcono } = await montarApp();
@@ -960,7 +1071,7 @@ describe('Resumen: comparación con el ciclo anterior', () => {
     expect(textoDe('resumen-comparacion-anterior')).toBe(
       'Resultado registrado anterior: S/ 214.00',
     );
-    expect(colorDelIcono('resumen-comparacion-icono')).toBe(colors.success);
+    expect(colorDelIcono('resumen-comparacion-icono')).toBe(colors.textMuted);
   });
 
   it('si el ciclo anterior cerró en pérdida, el monto lleva su signo menos', async () => {

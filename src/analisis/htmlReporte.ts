@@ -5,10 +5,23 @@
 import { avatarDe } from '@dominio/foto';
 import { formatoFecha, formatoFechaCorta, formatoSoles, nombreMes } from '@dominio/formato';
 import type { FechaNegocio, MesCompleto, Perfil, Senales } from '@dominio/tipos';
-import { diasRegistradosTexto, textoFaltan, VENTANA_DIAS } from './senales';
+import {
+  AVISO_EJEMPLO_SECCION,
+  construirPasaporte,
+  explicacionCuota,
+  modulosQR,
+  NOTA_CODIGO,
+  NOTA_CUOTA,
+  svgQR,
+  textoCuota,
+  TITULO_CODIGO,
+  TITULO_CUOTA_BANCO,
+  type Pasaporte,
+} from './pasaporte';
+import { AVISO_EJEMPLO, diasRegistradosTexto, textoFaltan, VENTANA_DIAS } from './senales';
 
 /** Alto de la barra del mes mayor, en pt; las demás son proporcionales. */
-const ALTO_BARRA_PT = 170;
+const ALTO_BARRA_PT = 70;
 /** Alto mínimo de una barra: un mes sin ventas igual se ve. */
 const ALTO_MINIMO_PT = 3;
 /** Alto de la fila con el nombre del mes, debajo de las barras: la línea de promedio parte de ahí. */
@@ -50,22 +63,22 @@ const ESTILO = `
 @page { size: 595pt 842pt; margin: 0 }
 * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact }
 html, body { margin: 0; padding: 0; background: #fff }
-body { font-family: -apple-system, Helvetica, Arial, sans-serif; font-size: 11pt; line-height: 1.3; color: #1A1016 }
+body { font-family: -apple-system, Helvetica, Arial, sans-serif; font-size: 11pt; line-height: 1.25; color: #1A1016 }
 .hoja { width: 595pt; min-height: 838pt; display: flex; flex-direction: column; page-break-inside: avoid; break-inside: avoid }
-.banda { background: #CD0157; color: #fff; padding: 13pt 36pt; display: flex; justify-content: space-between; align-items: center }
+.banda { background: #CD0157; color: #fff; padding: 9pt 36pt; display: flex; justify-content: space-between; align-items: center }
 .marca { font-size: 22pt; font-weight: 700 }
 .fecha { font-size: 12pt }
-.contenido { padding: 16pt 36pt 0 }
-.identidad { display: flex; align-items: center; margin-bottom: 12pt; page-break-inside: avoid; break-inside: avoid }
-.foto, .inicial { width: 64pt; height: 64pt; border-radius: 50%; margin-right: 14pt; flex-shrink: 0 }
+.contenido { padding: 8pt 36pt 0 }
+.identidad { display: flex; align-items: center; margin-bottom: 6pt; page-break-inside: avoid; break-inside: avoid }
+.foto, .inicial { width: 56pt; height: 56pt; border-radius: 50%; margin-right: 14pt; flex-shrink: 0 }
 .foto { object-fit: cover; border: 1pt solid #E4D7DE }
-.inicial { background: #CD0157; color: #fff; font-size: 28pt; font-weight: 700; text-align: center; line-height: 64pt }
+.inicial { background: #CD0157; color: #fff; font-size: 26pt; font-weight: 700; text-align: center; line-height: 56pt }
 .identidad > div:last-child { min-width: 0 }
 .nombre { font-size: 18pt; font-weight: 700; overflow-wrap: anywhere }
 .negocio { font-size: 12pt; color: #6B5A62; overflow-wrap: anywhere }
 h1 { font-size: 24pt; line-height: 1.15; margin: 0 0 2pt }
-.periodo { font-size: 12pt; color: #6B5A62; margin-bottom: 10pt }
-.aviso { border-left: 4pt solid #CD0157; background: #FAF5F7; padding: 7pt 12pt; margin-bottom: 10pt; font-size: 12pt; page-break-inside: avoid; break-inside: avoid }
+.periodo { font-size: 12pt; color: #6B5A62; margin-bottom: 6pt }
+.aviso { border-left: 4pt solid #CD0157; background: #FAF5F7; padding: 5pt 12pt; margin-bottom: 6pt; font-size: 12pt; page-break-inside: avoid; break-inside: avoid }
 .tarjetas { display: flex; margin-bottom: 4pt; page-break-inside: avoid; break-inside: avoid }
 .tarjeta { flex: 1; min-width: 0; border: 1pt solid #E4D7DE; background: #FAF5F7; border-radius: 8pt; padding: 9pt; margin-right: 8pt }
 .tarjeta:last-child { margin-right: 0 }
@@ -74,7 +87,7 @@ h1 { font-size: 24pt; line-height: 1.15; margin: 0 0 2pt }
 .tarjeta:last-child .valor { color: #0F7A4F }
 .sinmes { font-size: 12pt; color: #6B5A62; margin-top: 6pt }
 .detalle, .base { color: #6B5A62 }
-.seccion { border-top: 1pt solid #E4D7DE; padding-top: 12pt; margin-top: 12pt; page-break-inside: avoid; break-inside: avoid }
+.seccion { border-top: 1pt solid #E4D7DE; padding-top: 8pt; margin-top: 8pt; page-break-inside: avoid; break-inside: avoid }
 .fila { display: flex; align-items: flex-start }
 .grafico { flex: 1.35; min-width: 0; margin-right: 22pt }
 .dias { flex: 1; min-width: 0 }
@@ -92,10 +105,19 @@ h1 { font-size: 24pt; line-height: 1.15; margin: 0 0 2pt }
 table { border-collapse: collapse; width: 100% }
 td { padding: 5pt 0; border-bottom: 1pt solid #E4D7DE }
 td.num { text-align: right; font-weight: 700 }
-.antiguedad { color: #6B5A62; margin-top: 12pt; padding: 8pt 10pt; background: #FAF5F7; border-radius: 6pt }
-.def { margin-bottom: 5pt }
+.antiguedad { color: #6B5A62; margin-top: 8pt; padding: 8pt 10pt; background: #FAF5F7; border-radius: 6pt }
+.def { margin-bottom: 3pt }
 .def:last-child { margin-bottom: 0 }
-.pie { margin-top: auto; display: flex; justify-content: space-between; align-items: flex-start; padding: 10pt 36pt; border-top: 1pt solid #E4D7DE; color: #6B5A62; page-break-inside: avoid; break-inside: avoid }
+.pasaporte { display: flex; flex-wrap: wrap; align-items: flex-start }
+.nota-codigo { width: 100%; margin-top: 6pt; color: #6B5A62 }
+.cuota { flex: 1; min-width: 0; margin-right: 22pt }
+.valor-cuota { font-size: 18pt; line-height: 1.15; font-weight: 700; margin-bottom: 3pt }
+.constancia-mes { margin-top: 5pt }
+.codigo { flex: 1.1; min-width: 0; display: flex; align-items: flex-start }
+.codigo svg { flex-shrink: 0; margin-right: 10pt; border: 1pt solid #E4D7DE }
+.numero-codigo { font-size: 14pt; font-weight: 700; letter-spacing: 0.5pt; font-family: Menlo, Courier, monospace }
+.ejemplo { font-size: 11pt; font-weight: 700; color: #CD0157 }
+.pie { margin-top: auto; display: flex; justify-content: space-between; align-items: flex-start; padding: 8pt 36pt; border-top: 1pt solid #E4D7DE; color: #6B5A62; page-break-inside: avoid; break-inside: avoid }
 .privacidad { flex: 1; margin-right: 18pt }
 .generado { width: 170pt; text-align: right }
 `;
@@ -223,6 +245,38 @@ const graficoYTabla = (s: Senales): string => {
   );
 };
 
+const LADO_QR_PT = 84;
+
+/** Marca al lado del título de cada sección nueva cuando los datos son solo de ejemplo. */
+const marcaEjemplo = (p: Pasaporte): string =>
+  p.soloEjemplo ? ` <span class="ejemplo">· ${AVISO_EJEMPLO_SECCION}</span>` : '';
+
+/**
+ * El pasaporte para el banco: la cuota de referencia (siempre con su "es una referencia") a la
+ * izquierda; el código de constancia con su QR, los días del último mes y lo que ES (y no es) el
+ * código a la derecha.
+ */
+const pasaporte = (p: Pasaporte | null): string => {
+  if (p === null) return '';
+  const ultimoMes = p.constanciaMensual[p.constanciaMensual.length - 1];
+  const cuota =
+    `<div class="cuota"><div class="subtitulo">${TITULO_CUOTA_BANCO}${marcaEjemplo(p)}</div>` +
+    `<div class="valor-cuota">${escaparHtml(textoCuota(p.cuota))}</div>` +
+    (p.cuota.disponible
+      ? `<div class="detalle">${escaparHtml(explicacionCuota(p.cuota))}</div>`
+      : '') +
+    `<div class="detalle">${NOTA_CUOTA}</div></div>`;
+  const codigo =
+    `<div class="codigo">${svgQR(modulosQR(p.textoQR), LADO_QR_PT)}` +
+    `<div><div class="subtitulo">${TITULO_CODIGO}${marcaEjemplo(p)}</div>` +
+    `<div class="numero-codigo">${p.codigo}</div>` +
+    (ultimoMes === undefined
+      ? ''
+      : `<div class="constancia-mes">${escaparHtml(ultimoMes.frase)}</div>`) +
+    '</div></div>';
+  return `<div class="seccion pasaporte">${cuota}${codigo}<div class="nota-codigo">${NOTA_CODIGO}</div></div>`;
+};
+
 const comoLeer = (): string => {
   const definicion = (termino: string, texto: string): string =>
     `<div class="def"><strong>${termino}:</strong> ${texto}</div>`;
@@ -260,11 +314,15 @@ export const htmlReporte = (s: Senales, perfil: Perfil | null, hoy: FechaNegocio
     identidad(perfil) +
     '<h1>Reporte de actividad del negocio</h1>' +
     `<div class="periodo">${periodo(s)}</div>` +
+    (s.soloEjemplo
+      ? `<div class="aviso"><strong>Datos de ejemplo.</strong> ${escaparHtml(AVISO_EJEMPLO)}</div>`
+      : '') +
     (s.enConstruccion
       ? `<div class="aviso"><strong>${textoFaltan(s.diasFaltantes)}</strong></div>`
       : '') +
     tarjetas(s) +
     graficoYTabla(s) +
+    pasaporte(construirPasaporte(s, hoy)) +
     comoLeer() +
     '</div>' +
     `<div class="pie"><div class="privacidad">${FRASE_PIE}</div><div class="generado">Generado el ${fechaEnFrase(

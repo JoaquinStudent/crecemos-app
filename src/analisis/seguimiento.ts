@@ -5,6 +5,7 @@
 // consulta resuelta del hilo, con reglas cerradas. Puro: sin red, sin reloj, sin React (AGENTS.md,
 // reglas 3 y 8).
 import type { Consulta, IntencionId } from '@dominio/tipos';
+import { palabrasDe } from './texto';
 
 /** Las intenciones que usan un producto. */
 const USA_PRODUCTO: readonly IntencionId[] = ['cuantoPreparar', 'revisarPrecio'];
@@ -16,16 +17,6 @@ const PALABRAS_FRASE_CORTA = 2;
 /** Palabras con las que empieza un seguimiento. "y" cubre "y de", "y el", "y la", "y ayer", "y mañana"… */
 const CONECTORES = ['y', 'tambien'];
 const CONECTORES_DOBLES = ['igual para', 'lo mismo'];
-
-const palabrasDe = (texto: string): string[] =>
-  texto
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/[^a-z0-9ñ]+/g, ' ')
-    .trim()
-    .split(' ')
-    .filter(p => p !== '');
 
 /** ¿La frase es un seguimiento? Corta, o empieza con un conector. */
 const esSeguimiento = (texto: string): boolean => {

@@ -6,8 +6,10 @@ import { totalPorCobrar } from '@dominio/cobro';
 import { diasEntre, diaSemana } from '@dominio/fecha';
 import { formatoFechaCorta, formatoSoles, nombreMes, redondearSoles } from '@dominio/formato';
 import { teDeja } from '@dominio/producto';
+import { singularUnidad, unidadSegunCantidad } from '@dominio/unidades';
 import type { Ciclo, ContextoAnalisis, Producto, Recomendacion } from '@dominio/tipos';
-import { compararCiclos, gananciaDelDia } from './metricas';
+import { articulo, compararCiclos, gananciaDelDia } from './metricas';
+import { planificarManana } from './planificador';
 
 /** Más de este monto por cobrar y la regla `cobro` salta (S/). */
 export const UMBRAL_COBRO_SOLES = 100;
@@ -52,7 +54,7 @@ export const DIAS_PLURAL = [
 export const cicloCerradoYActual = (
   ctx: ContextoAnalisis,
 ): { cerrado: Ciclo; actual: Ciclo } | null => {
-  const ciclos = agruparCiclos(ctx.cierres);
+  const ciclos = ctx.ciclos ?? agruparCiclos(ctx.cierres);
   if (ciclos.length < CICLOS_MINIMOS) return null;
   return { cerrado: ciclos[ciclos.length - 2], actual: ciclos[ciclos.length - 1] };
 };
@@ -76,6 +78,8 @@ export const cobroMensaje = (ctx: ContextoAnalisis): string => {
 
 export interface CaidaDePrecio {
   nombre: string;
+  /** La unidad de venta del producto ("porcion", "vaso"…), tal como la escribió la persona. */
+  unidad: string;
   caida: number;
   mes: string;
   /** El "te deja" por porción de la línea de referencia: de lo que se mide la caída. */
@@ -98,6 +102,7 @@ export const caidaDePrecio = (ctx: ContextoAnalisis, p: Producto): CaidaDePrecio
     ? null
     : {
         nombre: p.nombre,
+        unidad: p.unidad,
         caida,
         mes: nombreMes(referencia.fecha),
         margenAnterior: referencia.margen,
@@ -178,6 +183,22 @@ const productoQueSobra = (
     }
   }
   return mejor;
+};
+
+/**
+ * El producto que sobra, salvo que "Para mañana" ya le sugiera una cantidad (`planificarManana`): ahí
+ * manda el planificador y esta regla calla, para no decir "10 menos" junto a "+8 más que el último".
+ */
+const productoQueSobraSinPlan = (
+  ctx: ContextoAnalisis,
+): { productoId: string; nombre: string; cantidad: number } | null => {
+  const p = productoQueSobra(ctx);
+  if (p === null) return null;
+  const plan = planificarManana(ctx.cierres, ctx.productos, ctx.hoy);
+  const conSugerencia = plan.sugerencias.some(
+    s => s.productoId === p.productoId && !s.datosInsuficientes && s.porciones !== null,
+  );
+  return conSugerencia ? null : p;
 };
 
 // --- retiro --------------------------------------------------------------------------------
@@ -324,20 +345,22 @@ export const REGLAS: Regla[] = [
       const m = mayorCaidaDePrecio(ctx);
       return m === null
         ? ''
-        : `La diferencia estimada por unidad de ${m.nombre} bajó ${formatoSoles(m.caida)} desde ${
-            m.mes
-          } (precio menos costo estimado). Revisa el precio.`;
+        : `Lo que te deja ${articulo(m.nombre)} ${m.nombre.toLowerCase()} por ${singularUnidad(
+            m.unidad,
+          )} bajó ${formatoSoles(m.caida)} desde ${m.mes}. Revisa el precio.`;
     },
   },
   {
     id: 'preparar',
     prioridad: 3,
-    aplica: ctx => productoQueSobra(ctx) !== null,
+    aplica: ctx => productoQueSobraSinPlan(ctx) !== null,
     mensaje: ctx => {
-      const p = productoQueSobra(ctx);
+      const p = productoQueSobraSinPlan(ctx);
       if (p === null) return '';
-      const unidad =
-        ctx.productos.find(x => x.id === p.productoId)?.unidad === 'vaso' ? 'vasos' : 'porciones';
+      const unidad = unidadSegunCantidad(
+        p.cantidad,
+        ctx.productos.find(x => x.id === p.productoId)?.unidad ?? 'porcion',
+      );
       const nombre = ctx.productos.find(x => x.id === p.productoId)?.nombre ?? p.nombre;
       return `Registraste sobrantes de ${nombre} en dos ciclos seguidos. Prepara ${p.cantidad} ${unidad} menos.`;
     },
@@ -364,9 +387,12 @@ export const REGLAS: Regla[] = [
  * Con menos de 2 ciclos registrados devuelve []: no inventa.
  */
 export const evaluarReglas = (ctx: ContextoAnalisis): Recomendacion[] => {
-  if (agruparCiclos(ctx.cierres).length < CICLOS_MINIMOS) return [];
-  return REGLAS.filter(r => r.aplica(ctx))
+  // Los ciclos se agrupan UNA vez y viajan en el contexto a todas las reglas.
+  const ciclos = ctx.ciclos ?? agruparCiclos(ctx.cierres);
+  if (ciclos.length < CICLOS_MINIMOS) return [];
+  const conCiclos: ContextoAnalisis = { ...ctx, ciclos };
+  return REGLAS.filter(r => r.aplica(conCiclos))
     .sort((a, b) => a.prioridad - b.prioridad)
     .slice(0, MAX_RECOMENDACIONES)
-    .map(r => ({ reglaId: r.id, prioridad: r.prioridad, mensaje: r.mensaje(ctx) }));
+    .map(r => ({ reglaId: r.id, prioridad: r.prioridad, mensaje: r.mensaje(conCiclos) }));
 };

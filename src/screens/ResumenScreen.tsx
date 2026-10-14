@@ -3,9 +3,9 @@
 // segundo es la ganancia" dibujado como una barra, y cuánto de la mercadería se vendió.
 // Con 2 ciclos o más, una fila compara con el ciclo anterior: el texto y el monto, nunca solo un
 // porcentaje. Termina con los botones a "Qué me deja cada uno", "Mi reporte" y "Preguntarle a mis
-// datos" (el chat). Sin "Este mes / Todo", sin gráfico de ciclos y sin buscar.
+// datos" (la pestaña Asistente). Sin "Este mes / Todo", sin gráfico de ciclos y sin buscar.
 // Las barras son Views de ancho porcentual, sin librerías.
-import React from 'react';
+import React, { useMemo } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, type CompositeNavigationProp } from '@react-navigation/native';
@@ -16,11 +16,19 @@ import { colors, radius, spacing } from '@theme';
 import { Text } from '@components/atoms/Text';
 import { Button } from '@components/atoms/Button';
 import { Icon } from '@components/atoms/Icon';
+import { ProgressBar } from '@components/atoms/ProgressBar';
+import { Callout } from '@components/molecules/Callout';
+import { Card } from '@components/molecules/Card';
+import { CargandoBloques } from '@components/molecules/CargandoBloques';
+import { EmptyState } from '@components/molecules/EmptyState';
 import { compararCiclos } from '@analisis/metricas';
-import { agruparCiclos, mercaderiaDelCiclo, resumirCiclo, textoCapital } from '@dominio/ciclo';
+import { mercaderiaDelCiclo, textoCapital } from '@dominio/ciclo';
 import { formatoFechaCorta, formatoSoles } from '@dominio/formato';
 import type { Ciclo, Producto, ResumenCiclo } from '@dominio/tipos';
+import { unidadSegunCantidad } from '@dominio/unidades';
 import { useCrecemos } from '@context/CrecemosProvider';
+import { useDerivados } from '@hooks/useDerivados';
+import { useMedidasBarra } from '@hooks/useMedidasBarra';
 import type { RootStackParamList } from '@navigation/RootStack';
 import type { TabsParamList } from '@navigation/Tabs';
 
@@ -41,45 +49,43 @@ const rango = (ciclo: Ciclo): string =>
     : `${formatoFechaCorta(ciclo.inicio)} — ${formatoFechaCorta(ciclo.fin)}`;
 
 export const ResumenScreen = () => {
-  const { cierres, productos, cargando } = useCrecemos();
+  const { productos, cargando } = useCrecemos();
+  const { cicloActual: actual, cicloAnterior: anterior, resumenActual, resumenAnterior } = useDerivados();
   const navigation = useNavigation<ResumenNavigation>();
+  const { rellenoContenido } = useMedidasBarra();
 
-  // El ciclo actual es el último.
-  const ciclos = agruparCiclos(cierres);
-  const actual = ciclos.length > 0 ? ciclos[ciclos.length - 1] : null;
-  const anterior = ciclos.length > 1 ? ciclos[ciclos.length - 2] : null;
 
   return (
     <SafeAreaView style={styles.pantalla} edges={['top']}>
-      <ScrollView contentContainerStyle={styles.contenido}>
+      <ScrollView contentContainerStyle={[styles.contenido, { paddingBottom: rellenoContenido }]}>
         <Text variant="h1" accessibilityRole="header">
           Resumen
         </Text>
 
-        {cargando ? null : actual ? (
-          <CicloActual ciclo={actual} anterior={anterior} productos={productos} />
+        {cargando ? (
+          <CargandoBloques bloques={3} alto={120} testID="resumen-cargando" />
+        ) : actual && resumenActual ? (
+          <CicloActual
+            ciclo={actual}
+            resumen={resumenActual}
+            resumenAnterior={anterior ? resumenAnterior : null}
+            productos={productos}
+          />
         ) : (
-          <View style={styles.tarjeta} testID="resumen-vacio">
-            <Text variant="h3">Aún no cierras ningún día</Text>
-            <Text color="textMuted" style={styles.separado}>
-              Cuando cierres tu día, aquí verás el resultado registrado de tu ciclo de compra y
-              cuánto vendiste de tu mercadería.
-            </Text>
-            <Button
-              title="Cerrar mi día"
-              size="lg"
-              fullWidth
-              style={styles.separado}
-              testID="resumen-cerrar-dia"
-              onPress={() => navigation.navigate('CerrarDia')}
-            />
-          </View>
+          <EmptyState
+            title="Aún no cierras ningún día"
+            text="Cuando cierres tu día, aquí verás el resultado registrado de tu ciclo de compra y cuánto vendiste de tu mercadería."
+            actionLabel="Cerrar mi día"
+            onAction={() => navigation.navigate('CerrarDia')}
+            testID="resumen-vacio"
+            actionTestID="resumen-cerrar-dia"
+          />
         )}
 
         {cargando ? null : (
           <>
             <Button
-              title="Comparar productos"
+              title="Qué me deja cada uno"
               variant="outline"
               size="lg"
               fullWidth
@@ -100,7 +106,7 @@ export const ResumenScreen = () => {
               size="lg"
               fullWidth
               testID="resumen-preguntar"
-              onPress={() => navigation.navigate('Preguntar')}
+              onPress={() => navigation.navigate('Asistente')}
             />
           </>
         )}
@@ -111,15 +117,16 @@ export const ResumenScreen = () => {
 
 const CicloActual = ({
   ciclo,
-  anterior,
+  resumen,
+  resumenAnterior,
   productos,
 }: {
   ciclo: Ciclo;
-  anterior: Ciclo | null;
+  resumen: ResumenCiclo;
+  resumenAnterior: ResumenCiclo | null;
   productos: Producto[];
 }) => {
-  const resumen = resumirCiclo(ciclo);
-  const mercaderia = mercaderiaDelCiclo(ciclo, productos);
+  const mercaderia = useMemo(() => mercaderiaDelCiclo(ciclo, productos), [ciclo, productos]);
 
   // La ganancia es lo que te queda mientras sea positivo; si vendió menos que su capital, no hay.
   const ganancia = Math.max(resumen.teQueda, 0);
@@ -134,12 +141,12 @@ const CicloActual = ({
 
   return (
     <>
-      <View style={styles.tarjeta}>
-        <View style={styles.filaEntre}>
+      <Card>
+        <View style={styles.filaCiclo} testID="resumen-ciclo-fila">
           <Text variant="label" color="textMuted">
             Ciclo actual
           </Text>
-          <Text variant="label" color="textMuted" testID="resumen-rango">
+          <Text variant="label" color="textMuted" style={styles.rango} testID="resumen-rango">
             {rango(ciclo)}
           </Text>
         </View>
@@ -161,7 +168,21 @@ const CicloActual = ({
         </Text>
 
         {total > 0 ? (
-          <View style={[styles.barra, styles.separado]} testID="resumen-barra">
+          // Dos tramos en una sola barra (capital y resultado positivo): el lector de pantalla
+          // oye qué parte del total es capital.
+          <View
+            style={[styles.barra, styles.separado]}
+            accessible
+            accessibilityRole="progressbar"
+            accessibilityLabel="Capital contra resultado positivo"
+            accessibilityValue={{
+              min: 0,
+              max: 100,
+              now: capitalPorcentaje,
+              text: `El capital es el ${capitalPorcentaje} por ciento de lo vendido`,
+            }}
+            testID="resumen-barra"
+          >
             <View
               style={{ width: `${capitalPorcentaje}%`, backgroundColor: colors.danger }}
               testID="resumen-barra-capital"
@@ -172,11 +193,22 @@ const CicloActual = ({
             />
           </View>
         ) : null}
-        <View style={[styles.filaEntre, styles.separadoChico]}>
-          <Text variant="bodyStrong" color="danger" testID="resumen-capital">
+        {/* A 360 dp con fuente grande no caben lado a lado: la fila se parte en dos líneas. */}
+        <View style={[styles.filaCapital, styles.separadoChico]} testID="resumen-capital-fila">
+          <Text
+            variant="bodyStrong"
+            color="danger"
+            style={styles.cifraCapital}
+            testID="resumen-capital"
+          >
             {`Capital ${formatoSoles(resumen.capital)}`}
           </Text>
-          <Text variant="bodyStrong" color="success" testID="resumen-ganancia">
+          <Text
+            variant="bodyStrong"
+            color="success"
+            style={styles.cifraCapital}
+            testID="resumen-ganancia"
+          >
             {`Resultado positivo ${formatoSoles(ganancia)}`}
           </Text>
         </View>
@@ -191,44 +223,34 @@ const CicloActual = ({
             {textoCapital(resumen)}
           </Text>
         ) : null}
-      </View>
+      </Card>
 
-      {anterior ? <Comparacion actual={resumen} anterior={resumirCiclo(anterior)} /> : null}
+      {resumenAnterior ? <Comparacion actual={resumen} anterior={resumenAnterior} /> : null}
 
       {mercaderia.length > 0 ? (
         <View style={styles.seccion}>
           <Text variant="h3">Tu mercadería</Text>
-          <View style={styles.tarjeta}>
+          <Card>
             {mercaderia.map((m, i) => {
               const vendido = porcentaje(m.vendidas, m.preparadas);
               const bien = vendido >= VENDIDO_MINIMO;
               const base = `mercaderia-${m.productoId}`;
               const unidad = productos.find(p => p.id === m.productoId)?.unidad;
-              const singular = unidad === 'porcion' ? 'porción' : unidad?.trim() || 'unidad';
-              const etiquetaUnidad =
-                m.preparadas === 1
-                  ? singular
-                  : singular === 'porción'
-                  ? 'porciones'
-                  : `${singular}s`;
+              const etiquetaUnidad = unidadSegunCantidad(m.preparadas, unidad);
               return (
                 <View key={m.productoId} style={i > 0 ? styles.separado : undefined} testID={base}>
                   <Text testID={`${base}-texto`}>
                     {`${m.nombre} — vendiste ${m.vendidas} de ${m.preparadas} ${etiquetaUnidad}`}
                   </Text>
                   <View style={[styles.filaBarra, styles.separadoChico]}>
-                    <View style={styles.pista}>
-                      <View
-                        style={[
-                          styles.relleno,
-                          {
-                            width: `${vendido}%`,
-                            backgroundColor: bien ? colors.success : colors.accent,
-                          },
-                        ]}
-                        testID={`${base}-barra`}
-                      />
-                    </View>
+                    <ProgressBar
+                      value={vendido / 100}
+                      accessibilityLabel={`Vendido de ${m.nombre}`}
+                      tone={bien ? 'success' : 'accent'}
+                      height={12}
+                      style={styles.pista}
+                      testID={`${base}-barra`}
+                    />
                     {/* El naranja es solo relleno de barra: el número va en letra oscura. */}
                     <Text
                       variant="bodyStrong"
@@ -244,16 +266,15 @@ const CicloActual = ({
             })}
 
             {masSobrante && masSobrante.sobranteSoles > 0 ? (
-              <View style={[styles.sobrante, styles.separado]}>
-                <Icon icon={TriangleAlert} color="accent" />
+              <Callout icon={TriangleAlert} style={styles.separado}>
                 <Text style={styles.sobranteTexto} testID="resumen-sobrante">
                   {`Te sobró ${formatoSoles(
                     masSobrante.sobranteSoles,
                   )} en ${masSobrante.nombre.toLowerCase()}`}
                 </Text>
-              </View>
+              </Callout>
             ) : null}
-          </View>
+          </Card>
         </View>
       ) : null}
     </>
@@ -268,11 +289,12 @@ const Comparacion = ({ actual, anterior }: { actual: ResumenCiclo; anterior: Res
   const perdio = actual.teQueda < anterior.teQueda;
   const igual = actual.teQueda === anterior.teQueda;
   return (
-    <View style={styles.comparacion} testID="resumen-comparacion-fila">
+    <Card variant="bordered" style={styles.comparacion} testID="resumen-comparacion-fila">
       <View testID="resumen-comparacion-icono">
+        {/* Igual no es ni bueno ni malo: el ícono va en un tono neutro. */}
         <Icon
           icon={perdio ? TrendingDown : igual ? Minus : TrendingUp}
-          color={perdio ? 'danger' : 'success'}
+          color={perdio ? 'danger' : igual ? 'textMuted' : 'success'}
           size="lg"
         />
       </View>
@@ -284,34 +306,40 @@ const Comparacion = ({ actual, anterior }: { actual: ResumenCiclo; anterior: Res
           {`Resultado registrado anterior: ${formatoSoles(anterior.teQueda)}`}
         </Text>
       </View>
-    </View>
+    </Card>
   );
 };
 
 const styles = StyleSheet.create({
   pantalla: { flex: 1, backgroundColor: colors.background },
   contenido: { padding: spacing.lg, gap: spacing.xl },
-  tarjeta: { backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.lg },
   seccion: { gap: spacing.md },
   comparacion: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
     backgroundColor: colors.background,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    padding: spacing.lg,
   },
   comparacionTextos: { flex: 1 },
   separado: { marginTop: spacing.md },
   separadoChico: { marginTop: spacing.sm },
-  filaEntre: {
+  // El rango de fechas baja a otra línea (o se parte) en vez de recortarse con fuente grande.
+  filaCiclo: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'space-between',
     alignItems: 'center',
-    gap: spacing.md,
+    columnGap: spacing.sm,
   },
+  rango: { flexShrink: 1 },
+  filaCapital: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    columnGap: spacing.md,
+    rowGap: spacing.xs,
+  },
+  cifraCapital: { flexShrink: 1 },
   barra: {
     flexDirection: 'row',
     height: 12,
@@ -320,15 +348,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.border,
   },
   filaBarra: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-  pista: {
-    flex: 1,
-    height: 12,
-    borderRadius: radius.full,
-    overflow: 'hidden',
-    backgroundColor: colors.border,
-  },
-  relleno: { height: '100%' },
+  pista: { flex: 1 },
   porcentaje: { minWidth: 56, textAlign: 'right' },
-  sobrante: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, minHeight: 48 },
   sobranteTexto: { flex: 1 },
 });

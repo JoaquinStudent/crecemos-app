@@ -1,5 +1,5 @@
 // src/theme/colors.ts
-// Paleta Compartamos Banco. Ver contexto-hack/03-producto/Identidad.md
+// Paleta de marca magenta/naranja. Ver contexto-hack/03-producto/Identidad.md
 export const colors = {
   // Marca
   primary: '#CD0157',
@@ -31,10 +31,15 @@ export const colors = {
   border: '#E4D7DE',
 
   // Deshabilitado
+  // `disabled`: íconos y pistas de interruptores (decorativo).
+  // `disabledBg` + `disabledText`: botones deshabilitados (DESIGN.md), contraste 4.5+.
   disabled: '#C9BCC3',
   disabledSoft: '#F1EBEE',
+  disabledBg: '#E4D7DE',
+  disabledText: '#6B5A62',
 
   overlay: 'rgba(26, 16, 22, 0.4)',
+  shadow: '#1A1016',
   transparent: 'transparent',
 } as const;
 

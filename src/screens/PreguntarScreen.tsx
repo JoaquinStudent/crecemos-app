@@ -4,71 +4,84 @@
 // veces con el semáforo de Jev. La pantalla solo orquesta: no calcula nada ni habla con ningún
 // proveedor (AGENTS.md, reglas 3 y 8). Nada se envía al abrir ni al escribir: solo al tocar
 // "Preguntar" o una pregunta sugerida, y una sola petición por toque.
+// Es la pestaña "Asistente" (sin "Atrás"). Con el parámetro `pregunta` la hace al abrirse.
 // El historial vive solo en el estado de esta pantalla: no se guarda en el teléfono y se va con ella.
-// Para dejarle sitio a la conversación, el aviso de privacidad y las preguntas sugeridas se pliegan
-// en cuanto hay una pregunta: el aviso queda en una línea con "Ver aviso" / "Ocultar", y las
-// sugeridas pasan a un panel que se abre con "Preguntas sugeridas", justo encima del campo.
+// Para dejarle sitio a la conversación: el encabezado es de una línea, el aviso de privacidad va
+// plegado ("Ver aviso" / "Ocultar") y las preguntas sugeridas son una fila de chips que se desliza,
+// siempre a la mano encima del campo. Mientras espera hay una burbuja de "pensando" (puntos que
+// laten); si algo falla, una burbuja de aviso con la causa (sin internet, muchas preguntas o el
+// asistente caído).
 // El campo y el botón van FIJOS al pie, fuera del scroll y dentro de un KeyboardAvoidingView: con el
 // teclado abierto se ven y se pueden tocar (lección del Sprint-01, memory.md D27, y del Sprint-02).
+// En Android con borde a borde el sistema ya no redimensiona la ventana (`adjustResize` se ignora):
+// el teclado se dibuja ENCIMA. Por eso el KeyboardAvoidingView usa `padding` en las dos plataformas,
+// la barra inferior se esconde mientras el teclado está abierto (useTecladoVisible) y la
+// conversación baja hasta el último mensaje.
+// El botón de enviar es solo un ícono (avión de papel): excepción pedida por el usuario a la regla de
+// "ícono siempre con texto visible"; su etiqueta de accesibilidad es "Preguntar".
 import React, { useEffect, useRef, useState } from 'react';
 import {
   KeyboardAvoidingView,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { ChevronDown, ChevronLeft, ChevronUp, Lock } from 'lucide-react-native';
+import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
+import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import { Lock, Send } from 'lucide-react-native';
 import { colors, radius, spacing } from '@theme';
 import { Text } from '@components/atoms/Text';
-import { Button } from '@components/atoms/Button';
+import { BotonIcono } from '@components/atoms/BotonIcono';
 import { Icon } from '@components/atoms/Icon';
+import { Chip } from '@components/molecules/Chip';
 import { Input } from '@components/atoms/Input';
-import { BurbujaChat } from '@components/molecules/BurbujaChat';
+import { BurbujaChat, BurbujaPensando } from '@components/molecules/BurbujaChat';
 import { responderCharla } from '@analisis/charla';
 import { PREGUNTAS_SUGERIDAS } from '@analisis/intenciones';
 import { fechaLocal } from '@dominio/fecha';
 import type { Consulta, Semaforo } from '@dominio/tipos';
 import { useCrecemos } from '@context/CrecemosProvider';
 import { consultar, MAX_CARACTERES_PREGUNTA } from '@services/jev';
-import type { RootStackParamList } from '@navigation/RootStack';
+import { useMedidasBarra } from '@hooks/useMedidasBarra';
+import { useTecladoVisible } from '@hooks/useTecladoVisible';
+import type { TabsParamList } from '@navigation/Tabs';
 import { JEV_URL } from '../config';
 
 const TEXTO_PRIVACIDAD =
-  'Tu pregunta se envía a un servicio de inteligencia artificial para entenderla. Algunas respuestas se envían ya calculadas para valorar cómo va el negocio. Nunca va tu nombre, tu Yape ni tus movimientos.';
+  'Tu pregunta se envía a un servicio de inteligencia artificial para entenderla. Algunas respuestas se envían ya calculadas (por ejemplo, cuánto te queda en el ciclo) para valorar cómo va el negocio. Nunca van tu nombre, tu Yape, lo que te deben por cobrar ni tus días uno por uno. Si no hay internet, la pregunta se entiende en tu teléfono y no se envía nada.';
 const TEXTO_AVISO_CORTO = 'Tu pregunta se envía a una IA';
 const TEXTO_INVITACION =
   'Pregúntame lo que quieras de tus ventas. Toca una pregunta o escribe la tuya:';
-/** Cuando no se entendió la pregunta: dice con qué sí puede ayudar y ofrece las sugeridas. */
+/** Cuando no se entendió la pregunta: dice con qué sí puede ayudar y manda a las sugeridas. */
 const TEXTO_NO_ENTENDI =
   'No entendí la pregunta. Puedo ayudarte con tus ventas, cobros pendientes y productos. Prueba con una de estas:';
-/** Alto máximo del panel de sugeridas: si no cabe, se desplaza por dentro y siempre se puede cerrar. */
-const ALTO_MAXIMO_PANEL = 200;
 
-/** Una burbuja del historial. `noEntendi` lleva las preguntas sugeridas justo debajo. */
+/** Una burbuja del historial. */
 interface Mensaje {
   id: number;
   autor: 'freddy' | 'jev';
   texto: string;
   semaforo?: Semaforo;
-  /** La burbuja termina invitando a una pregunta sugerida, que sale justo debajo. */
-  noEntendi?: boolean;
+  /** Es un aviso de falla (sin internet, muchas preguntas…), no una respuesta. */
+  error?: boolean;
+  /** Se respondió sin red, con la clasificación del teléfono. */
+  sinInternet?: boolean;
 }
 
 export const PreguntarScreen = () => {
   const { cierres, productos, perfil } = useCrecemos();
-  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList, 'Preguntar'>>();
+  const navigation = useNavigation<BottomTabNavigationProp<TabsParamList, 'Asistente'>>();
+  const route = useRoute<RouteProp<TabsParamList, 'Asistente'>>();
+  const { alturaTotal } = useMedidasBarra();
+  const teclado = useTecladoVisible();
 
   const [mensajes, setMensajes] = useState<Mensaje[]>([]);
   const [texto, setTexto] = useState('');
   const [pensando, setPensando] = useState(false);
-  // Con la conversación empezada, el aviso y las sugeridas están plegados hasta que Freddy los abre.
+  // El aviso de privacidad va plegado hasta que Freddy lo abre.
   const [avisoAbierto, setAvisoAbierto] = useState(false);
-  const [panelAbierto, setPanelAbierto] = useState(false);
   // Un toque, una pregunta: mientras una espera, otro toque no hace nada (el estado llega tarde).
   const ocupado = useRef(false);
   const montado = useRef(true);
@@ -102,13 +115,12 @@ export const PreguntarScreen = () => {
     ocupado.current = true;
     setPensando(true);
     setTexto('');
-    setPanelAbierto(false);
     agregar({ autor: 'freddy', texto: limpia });
     // La charla corta (hola, gracias…) se contesta aquí, al instante y sin red. El nombre del perfil
     // solo arma la frase en el teléfono: nunca viaja.
     const charla = responderCharla(limpia, perfil.nombre);
     if (charla !== null) {
-      agregar({ autor: 'jev', texto: charla.texto, noEntendi: charla.conSugeridas });
+      agregar({ autor: 'jev', texto: charla.texto });
       ocupado.current = false;
       setPensando(false);
       return;
@@ -127,12 +139,21 @@ export const PreguntarScreen = () => {
         previa.current,
       ).catch(() => null);
       if (respuesta === null || respuesta.tipo === 'noEntendi') {
-        agregar({ autor: 'jev', texto: TEXTO_NO_ENTENDI, noEntendi: true });
+        agregar({ autor: 'jev', texto: TEXTO_NO_ENTENDI });
       } else if (respuesta.tipo === 'sinInternet') {
-        agregar({ autor: 'jev', texto: respuesta.texto });
+        // Sin red y sin entender: el aviso trae tres preguntas que sí se pueden responder sin internet.
+        const sugeridas = (respuesta.sugeridas ?? []).map(p => `• ${p}`);
+        agregar({ autor: 'jev', texto: [respuesta.texto, ...sugeridas].join('\n'), error: true });
+      } else if (respuesta.tipo === 'error') {
+        agregar({ autor: 'jev', texto: respuesta.texto, error: true });
       } else {
         previa.current = respuesta.consulta;
-        agregar({ autor: 'jev', texto: respuesta.texto, semaforo: respuesta.semaforo });
+        agregar({
+          autor: 'jev',
+          texto: respuesta.texto,
+          semaforo: respuesta.semaforo,
+          sinInternet: respuesta.sinInternet,
+        });
       }
     } finally {
       ocupado.current = false;
@@ -140,9 +161,23 @@ export const PreguntarScreen = () => {
     }
   };
 
+  // Otra pantalla puede abrir el chat con una pregunta lista (botones "Preguntar por qué"): se hace
+  // una sola vez y se borra del parámetro para que volver a la pestaña no la repita.
+  const preguntarRef = useRef(preguntar);
+  preguntarRef.current = preguntar;
+  const preguntaDeRuta = route.params?.pregunta;
+  useEffect(() => {
+    if (!preguntaDeRuta) return;
+    navigation.setParams({ pregunta: undefined });
+    preguntarRef.current(preguntaDeRuta).catch(() => undefined);
+  }, [preguntaDeRuta, navigation]);
+
+  // Al abrirse el teclado el chat se encoge: se baja hasta el último mensaje para que se siga viendo.
+  useEffect(() => {
+    if (teclado.visible) scroll.current?.scrollToEnd?.({ animated: true });
+  }, [teclado.visible]);
+
   const ultimo = mensajes.length > 0 ? mensajes[mensajes.length - 1] : null;
-  // Esta bandera también la llevan las respuestas de charla que invitan a una sugerida ("ayuda").
-  const ultimoNoEntendi = ultimo?.noEntendi === true;
   const conversando = ultimo !== null;
 
   /**
@@ -161,49 +196,37 @@ export const PreguntarScreen = () => {
   };
 
   return (
-    <SafeAreaView style={styles.pantalla} edges={['top', 'bottom']} testID="preguntar-pantalla">
+    <SafeAreaView style={styles.pantalla} edges={['top']} testID="preguntar-pantalla">
       <KeyboardAvoidingView
         style={styles.pantalla}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior="padding"
+        keyboardVerticalOffset={0}
       >
         <View style={styles.cabecera}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Atrás"
-            onPress={() => navigation.goBack()}
-            style={styles.atras}
-            testID="preguntar-atras"
-          >
-            <Icon icon={ChevronLeft} color="primary" size="lg" />
-            <Text variant="bodyStrong" color="primary">
-              Atrás
-            </Text>
-          </Pressable>
-          <Text variant="h1" accessibilityRole="header">
+          {/* Es una pestaña: no lleva "Atrás". Una sola línea, para dejarle sitio al chat. */}
+          <Text variant="h2" accessibilityRole="header" numberOfLines={1} testID="preguntar-titulo">
             Preguntarle a mis datos
           </Text>
-          {/* Al abrir, completo y sin scroll. Ya con una pregunta, una línea con "Ver aviso". */}
-          {conversando ? (
-            <View style={styles.avisoCorto} testID="preguntar-aviso-compacto">
-              <Icon icon={Lock} color="primary" size="md" />
-              <Text variant="bodySmall" style={styles.avisoCortoTexto}>
-                {TEXTO_AVISO_CORTO}
+          {/* El aviso va plegado en una línea; "Ver aviso" lo abre completo. */}
+          <View style={styles.avisoCorto} testID="preguntar-aviso-compacto">
+            <Icon icon={Lock} color="primary" size="md" />
+            <Text variant="bodySmall" style={styles.avisoCortoTexto}>
+              {TEXTO_AVISO_CORTO}
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={avisoAbierto ? 'Ocultar' : 'Ver aviso'}
+              accessibilityState={{ expanded: avisoAbierto }}
+              onPress={() => setAvisoAbierto(abierto => !abierto)}
+              style={styles.alternarAviso}
+              testID="preguntar-aviso-alternar"
+            >
+              <Text variant="bodyStrong" color="primary">
+                {avisoAbierto ? 'Ocultar' : 'Ver aviso'}
               </Text>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={avisoAbierto ? 'Ocultar' : 'Ver aviso'}
-                accessibilityState={{ expanded: avisoAbierto }}
-                onPress={() => setAvisoAbierto(abierto => !abierto)}
-                style={styles.alternarAviso}
-                testID="preguntar-aviso-alternar"
-              >
-                <Text variant="bodyStrong" color="primary">
-                  {avisoAbierto ? 'Ocultar' : 'Ver aviso'}
-                </Text>
-              </Pressable>
-            </View>
-          ) : null}
-          {!conversando || avisoAbierto ? (
+            </Pressable>
+          </View>
+          {avisoAbierto ? (
             <View style={styles.privacidad} testID="preguntar-aviso-privacidad">
               <Icon icon={Lock} color="primary" size="lg" />
               <Text
@@ -223,8 +246,17 @@ export const PreguntarScreen = () => {
           contentContainerStyle={styles.conversacion}
           keyboardShouldPersistTaps="handled"
           onContentSizeChange={acomodarScroll}
+          onLayout={() => {
+            // El alto del chat cambia cuando el teclado entra: recién ahí el final queda a la vista.
+            if (teclado.visible) scroll.current?.scrollToEnd?.({ animated: false });
+          }}
           testID="preguntar-chat"
         >
+          {conversando ? null : (
+            <Text variant="label" color="textMuted" testID="preguntar-invitacion">
+              {TEXTO_INVITACION}
+            </Text>
+          )}
           {mensajes.map((m, i) => (
             <View
               key={m.id}
@@ -240,76 +272,45 @@ export const PreguntarScreen = () => {
                 autor={m.autor}
                 texto={m.texto}
                 semaforo={m.semaforo}
+                error={m.error}
+                sinInternet={m.sinInternet}
                 testID={`chat-burbuja-${i}`}
               />
             </View>
           ))}
-
-          {/* Al abrir: las sugeridas completas. Ya conversando se pliegan en el panel de abajo, salvo
-              después de un "No entendí", cuando la burbuja misma las ofrece debajo. */}
-          {!conversando || ultimoNoEntendi ? (
-            <>
-              {ultimoNoEntendi ? null : (
-                <Text variant="label" color="textMuted" testID="preguntar-invitacion">
-                  {TEXTO_INVITACION}
-                </Text>
-              )}
-              <View style={styles.sugeridas} testID="preguntar-sugeridas">
-                {PREGUNTAS_SUGERIDAS.map((pregunta, i) => (
-                  <Chip
-                    key={pregunta}
-                    pregunta={pregunta}
-                    apagado={pensando}
-                    alTocar={() => preguntar(pregunta)}
-                    testID={`preguntar-sugerida-${i}`}
-                  />
-                ))}
-              </View>
-            </>
-          ) : null}
+          {pensando ? <BurbujaPensando testID="chat-pensando" /> : null}
         </ScrollView>
 
-        {/* El campo y el botón viven FUERA del scroll, en un pie fijo: siempre a la mano. */}
-        <View style={styles.pie}>
-          {conversando ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Preguntas sugeridas"
-              accessibilityState={{ expanded: panelAbierto }}
-              onPress={() => setPanelAbierto(abierto => !abierto)}
-              style={styles.alternarPanel}
-              testID="preguntar-panel-alternar"
-            >
-              <Text variant="bodyStrong" color="primary">
-                Preguntas sugeridas
-              </Text>
-              <Icon icon={panelAbierto ? ChevronDown : ChevronUp} color="primary" size="md" />
-            </Pressable>
-          ) : null}
-          {conversando && panelAbierto ? (
-            <ScrollView
-              style={styles.panel}
-              nestedScrollEnabled
-              keyboardShouldPersistTaps="handled"
-              testID="preguntar-panel"
-            >
-              <View style={styles.sugeridas}>
-                {PREGUNTAS_SUGERIDAS.map((pregunta, i) => (
-                  <Chip
-                    key={pregunta}
-                    pregunta={pregunta}
-                    apagado={pensando}
-                    alTocar={() => preguntar(pregunta)}
-                    testID={`preguntar-panel-sugerida-${i}`}
-                  />
-                ))}
-              </View>
-            </ScrollView>
-          ) : null}
+        {/* Las sugeridas, el campo y el botón viven FUERA del scroll, en un pie fijo: siempre a la mano. */}
+        {/* La barra es una capa encima: el pie se sube lo que ella ocupa (con su círculo). */}
+        {/* Con el teclado abierto la barra no está: el pie se apoya directamente sobre el teclado. */}
+        <View
+          style={[styles.pie, { paddingBottom: teclado.visible ? spacing.sm : alturaTotal + spacing.sm }]}
+          testID="preguntar-pie"
+        >
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            style={styles.sugeridasFila}
+            contentContainerStyle={styles.sugeridas}
+            testID="preguntar-sugeridas"
+          >
+            {PREGUNTAS_SUGERIDAS.map((pregunta, i) => (
+              <Chip
+                key={pregunta}
+                label={pregunta}
+                role="button"
+                disabled={pensando}
+                onPress={() => preguntar(pregunta)}
+                testID={`preguntar-sugerida-${i}`}
+              />
+            ))}
+          </ScrollView>
           <View style={styles.filaCampo}>
             <Input
               containerStyle={styles.campo}
-              placeholder="Escribe tu pregunta"
+              placeholder="Tu pregunta"
               accessibilityLabel="Tu pregunta"
               value={texto}
               onChangeText={setTexto}
@@ -317,10 +318,11 @@ export const PreguntarScreen = () => {
               returnKeyType="done"
               testID="preguntar-campo"
             />
-            <Button
-              title={pensando ? 'Pensando…' : 'Preguntar'}
-              size="md"
-              disabled={pensando || texto.trim() === ''}
+            <BotonIcono
+              icon={Send}
+              accessibilityLabel="Preguntar"
+              loading={pensando}
+              disabled={texto.trim() === ''}
               onPress={() => preguntar(texto)}
               testID="preguntar-enviar"
             />
@@ -331,48 +333,9 @@ export const PreguntarScreen = () => {
   );
 };
 
-/** Una pregunta sugerida tocable; mientras Jev piensa se apaga para que no salgan dos preguntas. */
-const Chip = ({
-  pregunta,
-  apagado,
-  alTocar,
-  testID,
-}: {
-  pregunta: string;
-  apagado: boolean;
-  alTocar: () => void;
-  testID: string;
-}) => (
-  <Pressable
-    accessibilityRole="button"
-    accessibilityLabel={pregunta}
-    accessibilityState={{ disabled: apagado }}
-    disabled={apagado}
-    onPress={alTocar}
-    style={({ pressed }) => [
-      styles.chip,
-      pressed && styles.chipPresionado,
-      apagado && styles.chipApagado,
-    ]}
-    testID={testID}
-  >
-    <Text variant="label" color={apagado ? 'textMuted' : 'text'}>
-      {pregunta}
-    </Text>
-  </Pressable>
-);
-
 const styles = StyleSheet.create({
   pantalla: { flex: 1, backgroundColor: colors.background },
-  cabecera: { paddingHorizontal: spacing.lg, paddingTop: spacing.xs, gap: spacing.sm },
-  atras: {
-    alignSelf: 'flex-start',
-    minHeight: 48,
-    minWidth: 48,
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginLeft: -spacing.xs,
-  },
+  cabecera: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm, gap: spacing.xs },
   privacidad: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -382,46 +345,24 @@ const styles = StyleSheet.create({
     padding: spacing.md,
   },
   privacidadTexto: { flex: 1 },
-  avisoCorto: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  avisoCortoTexto: { flex: 1 },
+  // Con fuente grande el enlace "Ver aviso" baja a su propia línea en vez de apretar el texto.
+  avisoCorto: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
+  avisoCortoTexto: { flexGrow: 1, flexShrink: 1 },
   alternarAviso: { minHeight: 48, minWidth: 48, justifyContent: 'center', alignItems: 'center' },
   chat: { flex: 1 },
   conversacion: { padding: spacing.lg, gap: spacing.md },
-  sugeridas: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  chip: {
-    justifyContent: 'center',
-    minHeight: 48,
-    paddingHorizontal: spacing.lg,
-    borderRadius: radius.full,
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    backgroundColor: colors.background,
-  },
-  chipPresionado: { backgroundColor: colors.surface },
-  chipApagado: { backgroundColor: colors.disabledSoft },
+  // Los chips llegan al borde del pie: el último asoma y avisa que hay más.
+  sugeridasFila: { marginHorizontal: -spacing.lg, flexGrow: 0 },
+  sugeridas: { paddingHorizontal: spacing.lg, gap: spacing.sm },
   pie: {
     gap: spacing.xs,
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.xs,
-    paddingBottom: spacing.sm,
+    paddingTop: spacing.sm,
     borderTopWidth: 1,
     borderTopColor: colors.border,
     backgroundColor: colors.background,
   },
-  alternarPanel: {
-    alignSelf: 'flex-start',
-    minHeight: 48,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  panel: {
-    maxHeight: ALTO_MAXIMO_PANEL,
-    flexGrow: 0,
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    padding: spacing.sm,
-  },
   filaCampo: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  campo: { flex: 1 },
+  // El campo toma todo lo que sobra; el botón de enviar es un círculo fijo de 48 dp.
+  campo: { flex: 1, minWidth: 0 },
 });
