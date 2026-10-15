@@ -22,7 +22,7 @@ import { importarSemilla } from '@storage/repositorio';
 import { JEV_URL, SEED_URL } from '../src/config';
 
 const TEXTO_PRIVACIDAD =
-  'Tu pregunta se envía a un servicio de inteligencia artificial para entenderla. Algunas respuestas se envían ya calculadas (por ejemplo, cuánto te queda en el ciclo) para valorar cómo va el negocio. Nunca van tu nombre, tu Yape, lo que te deben por cobrar ni tus días uno por uno. Si no hay internet, la pregunta se entiende en tu teléfono y no se envía nada.';
+  'Tu pregunta y lo último que hablaron se envían a un servicio de inteligencia artificial para entenderla y escribirte la respuesta. Algunas respuestas se envían ya calculadas (por ejemplo, cuánto te queda en el ciclo), y si conversan, viajan unos totales por mes y por producto. Nunca van tu nombre, tu Yape, lo que te deben por cobrar ni la lista de tus días. Si no hay internet, solo respondo las preguntas sugeridas y no se envía nada.';
 const RUTA_SEMILLA = join(__dirname, '..', 'seed', 'semilla.json');
 const SEMILLA = readFileSync(RUTA_SEMILLA, 'utf8');
 const prepararDemostracion = async () => {
@@ -34,7 +34,7 @@ const prepararDemostracion = async () => {
   );
 };
 
-type Tipo = 'interpretar' | 'redactar' | 'juzgar';
+type Tipo = 'interpretar' | 'redactar' | 'juzgar' | 'conversar';
 interface Cuerpo {
   tipo: Tipo;
   texto?: string;
@@ -136,7 +136,9 @@ const montarApp = async () => {
       .accessibilityState;
   // Las props del primer nodo dibujado (host) con ese testID.
   const propsDe = (testID: string) => {
-    const encontrado = app.root.findAll(n => n.props.testID === testID && typeof n.type === 'string')[0];
+    const encontrado = app.root.findAll(
+      n => n.props.testID === testID && typeof n.type === 'string',
+    )[0];
     if (!encontrado) throw new Error(`No hay nada con testID "${testID}"`);
     return encontrado.props;
   };
@@ -207,7 +209,7 @@ describe('Chat "Preguntarle a mis datos": lo que se envía y cuándo', () => {
     expect(red.tipos().filter(t => t === 'interpretar')).toHaveLength(1);
   });
 
-  it('una intención que se juzga pide clasificación y juicio, sin redacción', async () => {
+  it('una intención que se juzga pide clasificación, redacción y juicio', async () => {
     const red = ponerRed({
       interpretar: () => respuestaJson(interpretacion('peorDia')),
       juzgar: () => respuestaJson({ semaforo: 'ojo', confianza: 0.9 }),
@@ -218,7 +220,8 @@ describe('Chat "Preguntarle a mis datos": lo que se envía y cuándo', () => {
     await p.abrirDesdeInicio();
     await p.preguntar('¿qué día me va peor?');
 
-    expect(red.tipos()).toEqual(['interpretar', 'juzgar']);
+    // Sprint-14: la redacción y el juicio se piden a la vez, después de clasificar.
+    expect(red.tipos()).toEqual(['interpretar', 'redactar', 'juzgar']);
   });
 
   it('tocar "Preguntar" con el campo vacío o con solo espacios no envía nada', async () => {
@@ -310,9 +313,9 @@ describe('Chat "Preguntarle a mis datos": lo que se envía y cuándo', () => {
     await p.tocar('preguntar-enviar');
 
     expect(p.valorDe('preguntar-campo')).toBe('');
-    // Sin red igual se responde: la pregunta se entiende en el teléfono, con la nota visible.
+    // Sin red igual se responde una pregunta predefinida: en el teléfono, con la etiqueta visible.
     expect(p.textoDe('chat-burbuja-1-texto')).toBe('Ayer no cerraste tu día.');
-    expect(p.textoDe('chat-burbuja-1-sin-internet')).toBe('Respondí sin internet');
+    expect(p.textoDe('chat-burbuja-1-sin-internet')).toBe('Sin internet');
   });
 
   it('el historial es solo de la sesión: nada de la conversación se guarda en el teléfono', async () => {
@@ -579,7 +582,9 @@ describe('Chat "Preguntarle a mis datos": encabezado compacto, aviso plegado y s
     )[0];
     expect(chat.findAll(n => n.props.testID === 'preguntar-sugeridas')).toHaveLength(0);
     const teclado = pantalla.findAll(n => (n.type as unknown) === KeyboardAvoidingView)[0];
-    expect(teclado.findAll(n => n.props.testID === 'preguntar-sugeridas').length).toBeGreaterThan(0);
+    expect(teclado.findAll(n => n.props.testID === 'preguntar-sugeridas').length).toBeGreaterThan(
+      0,
+    );
     // Ya no hay panel de 200 dp ni botón "Preguntas sugeridas".
     expect(p.existe('preguntar-panel')).toBe(false);
     expect(p.existe('preguntar-panel-alternar')).toBe(false);
@@ -606,13 +611,15 @@ describe('Chat "Preguntarle a mis datos": encabezado compacto, aviso plegado y s
   it('tras un "No entendí" las sugeridas siguen a la mano en la fila', async () => {
     ponerRed({
       interpretar: () => respuestaJson({ ...interpretacion('compararCiclo'), confianza: 0.3 }),
+      // Sprint-14: sin intención clara se intenta conversar; aquí no contesta.
+      conversar: () => ({ ok: false, status: 502, text: async () => '{}' } as unknown as Response),
     });
     const p = await montarApp();
 
     await p.abrirDesdeInicio();
     await p.preguntar('algo raro');
 
-    expect(p.textoDe('chat-burbuja-1-texto')).toContain('No entendí la pregunta');
+    expect(p.textoDe('chat-burbuja-1-texto')).toContain('Ahora no puedo conversar contigo');
     PREGUNTAS_SUGERIDAS.forEach((pregunta, i) => {
       expect(p.textosEn(`preguntar-sugerida-${i}`)).toEqual([pregunta]);
     });
@@ -658,7 +665,9 @@ describe('Chat "Preguntarle a mis datos": encabezado compacto, aviso plegado y s
         n => n.props.testID === 'preguntar-enviar' && esHost(n, 'View'),
       )[0];
       const estilo = StyleSheet.flatten(
-        typeof boton.props.style === 'function' ? boton.props.style({ pressed: false }) : boton.props.style,
+        typeof boton.props.style === 'function'
+          ? boton.props.style({ pressed: false })
+          : boton.props.style,
       );
       return [estilo.width, estilo.height, estilo.borderRadius];
     };
@@ -680,33 +689,41 @@ describe('Chat "Preguntarle a mis datos": encabezado compacto, aviso plegado y s
     const p = await montarApp();
     await p.abrirDesdeInicio();
 
-    const campo = p.app.root.findAll(n => esHost(n, 'TextInput') && n.props.testID === 'preguntar-campo')[0];
+    const campo = p.app.root.findAll(
+      n => esHost(n, 'TextInput') && n.props.testID === 'preguntar-campo',
+    )[0];
     expect(campo.props.placeholder).toBe('Tu pregunta');
     const contenedor = p.app.root.findAll(
       n => typeof n.type !== 'string' && StyleSheet.flatten(n.props.style)?.minWidth === 0,
     );
     expect(contenedor.length).toBeGreaterThan(0);
-    const aviso = p.app.root.findAll(n => esHost(n, 'View') && n.props.testID === 'preguntar-aviso-compacto')[0];
+    const aviso = p.app.root.findAll(
+      n => esHost(n, 'View') && n.props.testID === 'preguntar-aviso-compacto',
+    )[0];
     expect(StyleSheet.flatten(aviso.props.style)).toMatchObject({ flexWrap: 'wrap' });
   });
 
   it('un 429 muestra una burbuja de aviso: "Hay muchas preguntas ahora. Prueba en un minuto."', async () => {
     ponerRed({
-      interpretar: () => ({ ok: false, status: 429, text: async () => '{}' } as unknown as Response),
+      interpretar: () =>
+        ({ ok: false, status: 429, text: async () => '{}' } as unknown as Response),
     });
     const p = await montarApp();
 
     await p.abrirDesdeInicio();
     await p.preguntar('cuéntame un chiste');
 
-    expect(p.textoDe('chat-burbuja-1-texto')).toBe('Hay muchas preguntas ahora. Prueba en un minuto.');
+    expect(p.textoDe('chat-burbuja-1-texto')).toBe(
+      'Hay muchas preguntas ahora. Prueba en un minuto.',
+    );
     expect(p.existe('chat-burbuja-1-aviso')).toBe(true);
     expect(p.textosEn('chat-burbuja-1-aviso')).toEqual(['Aviso']);
   });
 
   it('un 502 dice que el asistente no está disponible, con la burbuja de aviso', async () => {
     ponerRed({
-      interpretar: () => ({ ok: false, status: 502, text: async () => '{}' } as unknown as Response),
+      interpretar: () =>
+        ({ ok: false, status: 502, text: async () => '{}' } as unknown as Response),
     });
     const p = await montarApp();
 
@@ -724,13 +741,17 @@ describe('Chat "Preguntarle a mis datos": encabezado compacto, aviso plegado y s
     await p.abrirDesdeInicio();
     await p.preguntar('cuéntame un chiste');
 
-    const texto = p.textoDe('chat-burbuja-1-texto');
-    expect(texto).toContain('Sin internet no pude entender tu pregunta. Prueba con una de estas:');
-    for (const q of PREGUNTAS_SUGERIDAS.slice(0, 3)) expect(texto).toContain(q);
+    // Sprint-14: el aviso es «Necesitas internet para esto…» y las tres preguntas son chips tocables.
+    expect(p.textoDe('chat-burbuja-1-texto')).toBe(
+      'Necesitas internet para esto. Revisa tu conexión e inténtalo otra vez.',
+    );
+    PREGUNTAS_SUGERIDAS.slice(0, 3).forEach((q, k) => {
+      expect(p.textosEn(`chat-sugerida-1-${k}`)).toEqual([q]);
+    });
     expect(p.existe('chat-burbuja-1-aviso')).toBe(true);
   });
 
-  it('sin red, una pregunta del negocio se responde en el teléfono con la nota "Respondí sin internet" y sin semáforo', async () => {
+  it('sin red, una pregunta del negocio se responde en el teléfono con la etiqueta "Sin internet" y sin semáforo', async () => {
     const red = ponerRed({});
     const p = await montarApp();
 
@@ -738,7 +759,7 @@ describe('Chat "Preguntarle a mis datos": encabezado compacto, aviso plegado y s
     await p.preguntar('¿cuánto me deben?');
 
     expect(p.textoDe('chat-burbuja-1-texto')).toMatch(/por cobrar/);
-    expect(p.textoDe('chat-burbuja-1-sin-internet')).toBe('Respondí sin internet');
+    expect(p.textoDe('chat-burbuja-1-sin-internet')).toBe('Sin internet');
     expect(p.existe('chat-burbuja-1-semaforo')).toBe(false);
     expect(p.existe('chat-burbuja-1-aviso')).toBe(false);
     // Solo el intento que falló: nada más sale del teléfono.

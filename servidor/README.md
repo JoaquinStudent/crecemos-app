@@ -3,10 +3,12 @@
 Un Cloudflare Worker. **La app nunca habla con OpenRouter**: habla con este Worker, que guarda la
 clave como secreto y reenvía solo lo necesario.
 
-| La app manda                                                           | El Worker hace                                                                                                                                                                                                                           | Responde                                |
-| ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
-| `{ "tipo": "interpretar", "texto": "¿cuánto vendí ayer?" }`            | Pide a **Jev** (API tipada) que elija una de las 14 preguntas conocidas. Si Jev falla o responde algo inválido, lo hace **DeepSeek**. Si Jev contesta `noEntendi` o duda (menos de 0.6), **DeepSeek lo intenta una vez más** (ver abajo) | `{ intencion, dia, confianza, modelo }` |
-| `{ "tipo": "juzgar", "hecho": { intencion, frase, cifras, senales } }` | Pide **solo a Jev** que juzgue la respuesta ya calculada: `bien`, `ojo` o `urgente`. Sin respaldo: si Jev falla o duda, responde sin juicio                                                                                              | `{ semaforo, confianza, modelo }`       |
+| La app manda                                                                        | El Worker hace                                                                                                                                                                                                                           | Responde                                |
+| ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| `{ "tipo": "interpretar", "texto": "¿cuánto vendí ayer?" }`                         | Pide a **Jev** (API tipada) que elija una de las 14 preguntas conocidas. Si Jev falla o responde algo inválido, lo hace **DeepSeek**. Si Jev contesta `noEntendi` o duda (menos de 0.6), **DeepSeek lo intenta una vez más** (ver abajo) | `{ intencion, dia, confianza, modelo }` |
+| `{ "tipo": "juzgar", "hecho": { intencion, frase, cifras, senales } }`              | Pide **solo a Jev** que juzgue la respuesta ya calculada: `bien`, `ojo` o `urgente`. Sin respaldo: si Jev falla o duda, responde sin juicio                                                                                              | `{ semaforo, confianza, modelo }`       |
+| `{ "tipo": "redactar", "pregunta", "hilo", "hecho": { intencion, frase, cifras } }` | Pide a **DeepSeek** que reescriba con el tono de Freddy (1 a 3 frases) una respuesta **ya calculada**. La app revisa que no cambie, pierda ni invente ninguna cifra; si no, muestra la frase fija                                        | `{ texto }`                             |
+| `{ "tipo": "conversar", "texto", "hilo", "resumen" }`                               | Pide a **DeepSeek** que converse (2 a 4 frases) **solo sobre el negocio** y **solo con el `resumen` agregado** (totales por mes y por producto). La app revisa que toda cifra esté en el resumen                                         | `{ texto }`                             |
 
 Todo pasa por OpenRouter, con **la misma clave** (`OPENROUTER_API_KEY`) para las dos APIs:
 
@@ -18,9 +20,23 @@ Todo pasa por OpenRouter, con **la misma clave** (`OPENROUTER_API_KEY`) para las
   app (por ejemplo `tendencia: baja`, `magnitud: grande`). Solo se juzgan las respuestas que
   aceptan juicio (comparar ciclos, cobros, retiro para la casa, cuánto preparar, revisar un precio y el
   peor día).
-- **DeepSeek** (respaldo para clasificar) va por el chat,
-  `https://openrouter.ai/api/v1/chat/completions`, con salidas estructuradas (JSON con valores
-  permitidos).
+- **DeepSeek** (respaldo y segundo intento al clasificar, y quien **redacta** y **conversa**) va por el
+  chat, `https://openrouter.ai/api/v1/chat/completions`, con salidas estructuradas (JSON con valores
+  permitidos) y solo proveedores de EE. UU. sin retención de datos.
+
+### Redactar y conversar (Sprint-14)
+
+- **`redactar`** recibe la pregunta, el **hilo** (las últimas 4 intervenciones de la conversación, solo
+  texto, de a lo más 200 caracteres cada una) y el **hecho** que la app ya calculó. DeepSeek solo cambia
+  las palabras: debe conservar todas las cifras. El Worker **no** las revisa; la app sí (y descarta el
+  texto si una cifra cambia, falta o sobra).
+- **`conversar`** recibe el texto, el hilo y un **resumen agregado** (`meses`, `productos`,
+  `diasDeLaSemana`, `ciclo` y `hoy`; 1,500 caracteres como mucho). DeepSeek conversa solo del negocio,
+  con esos datos; si le preguntan otra cosa, responde con amabilidad que solo ayuda con el negocio.
+  La app descarta el texto si trae una cifra que no está en el resumen.
+- Ni el hilo ni el resumen viajan a **Jev**: a `interpretar` solo llega el texto de la pregunta.
+- Cada llamada tiene 7,5 s en el Worker y 8 s en la app. Una pregunta del chat hace hasta 3 llamadas
+  (interpretar y, a la vez, redactar y juzgar), por eso el límite por IP subió a 40 por minuto.
 
 ### Segundo intento con DeepSeek (Sprint-13)
 
@@ -137,14 +153,34 @@ Debe responder algo como:
   `revisarPrecio` y `peorDia`. Las señales son palabras en minúsculas (como mucho 6) y el
   `hecho` completo no puede pasar de 600 caracteres.
 
+Redactar una respuesta ya calculada (la app revisa las cifras de lo que vuelve):
+
+```sh
+curl -s -X POST https://crecemos-asistente.joaquiningsoft.workers.dev \
+  -H 'Content-Type: application/json' \
+  -d '{"tipo":"redactar","pregunta":"¿cuánto vendí ayer?","hilo":[],"hecho":{"intencion":"ventaDelDia","frase":"Ayer, martes 6 de octubre, vendiste S/ 205.00.","cifras":["6","205.00"]}}'
+```
+
+Debe responder `{ "texto": "…" }` con la misma información dicha de otra manera.
+
+Conversar (con un resumen mínimo):
+
+```sh
+curl -s -X POST https://crecemos-asistente.joaquiningsoft.workers.dev \
+  -H 'Content-Type: application/json' \
+  -d '{"tipo":"conversar","texto":"¿qué opinas de mi mes?","hilo":[],"resumen":{"meses":[{"mes":"octubre 2026","ventas":1800,"gastos":300,"resultado":1500,"dias":2,"enCurso":true}],"productos":[],"diasDeLaSemana":null,"ciclo":null,"hoy":{"ventas":0,"gastos":0,"resultado":0,"cerrado":false}}}'
+```
+
+Debe responder `{ "texto": "…" }` hablando solo de lo que trae el resumen.
+
 Si responde un error:
 
-| Respuesta                           | Qué significa                                                                                                                           |
-| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `{"error":"NO_CONFIGURADO"}`        | Falta el paso 3 (la clave)                                                                                                              |
-| `{"error":"NO_DISPONIBLE"}`         | Ningún modelo contestó a tiempo o con la forma pedida. Revisa el saldo y el tope de la clave en OpenRouter, y los proveedores (punto 8) |
-| `{"error":"DEMASIADAS_PETICIONES"}` | Pasaste las 20 peticiones por minuto de tu IP (una pregunta del chat gasta hasta 3); espera un minuto                                   |
-| `{"error":"SOLICITUD_INVALIDA"}`    | El cuerpo no tiene la forma pedida (texto de 1 a 200 caracteres, frase de hasta 300)                                                    |
+| Respuesta                           | Qué significa                                                                                                                                                             |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `{"error":"NO_CONFIGURADO"}`        | Falta el paso 3 (la clave)                                                                                                                                                |
+| `{"error":"NO_DISPONIBLE"}`         | Ningún modelo contestó a tiempo o con la forma pedida. Revisa el saldo y el tope de la clave en OpenRouter, y los proveedores (punto 8)                                   |
+| `{"error":"DEMASIADAS_PETICIONES"}` | Pasaste las 40 peticiones por minuto de tu IP (una pregunta del chat gasta hasta 3); espera un minuto                                                                     |
+| `{"error":"SOLICITUD_INVALIDA"}`    | El cuerpo no tiene la forma pedida (texto de 1 a 200 caracteres, frase de hasta 300 —400 al redactar—, hilo de hasta 4 intervenciones, resumen de hasta 1,500 caracteres) |
 
 ### 5. Saber quién respondió: Jev o DeepSeek
 
@@ -225,11 +261,11 @@ acaba, OpenRouter rechaza las peticiones de esa clave y el chat dice "Necesitas 
 
 - **El endpoint es público.** Cualquiera que conozca la dirección puede mandar peticiones y gastar
   los créditos de la clave hasta su tope. No hay inicio de sesión (Freddy no tiene cuenta).
-  Mitigaciones del MVP: texto de hasta 200 caracteres y cuerpo de hasta 2 KB, validación de todo lo
-  que entra y sale, un tope de gasto en la clave y un límite de 20 peticiones por minuto por IP en
+  Mitigaciones del MVP: texto de hasta 200 caracteres y cuerpo de hasta 2 KB (6 KB al redactar y conversar), validación de todo lo
+  que entra y sale, un tope de gasto en la clave y un límite de 40 peticiones por minuto por IP en
   cada ubicación de Cloudflare. El límite por IP es aproximado (muchas personas pueden compartir una
   IP en una red móvil) y no reemplaza a una autenticación real, que queda para después del MVP.
-- **Los totales los procesan terceros.** La pregunta y algunos totales (nunca el nombre, el Yape ni
+- **Los totales los procesan terceros.** La pregunta, lo último que se habló y algunos totales por mes y por producto (nunca el nombre, el Yape ni
   los movimientos) pasan por OpenRouter y por el proveedor que aloje el modelo. El Worker pide
   `data_collection: "deny"` (proveedores que no guardan ni entrenan con los datos) y, para DeepSeek,
   solo proveedores de EE. UU. Eso **reduce** el riesgo, no lo elimina. La llamada a Jev no restringe

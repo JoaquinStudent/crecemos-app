@@ -215,17 +215,25 @@ interface ServidorSimulado {
 
 /** Un servidor que contesta a `interpretar`, `redactar` y `juzgar`; cada respuesta tarda un instante. */
 const servidorSimulado = (
-  contesta: Record<'interpretar' | 'redactar' | 'juzgar', () => Promise<Response>>,
+  contesta: Record<'interpretar' | 'redactar' | 'juzgar', () => Promise<Response>> &
+    Partial<Record<'conversar', () => Promise<Response>>>,
 ): ServidorSimulado => {
   let enVuelo = 0;
   let maximo = 0;
   const f = jest.fn(async (_url: string, init: { body?: string }) => {
-    const tipo = JSON.parse(init.body ?? '{}').tipo as 'interpretar' | 'redactar' | 'juzgar';
+    const tipo = JSON.parse(init.body ?? '{}').tipo as
+      | 'interpretar'
+      | 'redactar'
+      | 'juzgar'
+      | 'conversar';
     enVuelo += 1;
     maximo = Math.max(maximo, enVuelo);
     try {
       await new Promise(resolver => setTimeout(resolver, 0));
-      return await contesta[tipo]();
+      const camino = contesta[tipo];
+      // Un tipo que el servidor simulado no atiende es una red caída, como en la app real.
+      if (!camino) throw new TypeError('Network request failed');
+      return await camino();
     } finally {
       enVuelo -= 1;
     }
@@ -329,7 +337,7 @@ const SIN_FALSEAR = [
   'clearTimeout',
 ] as const;
 
-type TipoChat = 'interpretar' | 'redactar' | 'juzgar';
+type TipoChat = 'interpretar' | 'redactar' | 'juzgar' | 'conversar';
 interface CuerpoChat {
   tipo: TipoChat;
   texto?: string;
@@ -537,6 +545,8 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
         // Si la app los pidiera igual, estos darían una cifra: no debe llegar a pedirlos.
         redactar: () => respuestaJson({ texto: REDACCION_CICLO }),
         juzgar: () => respuestaJson(juicioDe('ojo', 0.8)),
+        // Sprint-14: sin intención clara se intenta la conversación; aquí no contesta.
+        conversar: () => respuestaJson({ error: 'NO_DISPONIBLE' }, false, 502),
       });
       await conApp(dudosa, async () => {
         await abrirElChat();
@@ -545,18 +555,18 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
         // La pantalla dice que no entendió y ofrece las preguntas sugeridas, después de la respuesta.
         const pantalla = textosEn('preguntar-pantalla');
         expect(pantalla).toContain(
-          'No entendí la pregunta. Puedo ayudarte con tus ventas, cobros pendientes y productos. Prueba con una de estas:',
+          'Ahora no puedo conversar contigo, pero sí puedo revisar tus ventas, tus cobros y tus productos. Prueba con una de estas:',
         );
         for (const sugerida of PREGUNTAS_SUGERIDAS) expect(pantalla).toContain(sugerida);
         expect(posicionDe('preguntar-sugerida-0')).toBeGreaterThan(posicionDe('chat-burbuja-1'));
 
         // Ninguna cifra: ni en la respuesta ni en ningún otro lugar del chat.
         expect(textoDe('chat-burbuja-1-texto')).toBe(
-          'No entendí la pregunta. Puedo ayudarte con tus ventas, cobros pendientes y productos. Prueba con una de estas:',
+          'Ahora no puedo conversar contigo, pero sí puedo revisar tus ventas, tus cobros y tus productos. Prueba con una de estas:',
         );
         expect(pantalla.some(t => /\d|S\//.test(t))).toBe(false);
-        // Con duda, solo se pidió interpretar: ni redacción ni juicio.
-        expect(dudosa.tiposDelChat()).toEqual(['interpretar']);
+        // Con duda se pidió interpretar y luego conversar: ni redacción ni juicio.
+        expect(dudosa.tiposDelChat()).toEqual(['interpretar', 'conversar']);
       });
     })();
   });
@@ -574,9 +584,9 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
         await preguntar('cuéntame un chiste');
 
         const pantalla = textosEn('preguntar-pantalla');
-        // Sin red y sin poder entender la pregunta en el teléfono: avisa y ofrece tres preguntas.
+        // Sin red y sin ser una pregunta predefinida: avisa y ofrece tres preguntas.
         expect(pantalla.join(' | ')).toContain(
-          'Sin internet no pude entender tu pregunta. Prueba con una de estas:',
+          'Necesitas internet para esto. Revisa tu conexión e inténtalo otra vez.',
         );
         // Ningún código ni mensaje técnico, en ninguna parte de la pantalla.
         expect(pantalla.join(' | ')).not.toMatch(CODIGOS_TECNICOS);
@@ -640,7 +650,7 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
         .mockResolvedValueOnce(respuestaJson(interpretacion('ventaDelDia', 'ayer')))
         .mockResolvedValueOnce(respuestaJson({ error: 'NO_DISPONIBLE' }, false, 502));
       comoLaVeFreddy(await consultar(conError as unknown as typeof fetch, URL_JEV, pregunta, ctx));
-      expect(conError).toHaveBeenCalledTimes(1);
+      expect(conError).toHaveBeenCalledTimes(2);
 
       // (b) El redactor no responde en 8 segundos: se corta y se muestra la frase fija.
       jest.useFakeTimers();
@@ -665,11 +675,11 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
           },
         );
 
-        await jest.advanceTimersByTimeAsync(0);
+        await jest.advanceTimersByTimeAsync(8000);
         await pendiente;
 
         comoLaVeFreddy(resultado);
-        expect(colgado).toHaveBeenCalledTimes(1);
+        expect(colgado).toHaveBeenCalledTimes(2);
         expect(jest.getTimerCount()).toBe(0);
       } finally {
         jest.useRealTimers();
@@ -702,12 +712,12 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
       );
 
       // Intención juzgable: 1 para interpretar y, después, 1 para redactar y 1 para juzgar a la vez.
-      expect(r).toMatchObject({ tipo: 'respuesta', redactada: false, semaforo: 'ojo' });
-      expect(juzgable.fetch).toHaveBeenCalledTimes(2);
+      expect(r).toMatchObject({ tipo: 'respuesta', redactada: true, semaforo: 'ojo' });
+      expect(juzgable.fetch).toHaveBeenCalledTimes(3);
       const tipos = juzgable.tipos();
       expect(tipos[0]).toBe('interpretar');
-      expect(tipos.slice(1)).toEqual(['juzgar']);
-      expect(juzgable.simultaneas()).toBe(1);
+      expect(tipos.slice(1).sort()).toEqual(['juzgar', 'redactar']);
+      expect(juzgable.simultaneas()).toBe(2);
 
       // Intención que no se juzga: 1 para interpretar y 1 para redactar, ninguna para juzgar.
       const simple = servidorSimulado({
@@ -721,9 +731,9 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
         '¿cuánto vendí ayer?',
         ventaDeAyer(),
       );
-      expect(simple.tipos()).toEqual(['interpretar']);
+      expect(simple.tipos()).toEqual(['interpretar', 'redactar']);
 
-      // Sin respuesta que mostrar (no la entendió): solo la de interpretar.
+      // Sin respuesta que mostrar (no la entendió): la de interpretar y la de conversar, nunca redactar ni juzgar.
       const dudosa = servidorSimulado({
         interpretar: responde({ ...interpretacion('compararCiclo'), confianza: 0.3 }),
         redactar: responde({ texto: REDACCION_CICLO }),
@@ -735,7 +745,7 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
         'algo raro',
         ctxCompararCiclo(),
       );
-      expect(dudosa.tipos()).toEqual(['interpretar']);
+      expect(dudosa.tipos()).toEqual(['interpretar', 'conversar']);
     })();
   });
 
@@ -939,7 +949,7 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
       const interpreta = responde(interpretacion('compararCiclo'));
       const redacta = responde({ texto: REDACCION_CICLO });
       const sinSemaforo = (r: unknown) => {
-        expect(r).toMatchObject({ tipo: 'respuesta', texto: FRASE_CICLO, frase: FRASE_CICLO });
+        expect(r).toMatchObject({ tipo: 'respuesta', texto: REDACCION_CICLO, frase: FRASE_CICLO });
         expect(r).not.toHaveProperty('semaforo');
         expect(JSON.stringify(r)).not.toMatch(CODIGOS_TECNICOS);
       };
@@ -972,7 +982,12 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
         '¿cómo voy contra el ciclo pasado?',
         ctxCompararCiclo(),
       );
-      expect(conJuicio).toMatchObject({ tipo: 'respuesta', texto: FRASE_CICLO, semaforo: 'ojo' });
+      expect(conJuicio).toMatchObject({
+        tipo: 'respuesta',
+        texto: REDACCION_CICLO,
+        frase: FRASE_CICLO,
+        semaforo: 'ojo',
+      });
 
       // Segundo caso (a): Jev falla (error del servidor) y (b) responde con confianza de 0.3.
       const fallas: Array<() => Promise<Response>> = [
@@ -1005,10 +1020,13 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
               rechazar(aborto);
             });
           });
-        const f = jest
-          .fn()
-          .mockResolvedValueOnce(respuestaJson(interpretacion('compararCiclo')))
-          .mockImplementationOnce(lento);
+        // La clasificación y la redacción contestan; el juicio se cuelga.
+        const f = jest.fn((url: string, init: { body?: string; signal?: AbortSignal }) => {
+          const tipo = JSON.parse(init.body ?? '{}').tipo;
+          if (tipo === 'interpretar') return Promise.resolve(respuestaJson(interpretacion('compararCiclo')));
+          if (tipo === 'redactar') return Promise.resolve(respuestaJson({ texto: REDACCION_CICLO }));
+          return lento(url, init);
+        });
         let resultado: unknown;
         const pendiente = consultar(
           f as unknown as typeof fetch,
@@ -1025,7 +1043,7 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
         await pendiente;
 
         sinSemaforo(resultado);
-        expect(f).toHaveBeenCalledTimes(2);
+        expect(f).toHaveBeenCalledTimes(3);
         expect(jest.getTimerCount()).toBe(0);
       } finally {
         jest.useRealTimers();
@@ -1092,50 +1110,49 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
   });
 
   // @spec08_e19 — Un saludo se responde al instante, sin red
+  // (Sprint-14, e9 y e10: la charla ya no se resuelve en el teléfono con frases fijas. Con internet va
+  // a la conversación; sin internet el chat dice "Necesitas internet para esto" y ofrece las sugeridas.
+  // Lo que sigue valiendo: sin cifras, sin semáforo, sin mensaje técnico y sin que el nombre salga.)
   it('spec08_e19 un saludo se responde al instante sin red', () => {
     // Given: el chat abierto y la red caída
     // When: se escribe "hola" y se toca "Preguntar"
-    // Then: aparece la pregunta y debajo una respuesta amable de charla sin ninguna cifra, sin semáforo y sin ningún mensaje técnico, y no se hace ninguna petición de red. Lo mismo vale para el agradecimiento, la despedida y "qué puedes hacer"; este último ofrece las preguntas sugeridas. Si el perfil tiene nombre, el saludo puede usarlo, y el nombre nunca sale del teléfono
+    // Then: aparece la pregunta y debajo un aviso amable ("Necesitas internet para esto…") sin ninguna cifra, sin semáforo y sin ningún mensaje técnico, con las preguntas sugeridas a un toque. Lo mismo vale para el agradecimiento, la despedida y "qué puedes hacer". Si el perfil tiene nombre, el nombre nunca sale del teléfono
     return (async () => {
+      const AVISO = 'Necesitas internet para esto. Revisa tu conexión e inténtalo otra vez.';
       const caida = redDeLaApp(null);
-      await conApp(caida, async () => {
-        await abrirElChat();
-        const llamadasAntes = caida.fetch.mock.calls.length;
-        let burbujas = 0;
-        for (const charla of ['hola', 'gracias', 'chau']) {
-          await preguntar(charla);
-          burbujas += 2;
-          expect(textoDe(`chat-burbuja-${burbujas - 2}-texto`)).toBe(charla);
-          const respuesta = textoDe(`chat-burbuja-${burbujas - 1}-texto`);
-          expect(respuesta.length).toBeGreaterThan(10);
-          expect(respuesta).not.toMatch(/\d|S\/|No te entendí|Necesitas internet/);
-          expect(respuesta).not.toMatch(CODIGOS_TECNICOS);
-          expect(hayNodo(`chat-burbuja-${burbujas - 1}-semaforo`)).toBe(false);
-        }
-        // "Qué puedes hacer" explica y ofrece las preguntas sugeridas bajo la burbuja.
-        await preguntar('¿qué puedes hacer?');
-        expect(textoDe('chat-burbuja-7-texto')).toMatch(/Prueba con una de estas:$/);
-        for (const sugerida of PREGUNTAS_SUGERIDAS) {
-          expect(textosEn('preguntar-pantalla')).toContain(sugerida);
-        }
-        // Ni una sola petición de red, ni a Jev ni a nadie.
-        expect(caida.tiposDelChat()).toEqual([]);
-        expect(caida.fetch.mock.calls.length).toBe(llamadasAntes);
-      });
-
-      // Con nombre en el perfil, el saludo lo usa; y sigue sin viajar nada.
-      const otra = redDeLaApp(null);
       await conApp(
-        otra,
+        caida,
         async () => {
           await abrirElChat();
-          const antes = otra.fetch.mock.calls.length;
-          await preguntar('hola');
-          expect(textoDe('chat-burbuja-1-texto')).toContain('Freddy');
-          expect(otra.fetch.mock.calls.length).toBe(antes);
+          let burbujas = 0;
+          for (const charla of ['hola', 'gracias', 'chau', '¿qué puedes hacer?']) {
+            await preguntar(charla);
+            burbujas += 2;
+            expect(textoDe(`chat-burbuja-${burbujas - 2}-texto`)).toBe(charla);
+            const respuesta = textoDe(`chat-burbuja-${burbujas - 1}-texto`);
+            expect(respuesta).toBe(AVISO);
+            expect(respuesta).not.toMatch(/\d|S\//);
+            expect(respuesta).not.toMatch(CODIGOS_TECNICOS);
+            expect(hayNodo(`chat-burbuja-${burbujas - 1}-semaforo`)).toBe(false);
+            // Las preguntas sugeridas quedan a un toque, debajo del aviso.
+            expect(hayNodo(`chat-sugeridas-${burbujas - 1}`)).toBe(true);
+          }
+          for (const sugerida of PREGUNTAS_SUGERIDAS) {
+            expect(textosEn('preguntar-pantalla')).toContain(sugerida);
+          }
+          // Solo salió el intento de conversar que falló, y nunca el nombre del perfil.
+          const enviados = caida.fetch.mock.calls
+            .filter(([url]) => url === JEV_URL)
+            .map(([, init]) => init?.body ?? '');
+          expect(caida.tiposDelChat()).toEqual(['conversar', 'conversar', 'conversar', 'conversar']);
+          expect(enviados.join('')).not.toContain('Freddy');
         },
         async () => {
-          await guardarPerfil({ ...PERFIL_POR_DEFECTO, nombre: 'Freddy', actualizadoEn: ahora.toISOString() });
+          await guardarPerfil({
+            ...PERFIL_POR_DEFECTO,
+            nombre: 'Freddy',
+            actualizadoEn: ahora.toISOString(),
+          });
         },
       );
     })();
@@ -1231,8 +1248,17 @@ describe('SPEC-08: Chat "Preguntarle a mis datos" con Jev', () => {
         'recomiéndame qué comprar más mañana',
         ctx,
       );
-      expect(r).toMatchObject({ tipo: 'respuesta', redactada: false });
-      expect(servidor.tipos()).not.toContain('redactar');
+      // Las cifras del plan van a la redacción (Sprint-14); esta redacción de prueba no las trae todas y se descarta.
+      expect(r).toMatchObject({ tipo: 'respuesta', redactada: false, texto: hecho.frase });
+      expect(servidor.tipos()).toContain('redactar');
+      const pedida = llamadasDe(servidor.fetch)
+        .map(([, init]) => JSON.parse(init.body ?? '{}'))
+        .find(c => c.tipo === 'redactar');
+      expect(pedida.hecho).toEqual({
+        intencion: 'cuantoPreparar',
+        frase: hecho.frase,
+        cifras: hecho.cifras,
+      });
       // Con pocas muestras, lo dice con las palabras de la tarjeta.
       expect(responderConsulta(consulta, ctxDe([cierres[0]], dosProductos)).frase).toBe(
         'Mañana es jueves. Aún no tengo suficientes jueves para sugerirte.',

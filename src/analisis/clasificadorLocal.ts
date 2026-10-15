@@ -289,3 +289,22 @@ export const clasificarLocal = (texto: string, hoy?: FechaNegocio): Consulta => 
   }
   return { intencion: mejor.intencion, dia: extraerDia(texto, hoy), confianza };
 };
+
+/**
+ * Con menos confianza que esta, una coincidencia del teléfono no cuenta como pregunta predefinida:
+ * sin internet solo se responde lo que se reconoce con claridad (una frase completa, no una pista suelta).
+ */
+export const CONFIANZA_PREDEFINIDA = 0.75;
+
+/**
+ * La clasificación sin internet, RESTRINGIDA a las preguntas predefinidas: las trece intenciones que
+ * el código sabe calcular, pero solo con una coincidencia clara (`CONFIANZA_PREDEFINIDA`) y sin
+ * empate. Cualquier otra cosa (charla, una palabra suelta, una pregunta rara) es `noEntendi`: sin
+ * internet no hay otra manera de entenderla. No mira el hilo.
+ */
+export const clasificarPredefinida = (texto: string, hoy?: FechaNegocio): Consulta => {
+  const local = clasificarLocal(texto, hoy);
+  return local.intencion !== 'noEntendi' && local.confianza >= CONFIANZA_PREDEFINIDA
+    ? local
+    : { intencion: 'noEntendi', confianza: Math.min(local.confianza, 0.45) };
+};

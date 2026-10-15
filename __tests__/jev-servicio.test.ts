@@ -20,7 +20,9 @@ import {
   juzgarRespuesta,
   MAX_CARACTERES_PREGUNTA,
   preguntarAJev,
+  redactarRespuesta,
   TAMANO_MAXIMO_BYTES,
+  TEXTO_CONVERSACION_NO_DISPONIBLE,
   TEXTO_NO_ENTENDI,
   TEXTO_SIN_INTERNET,
   TIEMPO_LIMITE_MS,
@@ -303,6 +305,131 @@ describe('preguntarAJev', () => {
   });
 });
 
+describe('redactarRespuesta', () => {
+  const PREGUNTA = '¿cuánto vendí ayer?';
+  const HILO = [
+    { rol: 'freddy' as const, texto: '¿cuánto vendí hoy?' },
+    { rol: 'asistente' as const, texto: 'Hoy no cerraste tu día.' },
+  ];
+  const redactar = (f: jest.Mock) =>
+    redactarRespuesta(comoFetch(f), URL_PRUEBA, PREGUNTA, HILO, hechoDe(FRASE_AYER));
+
+  it('una redacción con las mismas cifras es ok', async () => {
+    const f = jest.fn(async () =>
+      json({ texto: 'Ayer, martes 6 de octubre, te entraron S/ 205.00.' }),
+    );
+
+    await expect(redactar(f)).resolves.toEqual({
+      ok: true,
+      texto: 'Ayer, martes 6 de octubre, te entraron S/ 205.00.',
+    });
+  });
+
+  it('es un POST con un solo encabezado y el cuerpo exacto: el tipo, la pregunta, el hilo y el hecho', async () => {
+    const f = jest.fn(async () => json({ texto: FRASE_AYER }));
+
+    await redactar(f);
+
+    expect(f).toHaveBeenCalledTimes(1);
+    const [url, init] = llamadas(f)[0];
+    expect(url).toBe(URL_PRUEBA);
+    expect(init.method).toBe('POST');
+    expect(init.headers).toEqual({ 'Content-Type': 'application/json' });
+    expect(init.body).toBe(
+      JSON.stringify({
+        tipo: 'redactar',
+        pregunta: PREGUNTA,
+        hilo: HILO,
+        hecho: { intencion: 'ventaDelDia', frase: FRASE_AYER, cifras: ['6', '205.00'] },
+      }),
+    );
+    expect(Object.keys(init).sort()).toEqual(['body', 'headers', 'method', 'signal']);
+  });
+
+  it('solo viajan la intención, la frase y las cifras aunque el hecho traiga algo más', async () => {
+    const f = jest.fn(async () => json({ texto: FRASE_AYER }));
+    const conExtra = { ...hechoDe(FRASE_AYER), nombre: 'Freddy', yape: '987654321' } as Hecho;
+
+    await redactarRespuesta(comoFetch(f), URL_PRUEBA, PREGUNTA, [], conExtra);
+
+    const cuerpo = llamadas(f)[0][1].body ?? '';
+    expect(cuerpo).not.toContain('Freddy');
+    expect(cuerpo).not.toContain('987654321');
+    expect(Object.keys(JSON.parse(cuerpo).hecho).sort()).toEqual(['cifras', 'frase', 'intencion']);
+  });
+
+  it('una cifra distinta, una que falta, un enlace o un texto largo es REDACCION_DESCARTADA', async () => {
+    const malas = [
+      'Ayer vendiste S/ 250.00',
+      'Ayer, martes 6 de octubre, vendiste mucho.',
+      'Ayer, martes 6 de octubre, vendiste S/ 205.00 en https://ejemplo.pe',
+      `Ayer, martes 6 de octubre, vendiste S/ 205.00. ${'bien '.repeat(80)}`,
+      '',
+    ];
+    for (const mala of malas) {
+      const f = jest.fn(async () => json({ texto: mala }));
+      await expect(redactar(f)).resolves.toEqual({ ok: false, error: 'REDACCION_DESCARTADA' });
+    }
+  });
+
+  it('SIN_RED, HTTP no exitoso y TIEMPO_AGOTADO, sin reintentar', async () => {
+    const cae = jest.fn(() => Promise.reject(new TypeError('Network request failed')));
+    const fallo = jest.fn(async () => json({ error: 'NO_DISPONIBLE' }, false, 502));
+
+    await expect(redactar(cae)).resolves.toEqual({ ok: false, error: 'SIN_RED' });
+    await expect(redactar(fallo)).resolves.toEqual({ ok: false, error: 'SERVIDOR' });
+
+    jest.useFakeTimers();
+    const f = colgado();
+    let resultado: unknown;
+    const pendiente = redactar(f).then(r => {
+      resultado = r;
+    });
+    await jest.advanceTimersByTimeAsync(8000);
+    await pendiente;
+    expect(resultado).toEqual({ ok: false, error: 'TIEMPO_AGOTADO' });
+    expect(f).toHaveBeenCalledTimes(1);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('un JSON roto, sin texto, con texto que no es texto o de más de 4 KB es RESPUESTA_INVALIDA', async () => {
+    const cuerpos = [
+      '{ roto',
+      JSON.stringify({}),
+      JSON.stringify({ texto: 205 }),
+      JSON.stringify([]),
+      JSON.stringify({ texto: FRASE_AYER, relleno: 'ñ'.repeat(TAMANO_MAXIMO_BYTES) }),
+    ];
+    for (const cuerpo of cuerpos) {
+      const f = jest.fn(async () => respuesta(cuerpo));
+      await expect(redactar(f)).resolves.toEqual({ ok: false, error: 'RESPUESTA_INVALIDA' });
+    }
+  });
+
+  it('un tiempo agotado al redactar no acorta la espera de la siguiente clasificación', async () => {
+    jest.useFakeTimers();
+    await jest.advanceTimersByTimeAsync(0);
+    const lento = colgado();
+    const pendiente = redactar(lento);
+    await jest.advanceTimersByTimeAsync(8000);
+    await pendiente;
+
+    // Si el tiempo agotado se recordara como falla de red, esta clasificación solo esperaría 2,5 s.
+    const clasifica = colgado();
+    let listo = false;
+    const siguiente = preguntarAJev(comoFetch(clasifica), URL_PRUEBA, '¿cuánto vendí ayer?').then(
+      r => {
+        listo = true;
+        return r;
+      },
+    );
+    await jest.advanceTimersByTimeAsync(2600);
+    expect(listo).toBe(false);
+    await jest.advanceTimersByTimeAsync(6000);
+    await expect(siguiente).resolves.toEqual({ ok: false, error: 'TIEMPO_AGOTADO' });
+  });
+});
+
 describe('consultar', () => {
   const REDACCION = 'Ayer, martes 6 de octubre, te entraron S/ 205.00.';
 
@@ -310,20 +437,23 @@ describe('consultar', () => {
   const servidor = (clasificacion: unknown, redaccion: () => Promise<Response>) =>
     jest.fn().mockResolvedValueOnce(json(clasificacion)).mockImplementation(redaccion);
 
-  it('con todo en orden muestra la frase fija en una petición', async () => {
+  it('con todo en orden muestra la redacción, con la frase fija guardada, en dos peticiones', async () => {
     const f = servidor(AYER, async () => json({ texto: REDACCION }));
 
     const r = await consultar(comoFetch(f), URL_PRUEBA, '¿cuánto vendí ayer?', CTX);
 
     expect(r).toMatchObject({
       tipo: 'respuesta',
-      texto: FRASE_AYER,
+      texto: REDACCION,
       frase: FRASE_AYER,
-      redactada: false,
+      redactada: true,
     });
     expect(r.tipo === 'respuesta' && r.hecho).toEqual(hechoDe(FRASE_AYER));
-    expect(f).toHaveBeenCalledTimes(1);
-    expect(JSON.parse(llamadas(f)[0][1].body ?? '').tipo).toBe('interpretar');
+    expect(f).toHaveBeenCalledTimes(2);
+    expect(llamadas(f).map(([, init]) => JSON.parse(init.body ?? '').tipo)).toEqual([
+      'interpretar',
+      'redactar',
+    ]);
   });
 
   it('una redacción que cambia una cifra se descarta y se muestra la frase fija', async () => {
@@ -332,7 +462,7 @@ describe('consultar', () => {
     const r = await consultar(comoFetch(f), URL_PRUEBA, '¿cuánto vendí ayer?', CTX);
 
     expect(r).toMatchObject({ tipo: 'respuesta', texto: FRASE_AYER, redactada: false });
-    expect(f).toHaveBeenCalledTimes(1);
+    expect(f).toHaveBeenCalledTimes(2);
   });
 
   it('si el redactor cae, falla o devuelve basura, se muestra la frase fija', async () => {
@@ -346,7 +476,7 @@ describe('consultar', () => {
       const f = servidor(AYER, camino);
       const r = await consultar(comoFetch(f), URL_PRUEBA, '¿cuánto vendí ayer?', CTX);
       expect(r).toMatchObject({ tipo: 'respuesta', texto: FRASE_AYER, redactada: false });
-      expect(f).toHaveBeenCalledTimes(1);
+      expect(f).toHaveBeenCalledTimes(2);
     }
   });
 
@@ -367,7 +497,7 @@ describe('consultar', () => {
     await pendiente;
 
     expect(resultado).toMatchObject({ tipo: 'respuesta', texto: FRASE_AYER, redactada: false });
-    expect(g).toHaveBeenCalledTimes(1);
+    expect(g).toHaveBeenCalledTimes(2);
   });
 
   it('sin internet (e6) y sin poder clasificar la pregunta: avisa y ofrece 3 preguntas, en una sola petición', async () => {
@@ -377,10 +507,12 @@ describe('consultar', () => {
 
     expect(r).toEqual({
       tipo: 'sinInternet',
-      texto: 'Sin internet no pude entender tu pregunta. Prueba con una de estas:',
+      texto: 'Necesitas internet para esto. Revisa tu conexión e inténtalo otra vez.',
       sugeridas: PREGUNTAS_SUGERIDAS.slice(0, 3),
     });
-    expect(TEXTO_SIN_INTERNET).toBe('Necesitas internet para preguntarle al asistente.');
+    expect(TEXTO_SIN_INTERNET).toBe(
+      'Necesitas internet para esto. Revisa tu conexión e inténtalo otra vez.',
+    );
     expect(f).toHaveBeenCalledTimes(1);
   });
 
@@ -419,23 +551,29 @@ describe('consultar', () => {
   });
 
   it('con poca confianza (e5) dice "No entendí" y no pide redacción ni muestra cifras', async () => {
+    // Sprint-14: sin intención clara se intenta la conversación; si ella no contesta, el aviso amable.
     const f = jest.fn(async () => json({ ...AYER, confianza: 0.4 }));
 
     const r = await consultar(comoFetch(f), URL_PRUEBA, '¿qué hace el clima?', CTX);
 
-    expect(r).toEqual({ tipo: 'noEntendi', texto: TEXTO_NO_ENTENDI });
-    expect(TEXTO_NO_ENTENDI).toBe('No entendí tu pregunta. Prueba con una de estas:');
-    expect(f).toHaveBeenCalledTimes(1);
+    expect(r).toEqual({ tipo: 'noEntendi', texto: TEXTO_CONVERSACION_NO_DISPONIBLE });
+    expect(TEXTO_NO_ENTENDI).toBe(
+      'No entendí la pregunta. Puedo ayudarte con tus ventas, cobros pendientes y productos. Prueba con una de estas:',
+    );
+    expect(llamadas(f).map(([, init]) => JSON.parse(init.body ?? '').tipo)).toEqual([
+      'interpretar',
+      'conversar',
+    ]);
     expect(JSON.stringify(r)).not.toMatch(/\d/);
   });
 
   it('una respuesta inválida del servidor es "No entendí"', async () => {
     const f = jest.fn(async () => json({ intencion: 'hackear' }));
 
-    const r = await consultar(comoFetch(f), URL_PRUEBA, 'hola', CTX);
+    const r = await consultar(comoFetch(f), URL_PRUEBA, 'cuéntame un chiste', CTX);
 
-    expect(r).toEqual({ tipo: 'noEntendi', texto: TEXTO_NO_ENTENDI });
-    expect(f).toHaveBeenCalledTimes(1);
+    expect(r).toEqual({ tipo: 'noEntendi', texto: TEXTO_CONVERSACION_NO_DISPONIBLE });
+    expect(f).toHaveBeenCalledTimes(2);
   });
 
   it('una pregunta que el clasificador reconoce como no entendida no pide redacción', async () => {
@@ -445,8 +583,10 @@ describe('consultar', () => {
 
     const r = await consultar(comoFetch(f), URL_PRUEBA, 'cuéntame un chiste', CTX);
 
-    expect(r).toEqual({ tipo: 'noEntendi', texto: TEXTO_NO_ENTENDI });
-    expect(f).toHaveBeenCalledTimes(1);
+    expect(r).toEqual({ tipo: 'noEntendi', texto: TEXTO_CONVERSACION_NO_DISPONIBLE });
+    expect(llamadas(f).map(([, init]) => JSON.parse(init.body ?? '').tipo)).not.toContain(
+      'redactar',
+    );
   });
 
   it('un texto vacío o larguísimo es "No entendí" y no sale ninguna petición', async () => {
@@ -483,6 +623,9 @@ describe('consultar', () => {
       tipo: 'sinInternet',
     });
     await expect(
+      consultar(comoFetch(f), URL_PRUEBA, 'cuéntame un chiste', CTX),
+    ).resolves.toMatchObject({ tipo: 'sinInternet' });
+    await expect(
       consultar(comoFetch(f), URL_PRUEBA, '¿cuánto vendí ayer?', CTX),
     ).resolves.toMatchObject({ tipo: 'respuesta', texto: FRASE_AYER, sinInternet: true });
   });
@@ -495,7 +638,7 @@ describe('consultar', () => {
     const segunda = await consultar(comoFetch(bien), URL_PRUEBA, '¿cuánto vendí ayer?', CTX);
 
     expect(primera.tipo).toBe('sinInternet');
-    expect(segunda).toMatchObject({ tipo: 'respuesta', redactada: false });
+    expect(segunda).toMatchObject({ tipo: 'respuesta', redactada: true });
   });
 
   it('ningún código ni mensaje técnico llega al texto de Freddy, por ningún camino', async () => {
@@ -507,13 +650,18 @@ describe('consultar', () => {
     ];
     const textos: string[] = [];
     for (const fallo of fallos) {
-      const r = await consultar(comoFetch(servidor(AYER, fallo)), URL_PRUEBA, 'hola', CTX);
+      const r = await consultar(
+        comoFetch(servidor(AYER, fallo)),
+        URL_PRUEBA,
+        '¿cuánto vendí ayer?',
+        CTX,
+      );
       textos.push(r.texto);
     }
     const sinRed = jest.fn(() => Promise.reject(new TypeError('Network request failed')));
     textos.push((await consultar(comoFetch(sinRed), URL_PRUEBA, 'hola', CTX)).texto);
     const dudosa = jest.fn(async () => json({ ...AYER, confianza: 0.1 }));
-    textos.push((await consultar(comoFetch(dudosa), URL_PRUEBA, 'hola', CTX)).texto);
+    textos.push((await consultar(comoFetch(dudosa), URL_PRUEBA, 'cuéntame un chiste', CTX)).texto);
     const invalida = jest.fn(async () => respuesta('{ roto'));
     textos.push((await consultar(comoFetch(invalida), URL_PRUEBA, 'hola', CTX)).texto);
 
@@ -666,10 +814,16 @@ describe('juzgarRespuesta', () => {
 describe('consultar con semáforo', () => {
   /** Un servidor que contesta según el tipo de la petición. */
   const servidor = (
-    contesta: Partial<Record<'interpretar' | 'redactar' | 'juzgar', () => Promise<Response>>>,
+    contesta: Partial<
+      Record<'interpretar' | 'redactar' | 'juzgar' | 'conversar', () => Promise<Response>>
+    >,
   ) =>
     jest.fn(async (_url: string, init: { body?: string }) => {
-      const tipo = JSON.parse(init.body ?? '{}').tipo as 'interpretar' | 'redactar' | 'juzgar';
+      const tipo = JSON.parse(init.body ?? '{}').tipo as
+        | 'interpretar'
+        | 'redactar'
+        | 'juzgar'
+        | 'conversar';
       const camino = contesta[tipo];
       if (camino === undefined) throw new Error(`no se esperaba ${tipo}`);
       return camino();
@@ -679,7 +833,7 @@ describe('consultar con semáforo', () => {
   const interpreta = async () => json(CICLO);
   const redacta = async () => json({ texto: REDACCION_CICLO });
 
-  it('en una intención juzgable pide juicio y muestra la frase fija', async () => {
+  it('en una intención juzgable pide la redacción y el juicio, y muestra ambos', async () => {
     const f = servidor({
       interpretar: interpreta,
       redactar: redacta,
@@ -695,14 +849,14 @@ describe('consultar con semáforo', () => {
 
     expect(r).toMatchObject({
       tipo: 'respuesta',
-      texto: FRASE_CICLO,
+      texto: REDACCION_CICLO,
       frase: FRASE_CICLO,
-      redactada: false,
+      redactada: true,
       semaforo: 'ojo',
     });
-    expect(f).toHaveBeenCalledTimes(2);
+    expect(f).toHaveBeenCalledTimes(3);
     expect(tiposDe(f)[0]).toBe('interpretar');
-    expect(tiposDe(f).slice(1)).toEqual(['juzgar']);
+    expect(tiposDe(f).slice(1).sort()).toEqual(['juzgar', 'redactar']);
     // Lo que se manda a juzgar sale del dominio: la frase, las cifras y las señales con nombre.
     const juicio = llamadas(f)
       .map(([, init]) => JSON.parse(init.body ?? '{}'))
@@ -715,7 +869,7 @@ describe('consultar con semáforo', () => {
     });
   });
 
-  it('pide solo el juicio después de clasificar', async () => {
+  it('pide la redacción y el juicio a la vez, después de clasificar', async () => {
     let enVuelo = 0;
     let maximo = 0;
     const lento = (cuerpo: unknown) => async () => {
@@ -731,9 +885,10 @@ describe('consultar con semáforo', () => {
       juzgar: lento(JUICIO),
     });
 
-    await consultar(comoFetch(f), URL_PRUEBA, 'hola', CTX_CICLO);
+    await consultar(comoFetch(f), URL_PRUEBA, '¿cómo voy contra el ciclo pasado?', CTX_CICLO);
 
-    expect(maximo).toBe(1);
+    // La clasificación va sola (1); la redacción y el juicio van juntos (2).
+    expect(maximo).toBe(2);
   });
 
   it('si el juicio falla, tarda, o su confianza es menor a 0.6, sale igual sin semáforo ni mensaje técnico', async () => {
@@ -746,8 +901,13 @@ describe('consultar con semáforo', () => {
     ];
     for (const juzgar of fallos) {
       const f = servidor({ interpretar: interpreta, redactar: redacta, juzgar });
-      const r = await consultar(comoFetch(f), URL_PRUEBA, 'hola', CTX_CICLO);
-      expect(r).toMatchObject({ tipo: 'respuesta', texto: FRASE_CICLO, redactada: false });
+      const r = await consultar(
+        comoFetch(f),
+        URL_PRUEBA,
+        '¿cómo voy contra el ciclo pasado?',
+        CTX_CICLO,
+      );
+      expect(r).toMatchObject({ tipo: 'respuesta', texto: REDACCION_CICLO, redactada: true });
       expect(r).not.toHaveProperty('semaforo');
       expect(JSON.stringify(r)).not.toMatch(TECNICO);
     }
@@ -760,7 +920,12 @@ describe('consultar con semáforo', () => {
       juzgar: async () => json(JUICIO),
     });
 
-    const r = await consultar(comoFetch(f), URL_PRUEBA, 'hola', CTX_CICLO);
+    const r = await consultar(
+      comoFetch(f),
+      URL_PRUEBA,
+      '¿cómo voy contra el ciclo pasado?',
+      CTX_CICLO,
+    );
 
     expect(r).toMatchObject({ texto: FRASE_CICLO, redactada: false, semaforo: 'ojo' });
   });
@@ -768,19 +933,31 @@ describe('consultar con semáforo', () => {
   it('si el juicio no llega a 8 segundos, la respuesta sale igual sin semáforo', async () => {
     jest.useFakeTimers();
     const lento = colgado();
-    const f = jest
-      .fn()
-      .mockResolvedValueOnce(json(CICLO))
-      .mockImplementationOnce((url: unknown, init?: { signal?: AbortSignal }) => lento(url, init));
+    // La clasificación y la redacción contestan; el juicio se cuelga.
+    const f = jest.fn((url: string, init: { body?: string; signal?: AbortSignal }) => {
+      const tipo = JSON.parse(init.body ?? '{}').tipo;
+      if (tipo === 'interpretar') return Promise.resolve(json(CICLO));
+      if (tipo === 'redactar') return Promise.resolve(json({ texto: REDACCION_CICLO }));
+      return lento(url, init);
+    });
     let resultado: unknown;
-    const pendiente = consultar(comoFetch(f), URL_PRUEBA, 'hola', CTX_CICLO).then(r => {
+    const pendiente = consultar(
+      comoFetch(f),
+      URL_PRUEBA,
+      '¿cómo voy contra el ciclo pasado?',
+      CTX_CICLO,
+    ).then(r => {
       resultado = r;
     });
 
     await jest.advanceTimersByTimeAsync(8000);
     await pendiente;
 
-    expect(resultado).toMatchObject({ tipo: 'respuesta', texto: FRASE_CICLO, redactada: false });
+    expect(resultado).toMatchObject({
+      tipo: 'respuesta',
+      texto: REDACCION_CICLO,
+      redactada: true,
+    });
     expect(resultado).not.toHaveProperty('semaforo');
   });
 
@@ -792,16 +969,21 @@ describe('consultar con semáforo', () => {
 
     const r = await consultar(comoFetch(f), URL_PRUEBA, '¿cuánto vendí ayer?', CTX);
 
-    expect(r).toMatchObject({ tipo: 'respuesta', redactada: false });
+    expect(r).toMatchObject({ tipo: 'respuesta', redactada: true });
     expect(r).not.toHaveProperty('semaforo');
-    expect(tiposDe(f)).toEqual(['interpretar']);
+    expect(tiposDe(f)).toEqual(['interpretar', 'redactar']);
   });
 
   it('una respuesta juzgable sin datos ("todavía no…") no pide ni redactar ni juzgar', async () => {
     const f = servidor({ interpretar: interpreta });
     const sinCiclos: ContextoAnalisis = { cierres: [], productos: [], hoy: HOY };
 
-    const r = await consultar(comoFetch(f), URL_PRUEBA, 'hola', sinCiclos);
+    const r = await consultar(
+      comoFetch(f),
+      URL_PRUEBA,
+      '¿cómo voy contra el ciclo pasado?',
+      sinCiclos,
+    );
 
     expect(r).toMatchObject({ tipo: 'respuesta', redactada: false });
     expect(r).not.toHaveProperty('semaforo');
@@ -809,11 +991,20 @@ describe('consultar con semáforo', () => {
   });
 
   it('si la redacción es válida pero la intención no se pudo interpretar, no se juzga nada', async () => {
-    const f = servidor({ interpretar: async () => json({ ...CICLO, confianza: 0.2 }) });
+    // Sprint-14: sin intención clara va la conversación (que aquí no contesta); nunca el juicio.
+    const f = servidor({
+      interpretar: async () => json({ ...CICLO, confianza: 0.2 }),
+      conversar: async () => json({ error: 'NO_DISPONIBLE' }, false, 502),
+    });
 
-    const r = await consultar(comoFetch(f), URL_PRUEBA, 'hola', CTX_CICLO);
+    const r = await consultar(
+      comoFetch(f),
+      URL_PRUEBA,
+      '¿cómo voy contra el ciclo pasado?',
+      CTX_CICLO,
+    );
 
-    expect(r).toEqual({ tipo: 'noEntendi', texto: TEXTO_NO_ENTENDI });
-    expect(tiposDe(f)).toEqual(['interpretar']);
+    expect(r).toEqual({ tipo: 'noEntendi', texto: TEXTO_CONVERSACION_NO_DISPONIBLE });
+    expect(tiposDe(f)).toEqual(['interpretar', 'conversar']);
   });
 });

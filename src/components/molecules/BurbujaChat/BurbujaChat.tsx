@@ -6,7 +6,7 @@
 // oscuro sobre ese fondo: el naranja nunca es color de texto (UX, regla 5).
 import React, { useEffect, useRef } from 'react';
 import { Animated, StyleSheet, View } from 'react-native';
-import { CircleCheck, Siren, TriangleAlert, type LucideIcon } from 'lucide-react-native';
+import { CircleCheck, Siren, TriangleAlert, WifiOff, type LucideIcon } from 'lucide-react-native';
 import { colors, radius, spacing } from '@theme';
 import { Text } from '@components/atoms/Text';
 import { Icon } from '@components/atoms/Icon';
@@ -42,13 +42,14 @@ export interface BurbujaChatProps {
   semaforo?: Semaforo;
   /** Un aviso de falla (sin internet, muchas preguntas…): otro tono, un ícono y la palabra "Aviso". */
   error?: boolean;
-  /** Se respondió con la clasificación del teléfono, sin red: lleva una notita visible. */
+  /** Se respondió en el teléfono, sin red: lleva la etiqueta "Sin internet" (palabra, ícono y borde punteado). */
   sinInternet?: boolean;
   /** El de la burbuja; el texto, la palabra y el símbolo llevan este mismo con un sufijo. */
   testID: string;
 }
 
-export const TEXTO_SIN_INTERNET_NOTA = 'Respondí sin internet';
+/** La etiqueta de una respuesta dada sin internet. */
+export const TEXTO_SIN_INTERNET_NOTA = 'Sin internet';
 
 export const BurbujaChat = ({
   autor,
@@ -79,6 +80,7 @@ export const BurbujaChat = ({
         styles.burbuja,
         esPregunta ? styles.pregunta : styles.respuesta,
         (estilo || error) && styles.conSemaforo,
+        sinInternet && !esPregunta && styles.respuestaSinInternet,
         error && styles.error,
         estilo && { backgroundColor: estilo.fondo, borderLeftColor: colors[estilo.fuerte] },
       ]}
@@ -106,9 +108,12 @@ export const BurbujaChat = ({
       ) : null}
       <Text testID={`${testID}-texto`}>{texto}</Text>
       {sinInternet && !esPregunta ? (
-        <Text variant="caption" color="textMuted" testID={`${testID}-sin-internet`}>
-          {TEXTO_SIN_INTERNET_NOTA}
-        </Text>
+        <View style={styles.etiquetaSinInternet} testID={`${testID}-etiqueta-sin-internet`}>
+          <Icon icon={WifiOff} color="text" size="md" />
+          <Text variant="bodySmall" testID={`${testID}-sin-internet`}>
+            {TEXTO_SIN_INTERNET_NOTA}
+          </Text>
+        </View>
       ) : null}
     </View>
   );
@@ -131,7 +136,24 @@ const styles = StyleSheet.create({
   },
   conSemaforo: { borderLeftWidth: 4 },
   // Una falla no es una respuesta: fondo rojo suave y borde rojo, con letra oscura.
-  error: { backgroundColor: colors.dangerSoft, borderLeftColor: colors.danger, borderColor: colors.dangerSoft },
+  error: {
+    backgroundColor: colors.dangerSoft,
+    borderLeftColor: colors.danger,
+    borderColor: colors.dangerSoft,
+  },
+  // Sin internet: borde punteado y una etiqueta con palabra e ícono; el color nunca va solo.
+  respuestaSinInternet: { borderStyle: 'dashed', borderColor: colors.textMuted },
+  etiquetaSinInternet: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: spacing.xs,
+    borderWidth: 1,
+    borderColor: colors.textMuted,
+    borderRadius: radius.full,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
   puntos: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 26 },
   punto: { width: 10, height: 10, borderRadius: radius.full, backgroundColor: colors.textMuted },
   semaforo: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
@@ -145,7 +167,7 @@ const PASO_MS = 300;
  * visible (el lector de pantalla oye "El asistente está pensando"). Con "Reducir movimiento" los
  * puntos quedan quietos.
  */
-export const BurbujaPensando = ({ testID }: { testID: string }) => {
+export const BurbujaPensando = ({ testID, texto }: { testID: string; texto?: string }) => {
   const opacidades = useRef(PUNTOS.map(() => new Animated.Value(0.35))).current;
 
   useEffect(() => {
@@ -184,6 +206,11 @@ export const BurbujaPensando = ({ testID }: { testID: string }) => {
       {opacidades.map((opacidad, i) => (
         <Animated.View key={i} style={[styles.punto, { opacity: opacidad }]} />
       ))}
+      {texto ? (
+        <Text variant="bodySmall" color="textMuted" testID={`${testID}-texto`}>
+          {texto}
+        </Text>
+      ) : null}
     </View>
   );
 };

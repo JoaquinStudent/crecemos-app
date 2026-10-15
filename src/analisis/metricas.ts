@@ -95,9 +95,9 @@ export const insight = (g: GananciaProducto[]): string | null => {
   const vendido = masVendido.nombre.toLowerCase();
   const deja = masDeja.nombre.toLowerCase();
   const inicio = `${articulo(vendido)} ${vendido}`;
-  return `${inicio.charAt(0).toUpperCase()}${inicio.slice(1)} se vende más, pero ${articulo(deja)} ${deja} te deja ${formatoSoles(
-    diferencia,
-  )} más por cada uno.`;
+  return `${inicio.charAt(0).toUpperCase()}${inicio.slice(1)} se vende más, pero ${articulo(
+    deja,
+  )} ${deja} te deja ${formatoSoles(diferencia)} más por cada uno.`;
 };
 
 /**
@@ -110,4 +110,22 @@ export const compararCiclos = (actual: ResumenCiclo, anterior: ResumenCiclo): st
   return `Resultado registrado ${formatoSoles(Math.abs(diferencia))} ${
     diferencia > 0 ? 'más' : 'menos'
   } que el ciclo pasado`;
+};
+
+/**
+ * Lo que se vendió en soles por producto desde `desde` (inclusive): Σ vendidas × precio copiado en
+ * cada línea (D2). Complementa a `gananciaPorProducto`, que da porciones y ganancia. No muta la entrada.
+ */
+export const ventaPorProducto = (cierres: Cierre[], desde: FechaNegocio): Map<string, number> => {
+  const venta = new Map<string, number>();
+  for (const cierre of cierres) {
+    if (cierre.fecha < desde) continue;
+    for (const l of cierre.lineas) {
+      venta.set(
+        l.productoId,
+        (venta.get(l.productoId) ?? 0) + vendidas(l.preparadas, l.sobrantes) * l.precioUnitario,
+      );
+    }
+  }
+  return new Map([...venta].map(([id, soles]) => [id, redondearSoles(soles)]));
 };

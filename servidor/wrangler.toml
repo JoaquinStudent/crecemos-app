@@ -10,17 +10,20 @@ workers_dev = true
 # Jev, por la API tipada de OpenRouter (/api/v1/systemone). `jev-latest` es el alias del Jev más nuevo;
 # `jev-1.13` fija una versión. Si Jev falla o responde algo inválido, clasifica DeepSeek.
 JEV_MODELO = "jev-latest"
-# Respaldo para clasificar (chat de OpenRouter) y único que redacta.
+# Respaldo y segundo intento al clasificar (chat de OpenRouter), y el que redacta las respuestas
+# (`redactar`) y conversa (`conversar`).
 DEEPSEEK_MODELO = "deepseek/deepseek-v4-flash"
 # Proveedores de EE. UU. permitidos para DeepSeek (nombres de OpenRouter, separados por comas).
 DEEPSEEK_PROVEEDORES = "deepinfra,parasail,cloudflare,digitalocean"
 
-# Límite por IP: 20 peticiones por minuto en cada ubicación de Cloudflare (period solo admite 10 o 60).
+# Límite por IP: 40 peticiones por minuto en cada ubicación de Cloudflare (period solo admite 10 o 60).
+# Una pregunta del chat gasta hasta 3 peticiones (interpretar, y a la vez redactar y juzgar): unas 13
+# preguntas por minuto por IP. Antes eran 20 por minuto, cuando una pregunta gastaba 1 o 2.
 # Requiere Wrangler 4.36.0 o más nuevo. `namespace_id` es un número que elegimos y debe ser único en la cuenta.
 [[ratelimits]]
 name = "LIMITE"
 namespace_id = "48210"
 
   [ratelimits.simple]
-  limit = 20
+  limit = 40
   period = 60

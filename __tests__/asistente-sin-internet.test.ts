@@ -1,7 +1,9 @@
 /**
- * El asistente en modo avión: con la red caída, las 12 intenciones se clasifican en el teléfono y se
- * responden con las mismas frases de siempre, sin juicio y con la nota "Respondí sin internet".
- * Nada sale del teléfono más que el intento que falló, y nunca un monto del Yape.
+ * El asistente en modo avión: con la red caída, solo se responden las preguntas predefinidas (las 13
+ * intenciones que el código calcula, con una coincidencia clara): se clasifican en el teléfono y se
+ * responden con las mismas frases de siempre, sin juicio y con la etiqueta "Sin internet". Todo lo
+ * demás (charla, preguntas raras, seguimientos del hilo) dice "Necesitas internet para esto" y ofrece
+ * las sugeridas. Nada sale del teléfono más que el intento que falló, y nunca un monto del Yape.
  */
 
 import { readFileSync } from 'fs';
@@ -130,7 +132,7 @@ describe('modo avión: las 12 intenciones', () => {
     const r = await consultar(comoFetch(caida), URL_PRUEBA, 'cuéntame un chiste', CTX);
     expect(r).toEqual({
       tipo: 'sinInternet',
-      texto: 'Sin internet no pude entender tu pregunta. Prueba con una de estas:',
+      texto: 'Necesitas internet para esto. Revisa tu conexión e inténtalo otra vez.',
       sugeridas: PREGUNTAS_SUGERIDAS.slice(0, 3),
     });
     expect((r as { sugeridas: string[] }).sugeridas).toHaveLength(3);
@@ -138,6 +140,8 @@ describe('modo avión: las 12 intenciones', () => {
   });
 
   it('la respuesta sin internet sigue el hilo: «¿y ayer?» hereda la intención de la pregunta anterior', async () => {
+    // Sprint-14: sin internet el hilo no se sigue. Una frase suelta como «¿y ayer?» no es una pregunta
+    // predefinida: pide internet y ofrece las sugeridas. La pregunta completa sí se responde.
     const primera = await consultar(comoFetch(sinRed()), URL_PRUEBA, '¿cuánto vendí hoy?', CTX);
     if (primera.tipo !== 'respuesta') throw new Error('se esperaba una respuesta');
     const segunda = await consultar(
@@ -147,7 +151,19 @@ describe('modo avión: las 12 intenciones', () => {
       CTX,
       primera.consulta,
     );
-    expect(segunda).toMatchObject({
+    expect(segunda).toEqual({
+      tipo: 'sinInternet',
+      texto: 'Necesitas internet para esto. Revisa tu conexión e inténtalo otra vez.',
+      sugeridas: PREGUNTAS_SUGERIDAS.slice(0, 3),
+    });
+    const completa = await consultar(
+      comoFetch(sinRed()),
+      URL_PRUEBA,
+      '¿cuánto vendí ayer?',
+      CTX,
+      primera.consulta,
+    );
+    expect(completa).toMatchObject({
       tipo: 'respuesta',
       sinInternet: true,
       consulta: { intencion: 'ventaDelDia', dia: 'ayer' },
@@ -155,6 +171,8 @@ describe('modo avión: las 12 intenciones', () => {
   });
 
   it('un producto del catálogo se reconoce en el teléfono: «¿y de la pancita?» sigue «cuánto preparo»', async () => {
+    // Sprint-14: el seguimiento «¿y de la pancita?» necesita internet; la pregunta completa con el
+    // producto se responde en el teléfono con el mismo catálogo.
     const primera = await consultar(
       comoFetch(sinRed()),
       URL_PRUEBA,
@@ -162,15 +180,23 @@ describe('modo avión: las 12 intenciones', () => {
       CTX,
     );
     if (primera.tipo !== 'respuesta') throw new Error('se esperaba una respuesta');
-    const segunda = await consultar(
+    const seguimiento = await consultar(
       comoFetch(sinRed()),
       URL_PRUEBA,
       '¿y de la pancita?',
       CTX,
       primera.consulta,
     );
-    expect(segunda).toMatchObject({
+    expect(seguimiento.tipo).toBe('sinInternet');
+    const completa = await consultar(
+      comoFetch(sinRed()),
+      URL_PRUEBA,
+      '¿cuánto debo preparar de pancita?',
+      CTX,
+    );
+    expect(completa).toMatchObject({
       tipo: 'respuesta',
+      sinInternet: true,
       consulta: { intencion: 'cuantoPreparar', producto: 'p-pancita' },
     });
   });

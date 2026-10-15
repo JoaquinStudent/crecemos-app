@@ -580,7 +580,7 @@ describe('SPEC-13: El chat entiende el mes y Jev tiene un segundo intento', () =
   it('spec13_e15 e2e como me fue el mes pasado ya no dice no te entendi', async () => {
     // Given: los cierres de septiembre y agosto, y un servidor que entiende "resumen del mes pasado"
     // When: se pregunta "cómo me fue el mes pasado" por el camino completo del chat
-    // Then: la frase del mes, sin semáforo, con una sola petición (solo el tipo y el texto); sin red, la frase marcada
+    // Then: la frase del mes, sin semáforo, con la petición de interpretar (solo el tipo y el texto) y, desde el Sprint-14, la de redactar (que aquí no sirve y deja la frase fija); sin red, la frase marcada
     reiniciarEstadoDeRed();
     const ctx = ctxDe([...SEPTIEMBRE, ...AGOSTO], HOY);
     const servidor = jest.fn(async () => ({
@@ -608,12 +608,16 @@ describe('SPEC-13: El chat entiende el mes y Jev tiene un segundo intento', () =
     expect(respuesta.semaforo).toBeUndefined();
     expect(respuesta.redactada).toBe(false);
     expect(respuesta.consulta.intencion).toBe('resumenMesPasado');
-    expect(servidor).toHaveBeenCalledTimes(1);
+    // Sprint-14: el mes lleva cifras, así que además de interpretar se pide la redacción (este servidor
+    // contesta siempre la clasificación, que no es una redacción: sale la frase fija). Nunca se juzga.
+    expect(servidor).toHaveBeenCalledTimes(2);
     const [, init] = servidor.mock.calls[0] as unknown as [string, { body: string }];
     expect(JSON.parse(init.body)).toEqual({
       tipo: 'interpretar',
       texto: 'cómo me fue el mes pasado',
     });
+    const [, segunda] = servidor.mock.calls[1] as unknown as [string, { body: string }];
+    expect(JSON.parse(segunda.body).tipo).toBe('redactar');
 
     // Sin red, el teléfono lo entiende y responde la misma frase, avisando que fue sin internet.
     reiniciarEstadoDeRed();
@@ -668,10 +672,11 @@ describe('SPEC-13: El chat entiende el mes y Jev tiene un segundo intento', () =
         expect(r.consulta.dia).toBe('ninguno');
         expect(r.consulta.producto).toBeUndefined();
         expect(r.semaforo).toBeUndefined();
-        expect(servidor).toHaveBeenCalledTimes(1);
-        expect(JSON.parse((servidor.mock.calls[0] as unknown as [string, { body: string }])[1].body).tipo).toBe(
-          'interpretar',
+        // Interpretar y redactar (Sprint-14); ninguna petición para juzgar.
+        const tipos = (servidor.mock.calls as unknown as Array<[string, { body: string }]>).map(
+          c => JSON.parse(c[1].body).tipo,
         );
+        expect(tipos).toEqual(['interpretar', 'redactar']);
       }
     }
     for (const id of ['resumenMesPasado', 'resumenMesActual'] as IntencionId[]) {
