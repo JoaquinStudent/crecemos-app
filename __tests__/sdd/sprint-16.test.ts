@@ -33,6 +33,7 @@ import {
 import type { Cierre, Perfil, Producto } from '@dominio/tipos';
 import worker, {
   DIAS_DE_VIDA_DEL_ENLACE,
+  LIMITE_DIARIO_POR_IP,
   LIMITE_DIARIO_SUBIDAS,
   MAX_CUERPO_BYTES_SUBIDA,
   MAX_PDF_BYTES,
@@ -431,14 +432,17 @@ describe('Sprint-16 · el Worker reserva, guarda y sirve el reporte', () => {
   it('spec16_e50 la reserva 101 del dia da 503 LIMITE_DIARIO aunque no se haya subido nada', async () => {
     // Given: 100 reservas hechas hoy, ninguna con archivo
     const REPORTES = r2Falso();
+    // (desde 10 IP distintas: una sola IP tiene su propio tope diario)
+    const reservarDesde = (ip: string) =>
+      worker.fetch(post({ tipo: 'reservarReporte' }, { 'cf-connecting-ip': ip }), { REPORTES });
     for (let n = 0; n < LIMITE_DIARIO_SUBIDAS; n += 1) {
-      expect((await reservar(REPORTES)).status).toBe(200);
+      expect((await reservarDesde(`10.0.0.${n % 10}`)).status).toBe(200);
     }
     const reservas = [...REPORTES.objetos.keys()].filter(k => k.startsWith('reservas/'));
     expect(reservas).toHaveLength(LIMITE_DIARIO_SUBIDAS);
     expect([...REPORTES.objetos.keys()].some(k => k.startsWith('r/'))).toBe(false);
     // When: llega la 101.ª
-    const r = await reservar(REPORTES);
+    const r = await reservarDesde('10.0.0.77');
     // Then: 503 LIMITE_DIARIO sin detalles y no se crea ninguna reserva más
     expect([r.status, await r.text()]).toEqual([503, '{"error":"LIMITE_DIARIO"}']);
     expect([...REPORTES.objetos.keys()].filter(k => k.startsWith('reservas/'))).toHaveLength(
@@ -474,16 +478,18 @@ describe('Sprint-16 · el Worker reserva, guarda y sirve el reporte', () => {
     const c = await desde('3.3.3.3', { tipo: 'reservarReporte' });
     const d = await desde('4.4.4.4', { tipo: 'borrarReporte', id: a.id, token: a.token });
     const e = await desde('5.5.5.5', { tipo: 'subirReporte', id: a.id, pdf: PDF });
-    // Then: las dos primeras pasan; reservar, borrar y subir después de agotarse dan 429, aunque cada IP esté dentro
+    // Then: las dos primeras pasan; reservar y subir después de agotarse dan 429, aunque cada IP esté dentro.
+    // Borrar NO usa el límite global (ver spec16_e52): con el token correcto borra aunque el global esté agotado.
     expect(b.status).toBe(200);
-    for (const r of [c, d, e]) {
+    expect([d.status, await d.text()]).toEqual([200, '{"ok":true}']);
+    for (const r of [c, e]) {
       expect([r.status, await r.text()]).toEqual([429, '{"error":"DEMASIADAS_PETICIONES"}']);
     }
     // And: el global se consulta con una clave fija, no con la IP; el de IP, con la IP
     expect(global.mock.calls.every(([x]) => x.key === 'global')).toBe(true);
-    expect(porIp.mock.calls.map(([x]) => x.key)).toEqual(['1.1.1.1', '2.2.2.2', '3.3.3.3', '4.4.4.4', '5.5.5.5']);
-    // And: lo rechazado no gastó cupo del día ni borró nada
-    expect(REPORTES.objetos.has(`r/${a.id}`)).toBe(true);
+    expect(porIp.mock.calls.map(([x]) => x.key)).toEqual(['1.1.1.1', '2.2.2.2', '3.3.3.3', '5.5.5.5']);
+    // And: lo rechazado no gastó cupo del día
+    expect(REPORTES.objetos.has(`r/${a.id}`)).toBe(false); // (lo borró d, con su token)
     expect([...REPORTES.objetos.keys()].filter(k => k.startsWith('reservas/'))).toHaveLength(0);
     // And: la configuración declara el binding global
     const toml = leer('servidor/wrangler.toml');
@@ -493,6 +499,90 @@ describe('Sprint-16 · el Worker reserva, guarda y sirve el reporte', () => {
     global.mockClear();
     await worker.fetch(pedir(a.id), env);
     expect(global).not.toHaveBeenCalled();
+  });
+
+  // @spec16_e52 — Borrar no depende del límite global ni del tope diario
+  it('spec16_e52 borrar funciona aunque el limite global y el tope diario esten agotados y solo lo autoriza el token', async () => {
+    // Given: un reporte subido, el límite global rechazando todo y el tope diario en el máximo
+    const REPORTES = r2Falso();
+    const { id, token } = await creadoConToken(REPORTES);
+    const otro = await creadoConToken(REPORTES);
+    const hoyUtc = new Date().toISOString().slice(0, 10);
+    await REPORTES.put(`contadores/${hoyUtc}`, String(LIMITE_DIARIO_SUBIDAS + 5));
+    const global = jest.fn().mockResolvedValue({ success: false });
+    const env = { LIMITE_GLOBAL_SUBIDA: { limit: global } };
+    // When: se crea (reservar) y se borra con un token falso y con el bueno
+    const reservarNegado = await reservar(REPORTES, env);
+    const falso = await borrar(REPORTES, id, 'c'.repeat(32), env);
+    const bueno = await borrar(REPORTES, id, token, env);
+    // Then: crear se rechaza (429), pero borrar responde lo de siempre y con el token bueno borra
+    expect(reservarNegado.status).toBe(429);
+    expect([falso.status, await falso.text()]).toEqual([200, '{"ok":true}']);
+    expect([bueno.status, await bueno.text()]).toEqual([200, '{"ok":true}']);
+    expect(REPORTES.objetos.has(`r/${id}`)).toBe(false);
+    // And: borrar nunca consultó el límite global (solo la reserva lo hizo, y una vez)
+    expect(global).toHaveBeenCalledTimes(1);
+    // And: un enlace vigente sigue abriéndose con el global y el tope agotados
+    expect((await worker.fetch(pedir(otro.id), { REPORTES, ...env })).status).toBe(200);
+  });
+
+  // @spec16_e53 — Borrar sigue limitado por IP, con su propio binding
+  it('spec16_e53 borrar sigue limitado por IP con su propio binding y el token es lo unico que autoriza', async () => {
+    const REPORTES = r2Falso();
+    const { id, token } = await creadoConToken(REPORTES);
+    // Given: un límite de borrar por IP que se agota a la tercera, y el estricto de crear rechazando todo
+    const borrarPorIp = jest
+      .fn()
+      .mockResolvedValueOnce({ success: true })
+      .mockResolvedValueOnce({ success: true })
+      .mockResolvedValue({ success: false });
+    const crear = jest.fn().mockResolvedValue({ success: false });
+    const env = { LIMITE_BORRAR: { limit: borrarPorIp }, LIMITE_SUBIDA: { limit: crear } };
+    // When: se borra tres veces desde la misma IP
+    const r1 = await borrar(REPORTES, id, 'c'.repeat(32), env);
+    const r2 = await borrar(REPORTES, id, 'd'.repeat(32), env);
+    const r3 = await borrar(REPORTES, id, token, env);
+    // Then: las dos primeras (token falso) no borran; la tercera, aunque trae el token bueno, recibe 429 por IP
+    expect(r1.status).toBe(200);
+    expect(r2.status).toBe(200);
+    expect([r3.status, await r3.text()]).toEqual([429, '{"error":"DEMASIADAS_PETICIONES"}']);
+    expect(REPORTES.objetos.has(`r/${id}`)).toBe(true);
+    expect(borrarPorIp.mock.calls.every(([x]) => x.key === 'desconocida')).toBe(true);
+    // And: borrar no usa el límite de crear
+    expect(crear).not.toHaveBeenCalled();
+    // And: la configuración declara LIMITE_BORRAR, más holgado que el de crear
+    const toml = leer('servidor/wrangler.toml');
+    const limites = Object.fromEntries(
+      [...toml.matchAll(/name = "(\w+)"[\s\S]*?limit = (\d+)/g)].map(m => [m[1], Number(m[2])]),
+    );
+    expect(limites.LIMITE_BORRAR).toBeGreaterThan(limites.LIMITE_SUBIDA);
+    expect(toml).toMatch(/namespace_id = "48213"/);
+  });
+
+  // @spec16_e54 — Una sola IP no puede gastarse todo el cupo diario
+  it('spec16_e54 una sola IP tiene su propio tope diario de reservas y su IP no se guarda en claro', async () => {
+    // Given: una IP que reserva sin parar y otra distinta
+    const REPORTES = r2Falso();
+    const desde = (ip: string) =>
+      worker.fetch(post({ tipo: 'reservarReporte' }, { 'cf-connecting-ip': ip }), { REPORTES });
+    expect(LIMITE_DIARIO_POR_IP).toBe(20);
+    for (let n = 0; n < LIMITE_DIARIO_POR_IP; n += 1) expect((await desde('203.0.113.9')).status).toBe(200);
+    // When: la misma IP hace la siguiente, y otra IP hace la suya
+    const sobra = await desde('203.0.113.9');
+    const otra = await desde('198.51.100.7');
+    // Then: la primera recibe 503 LIMITE_DIARIO (mismo mensaje amable); la otra sigue pudiendo crear
+    expect([sobra.status, await sobra.text()]).toEqual([503, '{"error":"LIMITE_DIARIO"}']);
+    expect(otra.status).toBe(200);
+    // And: el cupo global solo contó las 21 reservas que sí se hicieron
+    const hoyUtc = new Date().toISOString().slice(0, 10);
+    expect(Buffer.from(REPORTES.objetos.get(`contadores/${hoyUtc}`)!.bytes).toString()).toBe('21');
+    // And: la IP no aparece en claro en ninguna llave ni valor guardados
+    const todo = JSON.stringify(
+      [...REPORTES.objetos.entries()].map(([k, o]) => [k, Buffer.from(o.bytes).toString(), o.opciones]),
+    );
+    expect(todo).not.toContain('203.0.113.9');
+    expect(todo).not.toContain('198.51.100.7');
+    expect([...REPORTES.objetos.keys()].filter(k => k.startsWith('contadores/ip-'))).toHaveLength(2);
   });
 });
 
@@ -653,9 +743,9 @@ describe('Sprint-16 · el Worker borra con el token', () => {
     for (const r of respuestas) expect([r.status, await r.text()]).toEqual([200, '{"ok":true}']);
     expect(REPORTES.objetos.has(`r/${id}`)).toBe(true);
     expect(REPORTES.objetos.has(`r/${otro.id}`)).toBe(true);
-    // And: el límite estricto por IP también aplica a borrar
+    // And: borrar tiene su propio límite por IP (LIMITE_BORRAR)
     const limit = jest.fn().mockResolvedValue({ success: false });
-    const limitado = await borrar(REPORTES, id, token, { LIMITE_SUBIDA: { limit } });
+    const limitado = await borrar(REPORTES, id, token, { LIMITE_BORRAR: { limit } });
     expect([limitado.status, await limitado.text()]).toEqual([429, '{"error":"DEMASIADAS_PETICIONES"}']);
     expect(REPORTES.objetos.has(`r/${id}`)).toBe(true);
   });

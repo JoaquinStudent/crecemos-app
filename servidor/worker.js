@@ -42,6 +42,9 @@ export const MAX_CUERPO_BYTES_SUBIDA = 600000;
 // archivos públicos sin cuentas tiene que tener un techo de gasto aunque alguien reparta las peticiones
 // entre muchas IP. Es APROXIMADO: ver `reservasDeHoy`.
 export const LIMITE_DIARIO_SUBIDAS = 100;
+// Tope de reservas por IP dentro de cada día: una sola IP no puede gastarse todo el cupo diario. La IP no se
+// guarda en claro: el contador vive bajo un hash de la IP y la fecha. Igual de aproximado que el contador global.
+export const LIMITE_DIARIO_POR_IP = 20;
 // Clave fija del límite global por minuto (no por IP).
 const CLAVE_LIMITE_GLOBAL = 'global';
 // Una reserva que nadie usa vence a los 15 minutos.
@@ -950,14 +953,39 @@ const contarReservaDeHoy = async (REPORTES, antes) => {
 
 const topeDiario = () => error('LIMITE_DIARIO', 503);
 
+/** La llave del contador de reservas de ESTA IP hoy: un hash de la IP y la fecha, nunca la IP en claro. */
+const llaveContadorDeIp = async request => {
+  const ip = request.headers.get('cf-connecting-ip') || 'desconocida';
+  const huella = (await hashHex(`${ip}|${fechaUtc()}`)).slice(0, 16);
+  return `${PREFIJO_CONTADOR}ip-${huella}`;
+};
+
+const leerContador = async (REPORTES, llave) => {
+  try {
+    const objeto = await REPORTES.get(llave);
+    const n = objeto ? Number.parseInt(await new Response(objeto.body).text(), 10) : 0;
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  } catch {
+    return 0;
+  }
+};
+
 /** `{ tipo: 'reservarReporte' }` -> `{ id, url, caduca }`: el id y el enlace definitivos, sin archivo todavía. */
 const reservarReporte = async (request, env) => {
   if (!env.REPORTES || typeof env.REPORTES.put !== 'function') return error('NO_CONFIGURADO', 500);
   if (!(await dentroDeLosLimites(env, request))) return error('DEMASIADAS_PETICIONES', 429);
   // Cada reserva consume un cupo del día: se cuenta AQUÍ, no al subir.
+  const llaveIp = await llaveContadorDeIp(request);
+  const deEstaIp = await leerContador(env.REPORTES, llaveIp);
+  if (deEstaIp >= LIMITE_DIARIO_POR_IP) return topeDiario();
   const hechas = await reservasDeHoy(env.REPORTES);
   if (hechas >= LIMITE_DIARIO_SUBIDAS) return topeDiario();
   await contarReservaDeHoy(env.REPORTES, hechas);
+  try {
+    await env.REPORTES.put(llaveIp, String(deEstaIp + 1));
+  } catch {
+    // Igual que el contador global: contar es una aproximación.
+  }
 
   const id = nuevoIdReporte();
   const ahora = Date.now();
@@ -1037,7 +1065,10 @@ const subirReporte = async (request, env, solicitud) => {
  */
 const borrarReporte = async (request, env, solicitud) => {
   if (!env.REPORTES || typeof env.REPORTES.get !== 'function') return error('NO_CONFIGURADO', 500);
-  if (!(await dentroDeLosLimites(env, request))) return error('DEMASIADAS_PETICIONES', 429);
+  // Borrar NO pasa por el límite global ni por el tope diario (cualquiera podría agotarlos y dejar a la
+  // persona sin poder revocar su enlace): solo un límite por IP, más holgado que el de crear. La única
+  // autorización es el token.
+  if (!(await permitido(env.LIMITE_BORRAR, request))) return error('DEMASIADAS_PETICIONES', 429);
   const { id, token } = solicitud;
   const generica = () => responder({ ok: true });
   if (typeof id !== 'string' || !ID_REPORTE.test(id)) return generica();

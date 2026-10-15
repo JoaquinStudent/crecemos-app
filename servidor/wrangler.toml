@@ -28,7 +28,7 @@ namespace_id = "48210"
   limit = 40
   period = 60
 
-# Límite por IP, MÁS ESTRICTO, solo para reservar, subir y borrar un reporte: 5 por minuto por IP en
+# Límite por IP, MÁS ESTRICTO, solo para reservar y subir un reporte: 5 por minuto por IP en
 # cada ubicación. Es un binding aparte del de arriba para que las subidas (que cuestan almacenamiento) no
 # gasten las preguntas del chat ni al revés. `namespace_id` debe ser único en la cuenta.
 [[ratelimits]]
@@ -39,7 +39,18 @@ namespace_id = "48211"
   limit = 5
   period = 60
 
-# Límite GLOBAL (no por IP) para reservar, subir y borrar un reporte: 10 por minuto en total, con una clave
+# Límite por IP SOLO para borrar un reporte (20 por minuto por IP), más holgado que el de crear. Borrar no pasa por
+# el límite global ni por el tope diario: así nadie puede impedir que el dueño revoque su enlace. El token de
+# borrado es la única autorización. `namespace_id` debe ser único en la cuenta.
+[[ratelimits]]
+name = "LIMITE_BORRAR"
+namespace_id = "48213"
+
+  [ratelimits.simple]
+  limit = 20
+  period = 60
+
+# Límite GLOBAL (no por IP) para reservar y subir un reporte (no para borrar): 10 por minuto en total, con una clave
 # fija ('global'). Acota una ráfaga repartida entre muchas IP; el tope diario de reservas, que no es atómico,
 # solo es aproximado. `namespace_id` debe ser único en la cuenta. Sin este binding no hay límite global.
 [[ratelimits]]

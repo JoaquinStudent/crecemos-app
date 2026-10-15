@@ -32,6 +32,7 @@ import type { RootStackParamList } from '@navigation/RootStack';
 export const TEXTO_SIN_REPORTES =
   'Aún no guardaste reportes. Crea un enlace en Mi reporte y guárdalo aquí.';
 const TEXTO_NO_BORRADO = 'No pudimos borrarlo ahora. Inténtalo más tarde.';
+const TEXTO_MUCHAS_PETICIONES = 'Hay muchas peticiones ahora. Prueba en un minuto.';
 const TEXTO_BORRADO = 'Se borró de la nube. El enlace ya no funciona.';
 
 /** Un filtro guardado, validado: si algo no cuadra se vuelve a «todo el historial». */
@@ -108,6 +109,8 @@ export const MisReportesScreen = () => {
         setAviso(
           r.error === 'SIN_RED' || r.error === 'TIEMPO_AGOTADO'
             ? TEXTO_SIN_INTERNET
+            : r.error === 'LIMITE'
+            ? TEXTO_MUCHAS_PETICIONES
             : TEXTO_NO_BORRADO,
         );
       }

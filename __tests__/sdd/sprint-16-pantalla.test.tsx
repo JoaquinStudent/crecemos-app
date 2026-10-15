@@ -914,4 +914,26 @@ describe('Sprint-16 · Mis reportes', () => {
     expect((await listarReportesGuardados()).map(e => e.id)).toEqual([g.id]);
     expect(tipos()).toEqual(['borrarReporte']);
   });
+
+  // @spec16_e55 — Un 429 por IP al borrar: mensaje amable y la entrada se queda
+  it('spec16_e55 e2e si el Worker limita por IP al borrar el mensaje es amable y la entrada no se pierde', async () => {
+    // Given: un guardado vigente y un Worker que responde 429
+    const g = await sembrarGuardado(1, 'Con límite');
+    fetchMock().mockResolvedValue({
+      ok: false,
+      status: 429,
+      text: async () => '{"error":"DEMASIADAS_PETICIONES"}',
+    } as unknown as Response);
+    const app = await abrirMisReportes();
+    await app.tocar(`mis-reportes-tarjeta-${g.id}`);
+    // When: intenta borrar de la nube
+    await app.tocar('mis-reportes-borrar');
+    await app.tocar('mis-reportes-confirmar-si');
+    // Then: «Prueba en un minuto.», sin códigos, y la entrada sigue en la lista
+    const aviso = app.textoDe('mis-reportes-aviso');
+    expect(aviso).toBe('Hay muchas peticiones ahora. Prueba en un minuto.');
+    expect(aviso).not.toMatch(/429|LIMITE|DEMASIADAS/);
+    expect((await listarReportesGuardados()).map(e => e.id)).toEqual([g.id]);
+    expect(tipos()).toEqual(['borrarReporte']);
+  });
 });
