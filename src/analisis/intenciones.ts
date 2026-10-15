@@ -1,5 +1,5 @@
 // src/analisis/intenciones.ts
-// El chat "Preguntarle a mis datos": un modelo solo CLASIFICA la pregunta en una de doce intenciones;
+// El chat "Preguntarle a mis datos": un modelo solo CLASIFICA la pregunta en una de catorce intenciones;
 // el código calcula la cifra con las funciones de siempre y arma una frase fija. Puro: sin red, sin
 // reloj, sin React (AGENTS.md, reglas 3, 12 y 13). La fecha de hoy entra por `ctx.hoy`.
 import { z } from 'zod';
@@ -7,7 +7,7 @@ import { calcularCierre } from '@dominio/cierre';
 import { agruparCiclos, resumirCiclo, textoCapital } from '@dominio/ciclo';
 import { totalPorCobrar } from '@dominio/cobro';
 import { diaSemana, restarDias } from '@dominio/fecha';
-import { formatoFecha, formatoSoles, redondearSoles } from '@dominio/formato';
+import { formatoFecha, formatoSoles, nombreMes, redondearSoles } from '@dominio/formato';
 import { teDeja } from '@dominio/producto';
 import { singularUnidad, unidadSegunCantidad } from '@dominio/unidades';
 import type {
@@ -33,6 +33,7 @@ import {
   retiroMensaje,
 } from './reglas';
 import { extraerCifras } from './cifras';
+import { mesAnterior, totalesDelMes } from './senales';
 
 export interface Intencion {
   id: IntencionId;
@@ -58,7 +59,7 @@ export const DIAS_CONSULTA: readonly DiaConsulta[] = [
   'ninguno',
 ];
 
-/** Las doce intenciones, en este orden. `descripcion` es lo que lee el clasificador. */
+/** Las catorce intenciones, en este orden. `descripcion` es lo que lee el clasificador. */
 export const INTENCIONES: readonly Intencion[] = [
   {
     id: 'ventaDelDia',
@@ -115,6 +116,18 @@ export const INTENCIONES: readonly Intencion[] = [
     id: 'cuandoRecupereCapital',
     descripcion: 'Cuándo recuperó la plata que invirtió en mercadería en el ciclo actual.',
     sugerida: '¿Cuándo recuperé mi capital?',
+  },
+  {
+    id: 'resumenMesPasado',
+    descripcion:
+      'Cómo me fue el mes pasado, cómo cerré el mes: ventas, gastos y resultado del mes anterior completo.',
+    sugerida: '¿Cómo me fue el mes pasado?',
+  },
+  {
+    id: 'resumenMesActual',
+    descripcion:
+      'Cómo voy este mes hasta hoy: ventas del mes, gastos y resultado de lo que va del mes en curso.',
+    sugerida: '¿Cómo voy este mes?',
   },
   {
     id: 'noEntendi',
@@ -208,6 +221,8 @@ const NOMBRES_DIA: Partial<Record<DiaConsulta, { numero: number; nombre: string 
   domingo: { numero: 0, nombre: 'domingo' },
 };
 
+const SIN_DIAS_CERRADOS = 'Ese mes no tiene días cerrados.';
+
 const hecho = (intencion: IntencionId, frase: string): Hecho => ({
   intencion,
   frase,
@@ -296,9 +311,11 @@ const productoQueMasDeja = (ctx: ContextoAnalisis): Hecho => {
   const porUnidad = cantidad(1, unidadDe(ctx, p.productoId)).replace(/^1 /, '');
   return hecho(
     'productoQueMasDeja',
-    `${conArticulo(nombre)} es ${articulo(nombre) === 'la' ? 'la' : 'el'} que más te deja: ${formatoSoles(
-      p.teDeja,
-    )} por ${porUnidad}, ${formatoSoles(p.ganancia)} en total.`,
+    `${conArticulo(nombre)} es ${
+      articulo(nombre) === 'la' ? 'la' : 'el'
+    } que más te deja: ${formatoSoles(p.teDeja)} por ${porUnidad}, ${formatoSoles(
+      p.ganancia,
+    )} en total.`,
   );
 };
 
@@ -325,7 +342,9 @@ const cuantoPorCobrar = (ctx: ContextoAnalisis): Hecho =>
 const cuantoSacarParaLaCasa = (ctx: ContextoAnalisis): Hecho =>
   hecho(
     'cuantoSacarParaLaCasa',
-    (ctx.ciclos ?? agruparCiclos(ctx.cierres)).length < CICLOS_MINIMOS ? SIN_CICLO_CERRADO : retiroMensaje(ctx),
+    (ctx.ciclos ?? agruparCiclos(ctx.cierres)).length < CICLOS_MINIMOS
+      ? SIN_CICLO_CERRADO
+      : retiroMensaje(ctx),
   );
 
 /**
@@ -341,7 +360,10 @@ const cuantoPreparar = (consulta: Consulta, ctx: ContextoAnalisis): Hecho => {
   const propia = plan.sugerencias.filter(s => s.productoId === consulta.producto);
   const sugerencias = propia.length > 0 ? propia : plan.sugerencias;
   if (sugerencias.length === 0) {
-    return hecho('cuantoPreparar', `Mañana es ${plan.dia}. Todavía no tengo productos para sugerirte.`);
+    return hecho(
+      'cuantoPreparar',
+      `Mañana es ${plan.dia}. Todavía no tengo productos para sugerirte.`,
+    );
   }
   const conDatos = sugerencias.filter(s => !s.datosInsuficientes && s.porciones !== null);
   const sinDatos = sugerencias.filter(s => s.datosInsuficientes);
@@ -349,7 +371,10 @@ const cuantoPreparar = (consulta: Consulta, ctx: ContextoAnalisis): Hecho => {
     return hecho('cuantoPreparar', `Mañana es ${plan.dia}. ${sinDatos[0].texto}.`);
   }
   const partes = conDatos.map(
-    s => `${textoPorciones(s.porciones ?? 0, s.unidad)} de ${s.nombre.toLowerCase()} (${enMinuscula(s.texto)})`,
+    s =>
+      `${textoPorciones(s.porciones ?? 0, s.unidad)} de ${s.nombre.toLowerCase()} (${enMinuscula(
+        s.texto,
+      )})`,
   );
   let frase = `Mañana es ${plan.dia}: prepara ${partes.join('; ')}.`;
   if (sinDatos.length > 0) {
@@ -376,7 +401,9 @@ const revisarPrecio = (consulta: Consulta, ctx: ContextoAnalisis): Hecho => {
   if (caida !== null) {
     return hecho(
       'revisarPrecio',
-      `Lo que te deja ${articulo(producto.nombre)} ${producto.nombre.toLowerCase()} por ${singularUnidad(
+      `Lo que te deja ${articulo(
+        producto.nombre,
+      )} ${producto.nombre.toLowerCase()} por ${singularUnidad(
         producto.unidad,
       )} bajó ${formatoSoles(caida.caida)} desde ${caida.mes}. Revisa el precio.`,
     );
@@ -398,6 +425,70 @@ const cuandoRecupereCapital = (ctx: ContextoAnalisis): Hecho => {
     'cuandoRecupereCapital',
     `${textoCapital(resumirCiclo(ciclos[ciclos.length - 1]))}.`,
   );
+};
+
+/** '1 día', '26 días': lo que se cerró en el mes. */
+const diasTexto = (n: number): string => `${n} ${n === 1 ? 'día' : 'días'}`;
+/** '1 día cerrado', '22 días cerrados': el respaldo de una cifra de comparación. */
+const diasCerrados = (n: number): string => `${n} ${n === 1 ? 'día cerrado' : 'días cerrados'}`;
+
+/**
+ * "¿Cómo me fue el mes pasado?" y "¿cómo voy este mes?": ventas, gastos y resultado registrado del
+ * mes, con las MISMAS cuentas del reporte (`totalesDelMes`), y la comparación con el mes calendario
+ * anterior. El mes pasado se compara con el mes anterior completo; "este mes" (del día 1 a hoy) se
+ * compara con los mismos días del mes anterior, para no poner un mes a medias contra uno entero. Solo
+ * cuentan los cierres que existen y los posteriores a hoy no cuentan: sin cierres en el mes, la frase
+ * fija; sin cierres en el anterior, la respuesta sale sin comparación. No inventa ningún día.
+ */
+const resumenDelMes = (
+  intencion: 'resumenMesPasado' | 'resumenMesActual',
+  ctx: ContextoAnalisis,
+): Hecho => {
+  const cierres = ctx.cierres.filter(c => c.fecha <= ctx.hoy);
+  const actual = intencion === 'resumenMesActual';
+  const mesDeHoy = ctx.hoy.slice(0, 7);
+  const diaDeHoy = Number(ctx.hoy.slice(8, 10));
+  const mes = actual ? mesDeHoy : mesAnterior(mesDeHoy);
+  const previo = mesAnterior(mes);
+  const hastaDia = actual ? diaDeHoy : undefined;
+  const t = totalesDelMes(cierres, mes, hastaDia);
+  if (t.dias === 0) return hecho(intencion, SIN_DIAS_CERRADOS);
+  const p = totalesDelMes(cierres, previo, hastaDia);
+
+  const nombre = nombreMes(`${mes}-01`);
+  const nombrePrevio = nombreMes(`${previo}-01`);
+  const cifras = `vendiste ${formatoSoles(t.venta)}, gastaste ${formatoSoles(
+    t.gastos,
+  )} y el resultado registrado ${actual ? 'va en' : 'fue'} ${formatoSoles(t.teQueda)}.`;
+  const inicio = actual
+    ? `En lo que va de ${nombre} (${
+        diaDeHoy === 1 ? 'solo el 1' : `del 1 al ${diaDeHoy}`
+      }) cerraste ${diasTexto(t.dias)}: ${cifras}`
+    : `En ${nombre} cerraste ${diasTexto(t.dias)}: ${cifras}`;
+  const tramo = diaDeHoy === 1 ? 'En ese mismo día' : 'En los mismos días';
+
+  const diferencia = redondearSoles(t.teQueda - p.teQueda);
+  const mas = diferencia > 0 ? 'más' : 'menos';
+  let comparacion: string;
+  if (p.dias === 0) {
+    comparacion = actual
+      ? `No hay con qué comparar: ${tramo.toLowerCase()} de ${nombrePrevio} no hay días cerrados.`
+      : `No hay con qué comparar: ${nombrePrevio} no tiene días cerrados.`;
+  } else if (actual) {
+    comparacion = `${tramo} de ${nombrePrevio} fue ${formatoSoles(p.teQueda)} (${diasCerrados(
+      p.dias,
+    )}), así que vas ${
+      diferencia === 0 ? 'igual' : `${formatoSoles(Math.abs(diferencia))} ${mas}`
+    }.`;
+  } else {
+    comparacion =
+      diferencia === 0
+        ? `Quedó igual que en ${nombrePrevio} (${diasCerrados(p.dias)}).`
+        : `Es ${formatoSoles(Math.abs(diferencia))} ${mas} que en ${nombrePrevio} (${diasCerrados(
+            p.dias,
+          )}).`;
+  }
+  return hecho(intencion, `${inicio} ${comparacion}`);
 };
 
 /**
@@ -428,6 +519,9 @@ export const responderConsulta = (consulta: Consulta, ctx: ContextoAnalisis): He
       return revisarPrecio(consulta, ctx);
     case 'cuandoRecupereCapital':
       return cuandoRecupereCapital(ctx);
+    case 'resumenMesPasado':
+    case 'resumenMesActual':
+      return resumenDelMes(consulta.intencion, ctx);
     default:
       return hecho('noEntendi', 'No entendí tu pregunta. Prueba con una de estas:');
   }

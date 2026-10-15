@@ -4,9 +4,11 @@
 // tipos de petición, siempre con el mínimo de datos:
 //   { tipo: 'interpretar', texto }            -> { intencion, dia, confianza, modelo }
 //   { tipo: 'juzgar', hecho: {..., senales} } -> { semaforo, confianza, modelo }   (solo Jev, sin respaldo)
-// Primero clasifica Jev por la API tipada de OpenRouter (/api/v1/systemone, preguntas "choice"); si falla
-// o responde algo inválido, clasifica DeepSeek por chat/completions. La app muestra frases fijas
-// revisadas: ya no hay ruta de redacción.
+// Primero clasifica Jev por la API tipada de OpenRouter (/api/v1/systemone, preguntas "choice"). Si Jev
+// falla o responde algo inválido, clasifica DeepSeek por chat/completions. Y si Jev contesta, pero con
+// `noEntendi` o con duda (menos de 0.6), DeepSeek recibe la MISMA pregunta cerrada como segundo intento:
+// su respuesta solo se acepta si no es `noEntendi` y llega a 0.8; si no, sale `noEntendi`. La app muestra
+// frases fijas revisadas: ya no hay ruta de redacción.
 // Sin dependencias, sin CORS (es una app nativa) y SIN ningún log: lo que escribe Freddy no se escribe
 // en ninguna parte. No hay ninguna clave en este archivo: llega por `env`.
 
@@ -39,6 +41,10 @@ const MAX_HECHO_JUICIO = 600;
 const MAX_SENALES = 6;
 // Día con menos confianza que esto se devuelve como "ninguno".
 const CONFIANZA_MINIMA_DETALLE = 0.5;
+// Con menos confianza que esta (la misma de la app, `UMBRAL_CONFIANZA`), la respuesta de Jev no basta.
+const UMBRAL_CONFIANZA = 0.6;
+// Segundo intento: lo que DeepSeek responda solo se acepta con esta confianza o más.
+const CONFIANZA_SEGUNDO_INTENTO = 0.8;
 const MODELO_DEEPSEEK_POR_DEFECTO = 'deepseek/deepseek-v4-flash';
 
 /**
@@ -97,6 +103,16 @@ export const INTENCIONES = [
     descripcion: 'Cuándo recuperó la plata que invirtió en mercadería en el ciclo actual.',
   },
   {
+    id: 'resumenMesPasado',
+    descripcion:
+      'Cómo me fue el mes pasado, cómo cerré el mes: ventas, gastos y resultado del mes anterior completo.',
+  },
+  {
+    id: 'resumenMesActual',
+    descripcion:
+      'Cómo voy este mes hasta hoy: ventas del mes, gastos y resultado de lo que va del mes en curso.',
+  },
+  {
     id: 'noEntendi',
     descripcion: 'La pregunta no habla del negocio o no encaja en ninguna de las demás.',
   },
@@ -133,7 +149,7 @@ const PROMPT_INTERPRETAR = [
   ...INTENCIONES.map(i => `- ${i.id}: ${i.descripcion}`),
   '',
   'Reglas:',
-  '- Si la pregunta no es sobre ventas, gastos, productos, cobros o ciclos de compra del negocio, o es ambigua, elige noEntendi.',
+  '- Si la pregunta no es sobre ventas, gastos, productos, cobros, ciclos de compra o el mes del negocio, o es ambigua, elige noEntendi.',
   '- No identifiques productos: sus nombres se resuelven en el teléfono.',
   '- dia: hoy, ayer o el día de la semana solo si la pregunta lo nombra; si no, ninguno.',
   '- confianza: un número de 0 a 1, honesto. Baja si dudas.',
@@ -449,6 +465,25 @@ const juzgarConJev = async (env, hecho, modelo, tiempoMs) => {
   };
 };
 
+/**
+ * Clasifica la pregunta con DeepSeek por chat con salida estructurada y los proveedores de EE. UU.
+ * `comun` lleva el mensaje de sistema y el del usuario (solo el texto de la pregunta). Devuelve la
+ * interpretación ya validada (enum, rango y tipos) o `null`.
+ */
+const clasificarConDeepseek = async (env, { modelo, tiempoMs, ...comun }) =>
+  interpretacionValida(
+    await llamarModelo(env, {
+      ...comun,
+      modelo,
+      proveedor: {
+        only: proveedoresDe(env),
+        data_collection: 'deny',
+        require_parameters: true,
+      },
+      tiempoMs,
+    }),
+  );
+
 // --- Los tres tipos de petición --------------------------------------------------------------
 
 const interpretar = async (env, solicitud) => {
@@ -471,26 +506,36 @@ const interpretar = async (env, solicitud) => {
   // 1) Jev, por la API tipada. Cuatro segundos como mucho: la app corta a los ocho.
   const modeloJev = variable(env.JEV_MODELO, MODELO_JEV_POR_DEFECTO);
   const deJev = await clasificarConJev(env, texto, modeloJev, Math.min(TIEMPO_JEV_MS, restante()));
-  if (deJev !== null) return responder({ ...deJev.interpretacion, modelo: deJev.modelo });
-
-  // 2) Respaldo: DeepSeek por chat con JSON-schema estricto, solo en proveedores de EE. UU.
   const modeloDeepseek = variable(env.DEEPSEEK_MODELO, MODELO_DEEPSEEK_POR_DEFECTO);
-  const tiempoMs = Math.min(TIEMPO_LLAMADA_MS, restante());
-  if (tiempoMs >= TIEMPO_MINIMO_MS) {
-    const deDeepseek = interpretacionValida(
-      await llamarModelo(env, {
-        ...comun,
-        modelo: modeloDeepseek,
-        proveedor: {
-          only: proveedoresDe(env),
-          data_collection: 'deny',
-          require_parameters: true,
-        },
-        tiempoMs,
-      }),
-    );
-    if (deDeepseek !== null) return responder({ ...deDeepseek, modelo: modeloDeepseek });
+  const preguntarADeepseek = () => {
+    const tiempoMs = Math.min(TIEMPO_LLAMADA_MS, restante());
+    return tiempoMs >= TIEMPO_MINIMO_MS
+      ? clasificarConDeepseek(env, { ...comun, modelo: modeloDeepseek, tiempoMs })
+      : Promise.resolve(null);
+  };
+
+  if (deJev !== null) {
+    const { interpretacion, modelo } = deJev;
+    if (interpretacion.intencion !== 'noEntendi' && interpretacion.confianza >= UMBRAL_CONFIANZA) {
+      return responder({ ...interpretacion, modelo });
+    }
+    // 2) Segundo intento: Jev no entendió o dudó. DeepSeek recibe la misma pregunta cerrada y solo
+    // se le acepta si elige una intención real con confianza alta; si no, sale `noEntendi`.
+    const deDeepseek = await preguntarADeepseek();
+    if (
+      deDeepseek !== null &&
+      deDeepseek.intencion !== 'noEntendi' &&
+      deDeepseek.confianza >= CONFIANZA_SEGUNDO_INTENTO
+    ) {
+      return responder({ ...deDeepseek, modelo: modeloDeepseek });
+    }
+    return responder({ ...interpretacion, intencion: 'noEntendi', modelo });
   }
+
+  // 2) Respaldo: Jev falló. DeepSeek clasifica por chat con JSON-schema estricto, solo en
+  // proveedores de EE. UU.
+  const deDeepseek = await preguntarADeepseek();
+  if (deDeepseek !== null) return responder({ ...deDeepseek, modelo: modeloDeepseek });
   return error('NO_DISPONIBLE', 502);
 };
 

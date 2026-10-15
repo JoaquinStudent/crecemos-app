@@ -55,6 +55,8 @@ const PREGUNTAS: Array<[IntencionId, string]> = [
   ['compararCiclo', '¿Cómo voy contra el ciclo pasado?'],
   ['revisarPrecio', '¿Debo revisar el precio del anticucho?'],
   ['cuandoRecupereCapital', '¿Cuándo recuperé mi capital?'],
+  ['resumenMesPasado', '¿Cómo me fue el mes pasado?'],
+  ['resumenMesActual', '¿Cómo voy este mes?'],
 ];
 
 beforeEach(() => {

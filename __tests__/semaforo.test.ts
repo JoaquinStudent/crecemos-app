@@ -211,7 +211,7 @@ describe('esJuzgable', () => {
   ];
 
   it('las doce intenciones: cinco se juzgan y siete no', () => {
-    expect(INTENCIONES).toHaveLength(12);
+    expect(INTENCIONES).toHaveLength(14);
     for (const i of INTENCIONES) {
       expect([i.id, esJuzgable(i.id)]).toEqual([i.id, JUZGABLES.includes(i.id)]);
     }
