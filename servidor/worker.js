@@ -37,9 +37,13 @@ const MAX_CUERPO_BYTES_TEXTO = 6144;
 // ~550 KB de texto. Solo `subirReporte` puede pasar del tope de lectura de las demás peticiones.
 export const MAX_PDF_BYTES = 400 * 1024;
 export const MAX_CUERPO_BYTES_SUBIDA = 600000;
-// Tope global de reportes subidos por día (fecha UTC): alojar archivos públicos sin cuentas tiene que
-// tener un techo de gasto aunque alguien reparta las peticiones entre muchas IP.
+// Tope global de RESERVAS por día (fecha UTC; el nombre conserva «SUBIDAS» por historia): cada reserva es una
+// escritura en R2 y casi siempre termina en una subida, así que contar reservas acota las dos cosas. Alojar
+// archivos públicos sin cuentas tiene que tener un techo de gasto aunque alguien reparta las peticiones
+// entre muchas IP. Es APROXIMADO: ver `reservasDeHoy`.
 export const LIMITE_DIARIO_SUBIDAS = 100;
+// Clave fija del límite global por minuto (no por IP).
+const CLAVE_LIMITE_GLOBAL = 'global';
 // Una reserva que nadie usa vence a los 15 minutos.
 export const MINUTOS_DE_VIDA_DE_LA_RESERVA = 15;
 const PREFIJO_RESERVA = 'reservas/';
@@ -894,25 +898,39 @@ const decodificar = x => {
 
 const EMPIEZA_PDF = [0x25, 0x50, 0x44, 0x46, 0x2d]; // "%PDF-"
 
-/** Límite por IP con un binding de rate limit; sin binding (o si falla) no bloquea. */
-const permitido = async (binding, request) => {
+/**
+ * Límite con un binding de rate limit: por IP, o con una `clave` fija (el límite global). Sin binding (o si
+ * falla) no bloquea.
+ */
+const permitido = async (binding, request, clave) => {
   if (!binding || typeof binding.limit !== 'function') return true;
   try {
-    const ip = request.headers.get('cf-connecting-ip') || 'desconocida';
-    return (await binding.limit({ key: ip })).success !== false;
+    const key = clave ?? (request.headers.get('cf-connecting-ip') || 'desconocida');
+    return (await binding.limit({ key })).success !== false;
   } catch {
     return true;
   }
 };
 
+/**
+ * Los dos límites de las rutas que escriben en R2: primero el estricto por IP (5 por minuto) y después el
+ * GLOBAL por minuto (una sola clave para todos), que acota una ráfaga repartida entre muchas IP o ubicaciones.
+ */
+const dentroDeLosLimites = async (env, request) =>
+  (await permitido(env.LIMITE_SUBIDA, request)) &&
+  (await permitido(env.LIMITE_GLOBAL_SUBIDA, request, CLAVE_LIMITE_GLOBAL));
+
 /** Hoy en UTC, 'AAAA-MM-DD': la llave del contador diario. */
 const fechaUtc = () => new Date().toISOString().slice(0, 10);
 
 /**
- * Cuántos reportes se subieron hoy. Es un contador en R2 (un objeto por día) y NO es atómico: dos
- * subidas a la vez pueden contarse como una. Para un techo de gasto de aproximadamente 100 al día basta.
+ * Cuántas reservas se hicieron hoy (una reserva usada y una vencida cuentan UNA vez, al reservar). Es un
+ * contador en R2 (un objeto por día) y es APROXIMADO: R2 no ofrece incrementos atómicos, así que peticiones
+ * simultáneas pueden leer el mismo valor y contarse como una (se pasa del tope en una ráfaga). El límite global
+ * por minuto (`LIMITE_GLOBAL_SUBIDA`) acota esa ráfaga. La solución estricta sería un Durable Object (con su clase,
+ * su binding y su migración): queda como mejora futura.
  */
-const subidasDeHoy = async REPORTES => {
+const reservasDeHoy = async REPORTES => {
   try {
     const objeto = await REPORTES.get(`${PREFIJO_CONTADOR}${fechaUtc()}`);
     const n = objeto ? Number.parseInt(await new Response(objeto.body).text(), 10) : 0;
@@ -922,11 +940,11 @@ const subidasDeHoy = async REPORTES => {
   }
 };
 
-const sumarSubidaDeHoy = async (REPORTES, antes) => {
+const contarReservaDeHoy = async (REPORTES, antes) => {
   try {
     await REPORTES.put(`${PREFIJO_CONTADOR}${fechaUtc()}`, String(antes + 1));
   } catch {
-    // Contar es una aproximación: si falla, la subida ya se hizo.
+    // Contar es una aproximación: si falla, la reserva sigue su curso.
   }
 };
 
@@ -935,8 +953,11 @@ const topeDiario = () => error('LIMITE_DIARIO', 503);
 /** `{ tipo: 'reservarReporte' }` -> `{ id, url, caduca }`: el id y el enlace definitivos, sin archivo todavía. */
 const reservarReporte = async (request, env) => {
   if (!env.REPORTES || typeof env.REPORTES.put !== 'function') return error('NO_CONFIGURADO', 500);
-  if (!(await permitido(env.LIMITE_SUBIDA, request))) return error('DEMASIADAS_PETICIONES', 429);
-  if ((await subidasDeHoy(env.REPORTES)) >= LIMITE_DIARIO_SUBIDAS) return topeDiario();
+  if (!(await dentroDeLosLimites(env, request))) return error('DEMASIADAS_PETICIONES', 429);
+  // Cada reserva consume un cupo del día: se cuenta AQUÍ, no al subir.
+  const hechas = await reservasDeHoy(env.REPORTES);
+  if (hechas >= LIMITE_DIARIO_SUBIDAS) return topeDiario();
+  await contarReservaDeHoy(env.REPORTES, hechas);
 
   const id = nuevoIdReporte();
   const ahora = Date.now();
@@ -965,7 +986,7 @@ const reservarReporte = async (request, env) => {
 const subirReporte = async (request, env, solicitud) => {
   if (!env.REPORTES || typeof env.REPORTES.put !== 'function') return error('NO_CONFIGURADO', 500);
   // Más estricto que el límite general: una subida cuesta almacenamiento.
-  if (!(await permitido(env.LIMITE_SUBIDA, request))) return error('DEMASIADAS_PETICIONES', 429);
+  if (!(await dentroDeLosLimites(env, request))) return error('DEMASIADAS_PETICIONES', 429);
 
   const { pdf, id } = solicitud;
   if (typeof id !== 'string' || !ID_REPORTE.test(id)) return enlaceNoDisponible();
@@ -976,8 +997,9 @@ const subirReporte = async (request, env, solicitud) => {
   if (bytes.length > MAX_PDF_BYTES) return error('PDF_GRANDE', 413);
   if (!EMPIEZA_PDF.every((b, i) => bytes[i] === b)) return error('NO_ES_PDF', 415);
 
-  const hoy = await subidasDeHoy(env.REPORTES);
-  if (hoy >= LIMITE_DIARIO_SUBIDAS) return topeDiario();
+  // Defensa adicional, SIN contar otra vez: la reserva ya consumió su cupo al reservarse, así que un contador
+  // que está justo en el tope sí deja subir esa reserva; solo se frena si ya lo rebasó (una ráfaga).
+  if ((await reservasDeHoy(env.REPORTES)) > LIMITE_DIARIO_SUBIDAS) return topeDiario();
 
   // La reserva: tiene que existir, estar vigente y no haberse usado (al usarla se borra).
   let reserva = null;
@@ -1005,7 +1027,6 @@ const subirReporte = async (request, env, solicitud) => {
   } catch {
     return error('NO_DISPONIBLE', 502);
   }
-  await sumarSubidaDeHoy(env.REPORTES, hoy);
   return responder({ id, url: `${new URL(request.url).origin}/r/${id}`, caduca });
 };
 
@@ -1016,7 +1037,7 @@ const subirReporte = async (request, env, solicitud) => {
  */
 const borrarReporte = async (request, env, solicitud) => {
   if (!env.REPORTES || typeof env.REPORTES.get !== 'function') return error('NO_CONFIGURADO', 500);
-  if (!(await permitido(env.LIMITE_SUBIDA, request))) return error('DEMASIADAS_PETICIONES', 429);
+  if (!(await dentroDeLosLimites(env, request))) return error('DEMASIADAS_PETICIONES', 429);
   const { id, token } = solicitud;
   const generica = () => responder({ ok: true });
   if (typeof id !== 'string' || !ID_REPORTE.test(id)) return generica();

@@ -39,6 +39,17 @@ namespace_id = "48211"
   limit = 5
   period = 60
 
+# Límite GLOBAL (no por IP) para reservar, subir y borrar un reporte: 10 por minuto en total, con una clave
+# fija ('global'). Acota una ráfaga repartida entre muchas IP; el tope diario de reservas, que no es atómico,
+# solo es aproximado. `namespace_id` debe ser único en la cuenta. Sin este binding no hay límite global.
+[[ratelimits]]
+name = "LIMITE_GLOBAL_SUBIDA"
+namespace_id = "48212"
+
+  [ratelimits.simple]
+  limit = 10
+  period = 60
+
 # Reportes en PDF que la persona decide subir para compartir un enlace que caduca (30 días). El bucket se
 # crea una sola vez con `npx wrangler r2 bucket create crecemos-reportes` (ver README.md). Sin este
 # binding, `subirReporte` responde NO_CONFIGURADO y el resto del Worker sigue igual.

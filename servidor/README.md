@@ -299,11 +299,11 @@ pesa de 50 a 150 KB), tiene que empezar por `%PDF-` y venir en base64 válido; e
 (`DIAS_DE_VIDA_DEL_ENLACE`); una reserva que nadie usa vence a los 15 minutos; el nombre del archivo lo pone el
 Worker; el contenido nunca se escribe en un log. En R2 **no se guarda el token, solo su hash**.
 
-**Límites.** Reservar, subir y borrar usan el binding estricto `LIMITE_SUBIDA` (5 por minuto por IP); pedir un
-enlace (`GET`) usa `LIMITE`. Además hay un **tope diario global** de `LIMITE_DIARIO_SUBIDAS` = 100 reportes por día
-(fecha UTC): al llegar, reservar y subir responden 503 `LIMITE_DIARIO` y la app dice "Hoy ya se subieron muchos
-reportes. Inténtalo mañana." El contador es un objeto de R2 por día (`contadores/AAAA-MM-DD`) y **no es atómico**:
-dos subidas a la vez pueden contarse como una. Es una aproximación para tener un techo de gasto, no un conteo exacto.
+**Límites.**
+- **Por IP:** reservar, subir y borrar usan el binding estricto `LIMITE_SUBIDA` (5 por minuto por IP). Pedir un enlace (`GET`) usa `LIMITE`.
+- **Global por minuto:** además, reservar, subir y borrar pasan por `LIMITE_GLOBAL_SUBIDA` (10 por minuto EN TOTAL, con una clave fija `global`, no por IP). Acota una ráfaga repartida entre muchas IP o ubicaciones. Si se supera: 429 `DEMASIADAS_PETICIONES`.
+- **Tope diario de RESERVAS:** `LIMITE_DIARIO_SUBIDAS` = 100 por día (fecha UTC). **Cada reserva consume un cupo al reservarse** (se cuenta al reservar, no al subir): una reserva usada y una vencida sin usar cuentan una sola vez, y subir no suma otra vez. La reserva 101 del día responde 503 `LIMITE_DIARIO` aunque no se haya subido nada, y la app dice "Hoy ya se subieron muchos reportes. Inténtalo mañana."
+- **El tope diario es APROXIMADO.** El contador es un objeto de R2 por día (`contadores/AAAA-MM-DD`) y R2 no ofrece incrementos atómicos: peticiones simultáneas pueden leer el mismo valor y contarse como una, así que una ráfaga puede pasarse un poco del tope. El límite global por minuto acota esa ráfaga. La solución estricta sería un **Durable Object** (con su clase, su binding y su migración): queda como mejora futura.
 
 ### A. Crear el bucket (una sola vez, ANTES de publicar)
 
@@ -354,7 +354,7 @@ curl -s -X POST $W -H 'Content-Type: application/json' -d '{"tipo":"borrarReport
 ```
 
 Pruebas que deben dar error: un archivo que no empiece por `%PDF-` (415), base64 roto (400), uno de más de 400 KB
-(413) y subir a un id sin reserva, vencida o ya usada (404 amable).
+(413), subir a un id sin reserva, vencida o ya usada (404 amable) y la reserva 101 del día (503 `LIMITE_DIARIO`).
 
 ### D. Riesgos dichos de frente
 
@@ -362,7 +362,7 @@ Pruebas que deben dar error: un archivo que no empiece por `%PDF-` (415), base64
   borre; el PDF lleva nombre, negocio, foto (si la hay), ventas, resultado y constancia del periodo. No lleva Yape,
   ubicación ni cierres sueltos.
 - **Sin autenticación de usuario.** La app no tiene cuentas. Lo que protege el endpoint de subida es el tope de
-  400 KB, la validación `%PDF-`, la reserva de un solo uso, el límite por IP, el tope diario y la caducidad.
+  400 KB, la validación `%PDF-`, la reserva de un solo uso, el límite por IP, el límite global por minuto, el tope diario (aproximado) y la caducidad.
 - **El token de borrado vive solo en el teléfono.** Si se pierde el teléfono (o se desinstala la app), ese enlace ya
   no se puede revocar: solo caduca. Mejora futura: una marca de origen dentro del PDF.
 - **Costo.** El almacenamiento crece si nadie borra: pon las reglas de ciclo de vida de arriba.

@@ -172,7 +172,9 @@ describe('Sprint-16 · el Worker reserva, guarda y sirve el reporte', () => {
     expect(dias).toBeGreaterThan(29.99);
     expect(dias).toBeLessThan(30.01);
     // And: solo hay una reserva corta (15 minutos) y todavía ningún archivo
-    expect([...REPORTES.objetos.keys()]).toEqual([`reservas/${reserva.id}`]);
+    expect([...REPORTES.objetos.keys()].filter(k => !k.startsWith('contadores/'))).toEqual([
+      `reservas/${reserva.id}`,
+    ]);
     const vence = Date.parse(REPORTES.objetos.get(`reservas/${reserva.id}`)!.opciones.customMetadata.venceReserva);
     expect(MINUTOS_DE_VIDA_DE_LA_RESERVA).toBe(15);
     expect((vence - antes) / 60000).toBeGreaterThan(14.9);
@@ -226,7 +228,9 @@ describe('Sprint-16 · el Worker reserva, guarda y sirve el reporte', () => {
       // Then: se rechaza con su código, sin ningún detalle técnico, y no se guarda nada
       expect([nombre, r.status, await r.text()]).toEqual([nombre, status, `{"error":"${codigo}"}`]);
     }
-    expect([...REPORTES.objetos.keys()]).toEqual([`reservas/${id}`]);
+    expect([...REPORTES.objetos.keys()].filter(k => !k.startsWith('contadores/'))).toEqual([
+      `reservas/${id}`,
+    ]);
     // And: rechazar un PDF malo NO gasta la reserva; un PDF de exactamente 400 KB sí entra
     expect(MAX_PDF_BYTES).toBe(400 * 1024);
     const justo = Buffer.concat([Buffer.from('%PDF-'), Buffer.alloc(MAX_PDF_BYTES - 5)]).toString('base64');
@@ -400,33 +404,95 @@ describe('Sprint-16 · el Worker reserva, guarda y sirve el reporte', () => {
     expect(MAX_PDF_BYTES_SUBIDA).toBe(MAX_PDF_BYTES);
   });
 
-  // @spec16_e19 — Tope diario global de subidas
-  it('spec16_e19 el tope diario global de subidas responde con un mensaje amable', async () => {
-    // Given: un contador de hoy (UTC) que ya llegó al tope, en R2
+  // @spec16_e19 — Tope diario: cada reserva consume un cupo
+  it('spec16_e19 el tope diario cuenta reservas: reservar suma uno y subir no suma otra vez', async () => {
+    // Given: un R2 vacío
     const REPORTES = r2Falso();
     expect(LIMITE_DIARIO_SUBIDAS).toBe(100);
     const hoyUtc = new Date().toISOString().slice(0, 10);
-    await REPORTES.put(`contadores/${hoyUtc}`, String(LIMITE_DIARIO_SUBIDAS));
-    // When: se intenta reservar y subir
-    const reservaDeAntes = 'f'.repeat(32);
-    await REPORTES.put(`reservas/${reservaDeAntes}`, '', {
-      customMetadata: {
-        caduca: new Date(Date.now() + 86400000).toISOString(),
-        venceReserva: new Date(Date.now() + 60000).toISOString(),
-      },
-    });
-    const r1 = await reservar(REPORTES);
-    const r2 = await subir(REPORTES, reservaDeAntes);
-    // Then: 503 LIMITE_DIARIO, sin detalles, y no se guarda nada
-    for (const r of [r1, r2]) {
-      expect([r.status, await r.text()]).toEqual([503, '{"error":"LIMITE_DIARIO"}']);
+    const contador = () =>
+      Number(Buffer.from(REPORTES.objetos.get(`contadores/${hoyUtc}`)?.bytes ?? []).toString() || 0);
+    // When: se reserva (sin subir nada), luego se sube esa reserva, y se reserva otra que nadie usa
+    const a = (await (await reservar(REPORTES)).json()) as Reserva;
+    expect(contador()).toBe(1);
+    expect((await subir(REPORTES, a.id)).status).toBe(200);
+    expect(contador()).toBe(1);
+    const b = (await (await reservar(REPORTES)).json()) as Reserva;
+    expect(contador()).toBe(2);
+    // And: la reserva vencida sin usar sigue contando UNA vez (ni se descuenta ni se cuenta de nuevo)
+    REPORTES.objetos.get(`reservas/${b.id}`)!.opciones.customMetadata.venceReserva = new Date(
+      Date.now() - 1000,
+    ).toISOString();
+    expect((await subir(REPORTES, b.id)).status).toBe(404);
+    expect(contador()).toBe(2);
+  });
+
+  // @spec16_e50 — La 101.ª reserva del día se rechaza aunque no se haya subido nada
+  it('spec16_e50 la reserva 101 del dia da 503 LIMITE_DIARIO aunque no se haya subido nada', async () => {
+    // Given: 100 reservas hechas hoy, ninguna con archivo
+    const REPORTES = r2Falso();
+    for (let n = 0; n < LIMITE_DIARIO_SUBIDAS; n += 1) {
+      expect((await reservar(REPORTES)).status).toBe(200);
     }
-    expect(REPORTES.objetos.has(`r/${reservaDeAntes}`)).toBe(false);
-    // And: cada subida exitosa suma uno al contador de hoy
-    const otro = r2Falso();
-    await crear(otro);
-    await crear(otro);
-    expect(Buffer.from(otro.objetos.get(`contadores/${hoyUtc}`)!.bytes).toString()).toBe('2');
+    const reservas = [...REPORTES.objetos.keys()].filter(k => k.startsWith('reservas/'));
+    expect(reservas).toHaveLength(LIMITE_DIARIO_SUBIDAS);
+    expect([...REPORTES.objetos.keys()].some(k => k.startsWith('r/'))).toBe(false);
+    // When: llega la 101.ª
+    const r = await reservar(REPORTES);
+    // Then: 503 LIMITE_DIARIO sin detalles y no se crea ninguna reserva más
+    expect([r.status, await r.text()]).toEqual([503, '{"error":"LIMITE_DIARIO"}']);
+    expect([...REPORTES.objetos.keys()].filter(k => k.startsWith('reservas/'))).toHaveLength(
+      LIMITE_DIARIO_SUBIDAS,
+    );
+    // And: la reserva número 100 (ya contada) todavía puede subir su archivo
+    const ultima = reservas[reservas.length - 1].replace('reservas/', '');
+    expect((await subir(REPORTES, ultima)).status).toBe(200);
+    // And: si una ráfaga rebasó el contador (no es atómico), subir también se frena
+    const hoyUtc = new Date().toISOString().slice(0, 10);
+    await REPORTES.put(`contadores/${hoyUtc}`, String(LIMITE_DIARIO_SUBIDAS + 1));
+    const otra = reservas[0].replace('reservas/', '');
+    const frenada = await subir(REPORTES, otra);
+    expect([frenada.status, await frenada.text()]).toEqual([503, '{"error":"LIMITE_DIARIO"}']);
+  });
+
+  // @spec16_e51 — Límite global por minuto, no por IP
+  it('spec16_e51 el limite global por minuto rechaza la rafaga aunque cada IP este dentro de su limite', async () => {
+    // Given: un límite por IP que siempre deja pasar y un límite global que se agota a la tercera
+    const REPORTES = r2Falso();
+    const porIp = jest.fn().mockResolvedValue({ success: true });
+    const global = jest
+      .fn()
+      .mockResolvedValueOnce({ success: true })
+      .mockResolvedValueOnce({ success: true })
+      .mockResolvedValue({ success: false });
+    const env = { REPORTES, LIMITE_SUBIDA: { limit: porIp }, LIMITE_GLOBAL_SUBIDA: { limit: global } };
+    // When: llegan peticiones de IP distintas
+    const desde = (ip: string, cuerpo: unknown) =>
+      worker.fetch(post(cuerpo, { 'cf-connecting-ip': ip }), env);
+    const a = (await (await desde('1.1.1.1', { tipo: 'reservarReporte' })).json()) as Reserva;
+    const b = await desde('2.2.2.2', { tipo: 'subirReporte', id: a.id, pdf: PDF });
+    const c = await desde('3.3.3.3', { tipo: 'reservarReporte' });
+    const d = await desde('4.4.4.4', { tipo: 'borrarReporte', id: a.id, token: a.token });
+    const e = await desde('5.5.5.5', { tipo: 'subirReporte', id: a.id, pdf: PDF });
+    // Then: las dos primeras pasan; reservar, borrar y subir después de agotarse dan 429, aunque cada IP esté dentro
+    expect(b.status).toBe(200);
+    for (const r of [c, d, e]) {
+      expect([r.status, await r.text()]).toEqual([429, '{"error":"DEMASIADAS_PETICIONES"}']);
+    }
+    // And: el global se consulta con una clave fija, no con la IP; el de IP, con la IP
+    expect(global.mock.calls.every(([x]) => x.key === 'global')).toBe(true);
+    expect(porIp.mock.calls.map(([x]) => x.key)).toEqual(['1.1.1.1', '2.2.2.2', '3.3.3.3', '4.4.4.4', '5.5.5.5']);
+    // And: lo rechazado no gastó cupo del día ni borró nada
+    expect(REPORTES.objetos.has(`r/${a.id}`)).toBe(true);
+    expect([...REPORTES.objetos.keys()].filter(k => k.startsWith('reservas/'))).toHaveLength(0);
+    // And: la configuración declara el binding global
+    const toml = leer('servidor/wrangler.toml');
+    expect(toml).toMatch(/name = "LIMITE_GLOBAL_SUBIDA"/);
+    expect(toml).toMatch(/namespace_id = "48212"/);
+    // And: pedir un enlace (GET) no usa el límite global
+    global.mockClear();
+    await worker.fetch(pedir(a.id), env);
+    expect(global).not.toHaveBeenCalled();
   });
 });
 
