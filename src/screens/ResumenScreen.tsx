@@ -2,16 +2,19 @@
 // "Resumen" (mock 04): el ciclo de compra actual. "El primer día es para el capital y el
 // segundo es la ganancia" dibujado como una barra, y cuánto de la mercadería se vendió.
 // Con 2 ciclos o más, una fila compara con el ciclo anterior: el texto y el monto, nunca solo un
-// porcentaje. Termina con los botones a "Qué me deja cada uno", "Mi reporte" y "Preguntarle a mis
-// datos" (la pestaña Asistente). Sin "Este mes / Todo", sin gráfico de ciclos y sin buscar.
-// Las barras son Views de ancho porcentual, sin librerías.
-import React, { useMemo } from 'react';
+// porcentaje. Debajo, "Tus números": el filtro de periodo y los gráficos (la torta de ventas por
+// producto, las barras por mes y por producto y los últimos días). Termina con los botones a "Qué me
+// deja cada uno", "Mi reporte" y "Preguntarle a mis datos" (la pestaña Asistente).
+// Sprint-15 enmienda D42 por pedido del usuario: entran el filtro de periodo y los gráficos; siguen
+// fuera el gráfico de ciclos y buscar. Las barras son Views de ancho porcentual; solo la torta usa
+// react-native-svg.
+import React, { useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, type CompositeNavigationProp } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Minus, TrendingDown, TrendingUp, TriangleAlert } from 'lucide-react-native';
+import { Info, Minus, TrendingDown, TrendingUp, TriangleAlert } from 'lucide-react-native';
 import { colors, radius, spacing } from '@theme';
 import { Text } from '@components/atoms/Text';
 import { Button } from '@components/atoms/Button';
@@ -21,13 +24,23 @@ import { Callout } from '@components/molecules/Callout';
 import { Card } from '@components/molecules/Card';
 import { CargandoBloques } from '@components/molecules/CargandoBloques';
 import { EmptyState } from '@components/molecules/EmptyState';
+import { BarrasPorMes } from '@components/molecules/BarrasPorMes';
+import { BarrasPorProducto } from '@components/molecules/BarrasPorProducto';
+import { GraficoTorta } from '@components/molecules/GraficoTorta';
+import { GraficoUltimosDias, type TramoDias } from '@components/molecules/GraficoUltimosDias';
+import { SelectorPeriodo } from '@components/organisms/SelectorPeriodo';
+import { ultimosDias } from '@analisis/graficos';
+import { inteligenciaDelNegocio, ultimosMeses } from '@analisis/inteligencia';
 import { compararCiclos } from '@analisis/metricas';
+import { FILTRO_TODO, mesesConCierres, periodoDe, type FiltroPeriodo } from '@analisis/periodo';
+import { fechaLocal } from '@dominio/fecha';
 import { mercaderiaDelCiclo, textoCapital } from '@dominio/ciclo';
 import { formatoFechaCorta, formatoSoles } from '@dominio/formato';
-import type { Ciclo, Producto, ResumenCiclo } from '@dominio/tipos';
+import type { Cierre, Ciclo, FechaNegocio, Producto, ResumenCiclo } from '@dominio/tipos';
 import { unidadSegunCantidad } from '@dominio/unidades';
 import { useCrecemos } from '@context/CrecemosProvider';
 import { useConteo } from '@hooks/useConteo';
+import { useAhora } from '@hooks/useAhora';
 import { useDerivados } from '@hooks/useDerivados';
 import { useEsconderBarraAlDesplazar } from '@context/BarraOcultaContext';
 import { useMedidasBarra } from '@hooks/useMedidasBarra';
@@ -50,13 +63,24 @@ const rango = (ciclo: Ciclo): string =>
     ? formatoFechaCorta(ciclo.inicio)
     : `${formatoFechaCorta(ciclo.inicio)} — ${formatoFechaCorta(ciclo.fin)}`;
 
+/** Cuántos meses dibujan las barras por mes. */
+const MESES_EN_BARRAS = 6;
+const AVISO_EJEMPLO = 'Incluye datos de ejemplo';
+
 export const ResumenScreen = () => {
-  const { productos, cargando } = useCrecemos();
-  const { cicloActual: actual, cicloAnterior: anterior, resumenActual, resumenAnterior } = useDerivados();
+  const { productos, cierres, cargando } = useCrecemos();
+  const hoy = fechaLocal(useAhora());
+  // El periodo es una mirada pasajera: vive en la pantalla y se lo pasa a "Mi reporte".
+  const [filtro, setFiltro] = useState<FiltroPeriodo>(FILTRO_TODO);
+  const {
+    cicloActual: actual,
+    cicloAnterior: anterior,
+    resumenActual,
+    resumenAnterior,
+  } = useDerivados();
   const navigation = useNavigation<ResumenNavigation>();
   const { rellenoContenido } = useMedidasBarra();
   const esconderBarra = useEsconderBarraAlDesplazar();
-
 
   return (
     <SafeAreaView style={styles.pantalla} edges={['top']}>
@@ -90,6 +114,16 @@ export const ResumenScreen = () => {
           />
         )}
 
+        {cargando || cierres.length === 0 ? null : (
+          <Graficos
+            cierres={cierres}
+            productos={productos}
+            hoy={hoy}
+            filtro={filtro}
+            onCambiarFiltro={setFiltro}
+          />
+        )}
+
         {cargando ? null : (
           <>
             <Button
@@ -106,7 +140,7 @@ export const ResumenScreen = () => {
               size="lg"
               fullWidth
               testID="resumen-mi-reporte"
-              onPress={() => navigation.navigate('MiReporte')}
+              onPress={() => navigation.navigate('MiReporte', { filtro })}
             />
             <Button
               title="Preguntarle a mis datos"
@@ -120,6 +154,91 @@ export const ResumenScreen = () => {
         )}
       </ScrollView>
     </SafeAreaView>
+  );
+};
+
+/**
+ * "Tus números": el filtro de periodo y los gráficos. Todo se calcula una vez por cambio de cierres,
+ * productos, periodo o día (`useMemo`): con 150 cierres no se recalcula en cada render. Usa los mismos
+ * cierres que el resto de la pantalla, los de ejemplo incluidos, y lo avisa.
+ */
+const Graficos = ({
+  cierres,
+  productos,
+  hoy,
+  filtro,
+  onCambiarFiltro,
+}: {
+  cierres: Cierre[];
+  productos: Producto[];
+  hoy: FechaNegocio;
+  filtro: FiltroPeriodo;
+  onCambiarFiltro: (filtro: FiltroPeriodo) => void;
+}) => {
+  const [tramo, setTramo] = useState<TramoDias>(14);
+  const meses = useMemo(() => mesesConCierres(cierres, hoy), [cierres, hoy]);
+  const periodo = useMemo(() => periodoDe(filtro, hoy, cierres), [filtro, hoy, cierres]);
+  const inteligencia = useMemo(
+    () => inteligenciaDelNegocio(periodo.cierres, productos, hoy),
+    [periodo, productos, hoy],
+  );
+  const barrasMeses = useMemo(
+    () => ultimosMeses(inteligencia.meses, MESES_EN_BARRAS),
+    [inteligencia],
+  );
+  const dias = useMemo(() => ultimosDias(periodo.cierres, periodo, tramo), [periodo, tramo]);
+
+  return (
+    <View style={styles.seccion} testID="resumen-graficos">
+      <Text variant="h2" accessibilityRole="header">
+        Tus números
+      </Text>
+      <SelectorPeriodo
+        filtro={filtro}
+        etiqueta={periodo.etiqueta}
+        meses={meses}
+        onChange={onCambiarFiltro}
+        testID="resumen-filtro"
+      />
+      <Text variant="bodySmall" color="textMuted">
+        El periodo cambia solo los gráficos de esta sección.
+      </Text>
+      {inteligencia.hayEjemplo ? (
+        <Callout icon={Info} testID="resumen-aviso-ejemplo">
+          <Text variant="bodySmall" testID="resumen-aviso-ejemplo-texto">
+            {AVISO_EJEMPLO}
+          </Text>
+        </Callout>
+      ) : null}
+
+      <Text variant="h3" accessibilityRole="header">
+        Qué producto se vende más
+      </Text>
+      <Card>
+        <GraficoTorta porciones={inteligencia.torta} />
+      </Card>
+
+      <Text variant="h3" accessibilityRole="header">
+        Ventas y resultado por mes
+      </Text>
+      <Card>
+        <BarrasPorMes meses={barrasMeses} />
+      </Card>
+
+      <Text variant="h3" accessibilityRole="header">
+        Cuánto vendiste de cada producto
+      </Text>
+      <Card>
+        <BarrasPorProducto productos={inteligencia.productos} />
+      </Card>
+
+      <Text variant="h3" accessibilityRole="header">
+        Resultado de los últimos días
+      </Text>
+      <Card>
+        <GraficoUltimosDias datos={dias} tramo={tramo} onCambiarTramo={setTramo} />
+      </Card>
+    </View>
   );
 };
 

@@ -4,11 +4,13 @@
 // (`senalesBanco`, `textoReporte`, `htmlReporte`): la pantalla solo los dibuja. Nada se genera ni
 // sale del teléfono hasta que toca un botón (P6 de manejo-de-datos.md): "Compartir reporte" arma el
 // PDF en el teléfono y abre la hoja de compartir; "Compartir solo el texto" comparte texto plano.
-// No entra del mock el selector de periodo (el periodo es fijo).
+// Sprint-15: el periodo ya se puede elegir (por defecto, todo el historial hasta hoy) y el reporte se
+// puede compartir siempre que haya al menos un cierre en el periodo: ya no espera al fin de mes. La
+// hoja del banco de siempre va primero; debajo, la inteligencia de negocio del periodo.
 import React, { useMemo, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { CircleCheck, Lock, Share2 } from 'lucide-react-native';
 import { colors, radius, spacing } from '@theme';
@@ -21,6 +23,8 @@ import { Callout } from '@components/molecules/Callout';
 import { CargandoBloques } from '@components/molecules/CargandoBloques';
 import { CodigoQR } from '@components/molecules/CodigoQR';
 import { ScreenHeader } from '@components/molecules/ScreenHeader';
+import { InteligenciaReporte } from '@components/organisms/InteligenciaReporte';
+import { SelectorPeriodo } from '@components/organisms/SelectorPeriodo';
 import { htmlReporte, NOMBRE_ARCHIVO_PDF } from '@analisis/htmlReporte';
 import {
   AVISO_EJEMPLO_SECCION,
@@ -39,10 +43,17 @@ import {
   DIAS_CONVINCENTE,
   diasRegistradosTexto,
   AVISO_EJEMPLO,
-  senalesBanco,
+  cierresDelReporte,
   textoFaltan,
   textoReporte,
 } from '@analisis/senales';
+import {
+  FILTRO_TODO,
+  mesesConCierres,
+  puedeEmitirReporte,
+  type FiltroPeriodo,
+} from '@analisis/periodo';
+import { datosDelReporte } from '@analisis/reporteDelPeriodo';
 import { fechaLocal } from '@dominio/fecha';
 import { formatoFechaCorta, formatoSoles, nombreMes } from '@dominio/formato';
 import { avatarDe } from '@dominio/foto';
@@ -58,6 +69,7 @@ const TEXTO_SIN_MES = 'aún no hay un mes completo';
 const TEXTO_ERROR = 'No pudimos abrir la hoja para compartir. Inténtalo otra vez.';
 const TEXTO_ERROR_PDF = 'No pudimos preparar el PDF. Inténtalo otra vez.';
 const TEXTO_AYUDA_VACIO = 'Cierra tu primer día para armar tu reporte';
+const TEXTO_AYUDA_PERIODO_VACIO = 'No hay días cerrados en este periodo. Elige otro periodo.';
 const TEXTO_AYUDA_PDF = 'El PDF lleva solo totales. No lleva tu Yape ni tus movimientos.';
 const TITULO_PDF = 'Reporte de actividad del negocio';
 /** Foto de la identidad en la hoja de pantalla, en dp. */
@@ -87,15 +99,24 @@ const rangoEnPalabras = (primero: string, ultimo: string): string =>
     : `${formatoFechaCorta(primero)} — ${formatoFechaCorta(ultimo)}`;
 
 export const MiReporteScreen = () => {
-  const { cierres, perfil, cargando } = useCrecemos();
+  const { cierres, perfil, productos, cargando } = useCrecemos();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList, 'MiReporte'>>();
+  const route = useRoute<RouteProp<RootStackParamList, 'MiReporte'>>();
   const insets = useSafeAreaInsets();
+  // El periodo viene de Resumen si ya había elegido uno; si no, todo el historial hasta hoy.
+  const [filtro, setFiltro] = useState<FiltroPeriodo>(route.params?.filtro ?? FILTRO_TODO);
 
-  const { senales, hoy } = useMemo(() => {
-    const fecha = fechaLocal(new Date());
-    return { senales: senalesBanco(cierres, fecha), hoy: fecha };
-  }, [cierres]);
-  const texto = useMemo(() => textoReporte(senales, perfil, hoy), [senales, perfil, hoy]);
+  const hoy = fechaLocal(new Date());
+  // Todo lo del periodo se calcula una vez por cambio de cierres, productos o periodo.
+  const datos = useMemo(
+    () => datosDelReporte(cierres, filtro, productos, hoy),
+    [cierres, filtro, productos, hoy],
+  );
+  const { senales, periodo, inteligencia, extra } = datos;
+  const meses = useMemo(
+    () => mesesConCierres(cierresDelReporte(cierres).cierres, hoy),
+    [cierres, hoy],
+  );
   const pasaporte = useMemo(() => construirPasaporte(senales, hoy), [senales, hoy]);
 
   // El mensaje amable del último fallo (o nada). Cerrar la hoja sin compartir no es un fallo.
@@ -103,7 +124,8 @@ export const MiReporteScreen = () => {
   const [preparando, setPreparando] = useState(false);
   // Un toque, una acción: mientras se prepara o se abre la hoja, otro toque no hace nada.
   const ocupado = useRef(false);
-  const sinDias = senales.diasRegistrados === 0;
+  // Se puede compartir siempre que el periodo tenga al menos un cierre.
+  const sinDias = !puedeEmitirReporte(periodo);
 
   const compartirComoPdf = async () => {
     if (ocupado.current || sinDias) return;
@@ -113,7 +135,7 @@ export const MiReporteScreen = () => {
     try {
       // El documento se arma aquí, al tocar: abrir la pantalla no genera ni comparte nada.
       const resultado = await compartirPdf(
-        htmlReporte(senales, perfil, hoy),
+        htmlReporte(senales, perfil, hoy, extra),
         NOMBRE_ARCHIVO_PDF(hoy),
         TITULO_PDF,
       );
@@ -137,7 +159,8 @@ export const MiReporteScreen = () => {
     ocupado.current = true;
     setMensajeError(null);
     try {
-      const resultado = await compartirReporte(texto);
+      // El texto se arma al tocar: abrir la pantalla no arma nada que no se vaya a compartir.
+      const resultado = await compartirReporte(textoReporte(senales, perfil, hoy, extra));
       // Cerrar la hoja sin compartir es `ok`: solo un fallo de verdad muestra el mensaje.
       setMensajeError(resultado?.ok === false ? TEXTO_ERROR : null);
     } catch {
@@ -157,17 +180,25 @@ export const MiReporteScreen = () => {
         backTestID="reporte-atras"
       />
       <ScrollView contentContainerStyle={styles.contenido}>
-        {cargando ? (
-          <CargandoBloques bloques={2} alto={160} testID="reporte-cargando" />
-        ) : null}
+        {cargando ? <CargandoBloques bloques={2} alto={160} testID="reporte-cargando" /> : null}
 
-        {cargando ? null : senales.soloEjemplo ? (
+        {cargando ? null : datos.soloEjemplo ? (
           <Callout title="Datos de ejemplo" testID="reporte-aviso-ejemplo">
             {AVISO_EJEMPLO}
           </Callout>
         ) : null}
 
         {cargando ? null : senales.enConstruccion ? <EnConstruccion senales={senales} /> : null}
+
+        {cargando || cierres.length === 0 ? null : (
+          <SelectorPeriodo
+            filtro={filtro}
+            etiqueta={periodo.etiqueta}
+            meses={meses}
+            onChange={setFiltro}
+            testID="reporte-filtro"
+          />
+        )}
 
         <View style={styles.privacidad} testID="reporte-aviso-privacidad">
           <Icon icon={Lock} color="primary" size="lg" />
@@ -181,13 +212,16 @@ export const MiReporteScreen = () => {
         </View>
 
         {cargando ? null : <Hoja senales={senales} perfil={perfil} pasaporte={pasaporte} />}
+        {cargando || sinDias ? null : (
+          <InteligenciaReporte inteligencia={inteligencia} etiquetaPeriodo={periodo.etiqueta} />
+        )}
       </ScrollView>
 
       {/* Los botones viven FUERA del scroll, en un pie fijo: siempre a la mano del pulgar. */}
       <View style={[styles.pie, { paddingBottom: spacing.lg + insets.bottom }]}>
         {sinDias && !cargando ? (
           <Text variant="bodySmall" color="textMuted" align="center" testID="reporte-ayuda-vacio">
-            {TEXTO_AYUDA_VACIO}
+            {cierres.length === 0 ? TEXTO_AYUDA_VACIO : TEXTO_AYUDA_PERIODO_VACIO}
           </Text>
         ) : null}
         {mensajeError !== null ? (
@@ -426,11 +460,7 @@ const Barras = ({ meses }: { meses: MesCompleto[] }) => {
     <View style={styles.barras} testID="reporte-barras">
       {meses.map(m => (
         <View key={m.mes} style={styles.columna}>
-          <Text
-            variant="captionStrong"
-            align="center"
-            testID={`reporte-monto-${m.mes}`}
-          >
+          <Text variant="captionStrong" align="center" testID={`reporte-monto-${m.mes}`}>
             {formatoSoles(m.venta)}
           </Text>
           <View style={styles.zonaBarra}>
@@ -451,7 +481,12 @@ const Barras = ({ meses }: { meses: MesCompleto[] }) => {
 const styles = StyleSheet.create({
   pantalla: { flex: 1, backgroundColor: colors.background },
   encabezado: { paddingHorizontal: spacing.lg, paddingTop: spacing.xs },
-  contenido: { padding: spacing.lg, paddingTop: spacing.md, gap: spacing.lg, paddingBottom: spacing.xl },
+  contenido: {
+    padding: spacing.lg,
+    paddingTop: spacing.md,
+    gap: spacing.lg,
+    paddingBottom: spacing.xl,
+  },
   // El naranja es solo relleno de la barra: las letras del aviso van en oscuro.
   progreso: { marginTop: spacing.sm },
   privacidad: {
