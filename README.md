@@ -20,7 +20,6 @@ Freddy compra mercadería cada 2 días y razona por ciclos: "el primer día es p
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Barra de navegación           | Inicio, Historial, **Cerrar día** (botón central grande), Resumen y Asistente. Cerrar día se abre como pantalla modal y termina con una pantalla de éxito. |
 | Cerrar mi día                 | Anota las porciones preparadas y las que sobraron por producto, el Yape y los gastos. La app calcula la venta.                                   |
-| Cuéntame tu día               | Escribe una frase libre ("hice 40 anticuchos y sobraron 3") y la app **llena el formulario para que lo revises**. Se interpreta en el teléfono: no envía nada. |
 | Anotar un yape                | Apunta un Yape en el momento en que entra; al cerrar el día la suma ya viene puesta (se puede cambiar).                                          |
 | Resultado registrado, por ciclo de compra | Lo vendido menos los gastos registrados desde que compró mercadería; incluye pagos pendientes de recibir.                       |
 | Para mañana                   | Sugiere cuánto preparar de cada producto según los mismos días de semanas anteriores, con la mercadería que costaría.                            |
@@ -31,11 +30,12 @@ Freddy compra mercadería cada 2 días y razona por ciclos: "el primer día es p
 | Qué me deja cada uno          | Contrasta lo que vendes con lo que te deja cada producto.                                                      |
 | Simulador de precio           | Prueba "¿y si subo el precio?" y muestra cuánto más ganarías, sin tocar tus datos.                                                            |
 | Mi cuota (meta de ahorro)     | Una alcancía con la cuota que quieres juntar y un aporte diario sugerido; cada aporte se anota y se suma.                                        |
-| Perfil                        | Un menú limpio de seis opciones (Mis datos, Cómo me pagan, Recordatorio diario, Mis productos, Borrar datos y Ayuda), cada una con un resumen en vivo y su propia pantalla. La foto se cambia con el botón de cámara sobre el avatar: elegir de la galería, tomar foto o quitarla. |
+| Perfil                        | Un menú limpio de ocho opciones (Mis datos, Cómo me pagan, Recordatorio diario, Mis productos, Configuración, Mis reportes, Borrar datos y Ayuda), cada una con un resumen en vivo y su propia pantalla. La foto se cambia con el botón de cámara sobre el avatar: elegir de la galería, tomar foto o quitarla. |
 | Mis productos                 | Permite crear, renombrar, editar, desactivar y reactivar productos desde Perfil → Mis productos.                                                  |
 | Recomendaciones               | Seis reglas fijas (cobro, precio, cuánto preparar, cuánto retirar, día flojo, comparación con el ciclo anterior). Muestra las 2 más importantes. |
 | Resumen con gráficos y periodo   | Debajo del ciclo, "Tus números": una **torta** de ventas por producto (cada porción con su color y su dibujo, para que se lea sin depender del color), barras por mes y por producto y los últimos 7, 14 o 30 días, donde un día sin cierre se ve como un hueco y no como cero. Un botón "Periodo" elige todo el historial (por defecto), este mes, el mes pasado, los últimos 30 días, un mes o un rango de meses. |
-| Mi reporte y pasaporte para la entidad financiera | Totales con venta y ganancia promedio mensual, una **cuota mensual de referencia** y una constancia de registro con código QR generado en el teléfono, en texto o en PDF. **Se puede compartir desde el primer día cerrado**, sin esperar al fin de mes, y respeta el periodo elegido en Resumen. Suma ventas, gastos y resultado registrado por mes, el mes más fuerte y el más débil, comparaciones entre meses, el promedio por día cerrado, el día de la semana que más vendes y el producto estrella; el PDF tiene varias páginas. La cuota de referencia sigue necesitando un mes completo. Es una referencia, no una aprobación ni una calificación: la entidad decide con su propio análisis, y el código no reemplaza su verificación. Se comparte solo si la persona lo decide. |
+| Mi reporte y pasaporte para la entidad financiera | Totales con venta y ganancia promedio mensual, una **cuota mensual de referencia** y una constancia de registro por mes, en texto o en PDF. **Se puede compartir desde el primer día cerrado**, sin esperar al fin de mes, y respeta el periodo elegido en Resumen. Suma ventas, gastos y resultado registrado por mes, el mes más fuerte y el más débil, comparaciones entre meses, el promedio por día cerrado, el día de la semana que más vendes y el producto estrella; el PDF tiene varias páginas. La cuota de referencia sigue necesitando un mes completo. Es una referencia, no una aprobación ni una calificación: la entidad decide con su propio análisis. Se comparte solo si la persona lo decide. |
+| Reporte en la nube con QR y Mis reportes | **Opcional.** Con el botón «Crear enlace con QR» (y una confirmación que dice qué se sube), el PDF del reporte se guarda en la nube y se obtiene un **enlace público que caduca a los 30 días**, con su **QR** y un código `CR-XXXX-XXXX-XXXX` que salen del enlace; el PDF lleva impreso el QR de su propio enlace. El enlace se recuerda en el teléfono (no se sube dos veces lo mismo), se puede guardar en **Mis reportes** con un título, y se puede **borrar de la nube**. Ver [El reporte en la nube](#el-reporte-en-la-nube-opcional). |
 | Asistente (Preguntarle a mis datos) | Pregunta con sus palabras ("¿qué día me va peor?"). Con internet, la app calcula la cifra, un modelo la redacta con un tono cercano y también puede conversar sobre el negocio. **Sin internet responde solo las preguntas predefinidas**, con la etiqueta "Sin internet". Ver [El chat](#el-chat-preguntarle-a-mis-datos). |
 | Datos de ejemplo              | Se cargan y se **borran** desde Perfil → Borrar datos, para probar la app sin registrar nada propio.                                                            |
 
@@ -100,10 +100,25 @@ Es una función **opcional**: la app entera funciona sin ella. Se abre desde la 
 - **Qué viaja y qué no.** Abrir la pantalla o escribir no manda nada; con red, cada petición sale al tocar "Preguntar". Viaja el texto de la pregunta. Para redactar y conversar viajan además lo último que se habló (hasta cuatro intervenciones) y, según el caso, la respuesta ya calculada (que puede incluir el total de un día concreto) o un resumen con totales por mes y por producto, el mejor y el peor día, el ciclo actual y hoy. Para el semáforo, la respuesta calculada y señales de una palabra. **Nunca** viajan el nombre, el negocio, la foto, el Yape, la ubicación, el monto ni la fecha de lo que te deben, ni un cierre suelto. La pantalla avisa de esto al abrirse. La conversación **solo vive en memoria**: no se guarda en el teléfono y se pierde al cerrar la app.
 - **Puede tardar unos segundos.** Con internet, una pregunta hace de una a tres llamadas seguidas; si se alarga, la pantalla lo dice.
 - **La clave del proveedor no está en la app ni en el repositorio.** La app habla con un servidor intermedio propio (un Cloudflare Worker, en `servidor/`) que guarda la clave como secreto y reenvía lo mínimo a un proveedor de modelos (OpenRouter). El servidor valida el tamaño de lo que recibe y limita las peticiones por dirección IP. El endpoint es público: la protección de MVP es ese límite y un tope de gasto en la clave; una autenticación real queda fuera.
-- **Las dos únicas direcciones de red de la app** son `src/services/seed.ts` (los datos de ejemplo) y `src/services/jev.ts` (este chat). La dirección del servidor está en `src/config.ts`.
+- **Las dos únicas direcciones de red de la app** son `src/services/seed.ts` (los datos de ejemplo) y `src/services/jev.ts`, que habla con **un mismo servidor** para este chat y para el reporte en la nube (ver abajo). La dirección del servidor está en `src/config.ts`.
 - **Los modelos los alojan terceros.** Se restringe a proveedores de EE. UU. y se pide que no guarden ni entrenen con los datos; eso reduce el riesgo pero no lo elimina.
 
-Para usar tu propio servidor, sigue los pasos de [`servidor/README.md`](servidor/README.md): publicar el Worker (`npx wrangler deploy`), guardar la clave como secreto (`npx wrangler secret put OPENROUTER_API_KEY`) y poner su dirección en `src/config.ts`.
+Para usar tu propio servidor, sigue los pasos de [`servidor/README.md`](servidor/README.md): crear el bucket de R2 (`npx wrangler r2 bucket create crecemos-reportes`, antes de publicar), publicar el Worker (`npx wrangler deploy`, desde `servidor/`), guardar la clave como secreto (`npx wrangler secret put OPENROUTER_API_KEY`) y poner su dirección en `src/config.ts`.
+
+## El reporte en la nube (opcional)
+
+El reporte para la entidad financiera se comparte, como siempre, con la hoja nativa del teléfono (PDF o texto). Además, la persona puede **crear un enlace**:
+
+- **Solo por un botón y con confirmación.** «Crear enlace con QR» pide confirmar antes de subir nada. Abrir Mi reporte o Mis reportes, cambiar el periodo, compartir, copiar o cancelar **no envían nada**.
+- **Qué se sube.** El PDF del periodo elegido: ventas, resultado y constancia, **con el nombre, el negocio y la foto si la hay**, y el QR de su propio enlace. **Nunca** se sube el Yape, la ubicación ni los cierres uno por uno.
+- **El enlace es público.** Cualquiera que lo tenga puede ver y descargar el PDF durante **30 días**; después deja de funcionar. No hay inicio de sesión.
+- **El QR y el código salen del enlace.** El código `CR-XXXX-XXXX-XXXX` identifica el archivo subido, no el contenido; no es una aprobación ni una verificación de ninguna entidad. Sin enlace, el reporte no lleva ni QR ni código.
+- **Sin duplicados.** Si el contenido no cambió, la app muestra el mismo enlace en vez de subir otro (se recuerda en el teléfono, también al cerrar y abrir la app).
+- **Mis reportes.** La persona puede guardar el enlace con un título (hasta 20) y ver si sigue vigente o caducó, copiarlo, compartirlo, descargar el PDF o **borrarlo de la nube**. Olvidar un enlace en el teléfono no lo borra de la nube; «Borrar de la nube» sí, y usa un código que solo vive en el teléfono.
+- **Dónde se guarda.** En un bucket de Cloudflare R2, detrás del mismo servidor intermedio. El servidor valida que sea un PDF de hasta 400 KB, guarda solo el hash del código de borrado y limita las creaciones (por minuto por dirección, en total por minuto y por día).
+- **Costo.** Cloudflare R2 pide un método de pago o una suscripción aunque no cobre dentro de su cuota gratuita; quien monte su propio servidor debe activarlo en su cuenta. R2 no borra solo: hay que crear reglas de ciclo de vida en el bucket (ver `servidor/README.md`).
+
+Lo que **no** hay: revocar un enlace si se pierde el teléfono (solo caduca), ni un borrado total de los datos. Y, como cualquiera puede agotar los topes de creación, en un mal momento puede no dejar crear enlaces nuevos; compartir el PDF o el texto sigue funcionando.
 
 ## Datos de ejemplo
 
@@ -130,12 +145,13 @@ Una instalación nueva empieza con el catálogo vacío. Si la persona toca **«C
 | 07     | Foto de perfil desde la galería o la cámara y reporte en PDF de una página para compartir.                                   |
 | 08     | El chat "Preguntarle a mis datos": las cifras las calcula la app, el modelo entiende la pregunta y puede juzgarla; servidor propio. |
 | 09     | Lenguaje claro, fórmulas explicadas y catálogo configurable; datos de ejemplo voluntarios. |
-| 12     | Auditoría: barra de navegación con Cerrar día al centro, Asistente como pestaña (también sin internet), Para mañana, Tu semana, simulador de precio, Mi cuota, Anotar un yape, Cuéntame tu día, recordatorio, pasaporte con cuota de referencia, datos de ejemplo borrables, React Native Elements con Inter y Outfit, cola de escrituras y versión del esquema. |
+| 12     | Auditoría: barra de navegación con Cerrar día al centro, Asistente como pestaña (también sin internet), Para mañana, Tu semana, simulador de precio, Mi cuota, Anotar un yape, recordatorio, pasaporte con cuota de referencia, datos de ejemplo borrables, React Native Elements con Inter y Outfit, cola de escrituras y versión del esquema. |
 | 13     | El chat responde "cómo me fue el mes pasado" y "cómo voy este mes", y el servidor da un segundo intento cuando el primer modelo duda. |
 | 14     | El asistente vuelve a pensar: un modelo redacta las respuestas y conversa con un resumen de totales, la app vigila cada cifra, y sin internet responde solo lo predefinido. |
 | 15     | Resumen con torta de ventas por producto, barras por mes y por producto y últimos días, con un filtro de periodo compartido con Mi reporte; el reporte se puede compartir desde el primer cierre y suma el mes más fuerte y el más débil, comparaciones y el producto estrella, en un PDF de varias páginas. |
+| 16     | Se quita la voz («Cuéntame tu día» y el dictado). El reporte se puede subir a la nube, solo con un botón y una confirmación: un enlace público que caduca a los 30 días, con su QR y su código; sin duplicados; con «Mis reportes» y borrado en la nube. El servidor guarda el PDF en R2 con topes y límites. |
 
-Quedan pendientes las compras y los pagos, y una auditoría final que verifica sin agregar funciones.
+No se construyeron las compras con recetas ni los pagos con comprobantes. Queda una auditoría final que verifica sin agregar funciones.
 
 ### Metodología
 
@@ -180,11 +196,11 @@ src/
   storage/      Repositorio sobre AsyncStorage (guarda en SQLite por dentro): escrituras en cola y versión del esquema.
   context/      Estado de la app: un solo proveedor.
   navigation/   Pestañas y pantallas apiladas.
-  screens/      Inicio, Cerrar mi día, Historial, Resumen, Qué me deja cada uno, Mi cuota, Perfil (y sus seis pantallas: Mis datos, Cómo me pagan, Recordatorio diario, Mis productos, Borrar datos y Ayuda), Mi reporte, Asistente.
+  screens/      Inicio, Cerrar mi día, Historial, Resumen, Qué me deja cada uno, Mi cuota, Perfil (y sus pantallas: Mis datos, Cómo me pagan, Recordatorio diario, Mis productos, Configuración, Borrar datos y Ayuda), Mi reporte, Mis reportes, Asistente.
   hooks/        Derivados compartidos (ciclos), recordatorio, conteo animado y acciones seguras.
   components/   Átomos, moléculas y organismos reutilizables.
-  services/     La red (seed.ts y jev.ts), la hoja de compartir, la foto y el PDF.
-servidor/       Servidor intermedio del chat (Cloudflare Worker): guarda la clave y reenvía.
+  services/     La red (seed.ts y jev.ts), el enlace del reporte (reporteNube.ts), la hoja de compartir, la foto y el PDF.
+servidor/       Servidor intermedio (Cloudflare Worker): guarda la clave del chat y reenvía, y guarda los reportes que la persona decide subir (R2).
   theme/        Colores, espaciado y tipografía.
 ```
 
@@ -192,11 +208,12 @@ servidor/       Servidor intermedio del chat (Cloudflare Worker): guarda la clav
 
 ## Privacidad y datos
 
-- Los registros viven en el teléfono, en una base propia de la app. Registrar, ver el historial, calcular recomendaciones y preguntarle al asistente sin internet usan cero bytes de red. El asistente usa internet (si hay) al tocar "Preguntar" y los datos de ejemplo se descargan solo al solicitarlos.
-- Nada sale sin una acción explícita. El reporte se comparte con la hoja nativa del teléfono, solo cuando se toca "Compartir reporte", y se ve antes la vista previa.
+- Los registros viven en el teléfono, en una base propia de la app. Registrar, ver el historial, calcular recomendaciones y preguntarle al asistente sin internet usan cero bytes de red. El asistente usa internet (si hay) al tocar "Preguntar", los datos de ejemplo se descargan solo al solicitarlos y el enlace del reporte solo se crea o se borra al tocar su botón.
+- Nada sale sin una acción explícita. El reporte se comparte con la hoja nativa del teléfono, solo cuando se toca "Compartir reporte", y se ve antes la vista previa. **La única vez que sale un archivo del teléfono** es el PDF del reporte, solo si la persona toca «Crear enlace con QR» y acepta la confirmación; queda en un enlace público que caduca a los 30 días (ver [El reporte en la nube](#el-reporte-en-la-nube-opcional)).
 - El reporte de texto tiene un tope de 2,000 caracteres (la parte del banco ocupa cerca de 1,040; si el historial es largo, salen menos meses). Lleva el nombre y el negocio del perfil, la venta y la ganancia promedio mensual, la constancia de registro, los días registrados por mes y el resumen del periodo elegido (totales por mes, por producto y por día de la semana). **Nunca** lleva el número de Yape, el titular, el parentesco, la ubicación ni el monto de un cierre suelto.
 - Sin analítica, sin publicidad, sin reporte de errores y sin cuentas ni inicio de sesión.
 - La descarga de la semilla es una petición `GET` sin cuerpo, sin encabezados propios y sin datos de la persona.
+- Las dos únicas direcciones de red son `seed.ts` y `jev.ts`, esta última hacia el mismo servidor intermedio, que ahora también guarda el PDF en R2 (reservar, subir y borrar son `POST`; ver y descargar son `GET` del propio enlace).
 - Las peticiones del chat son `POST` al servidor intermedio: el texto de la pregunta y, según el caso, lo último que se habló, una respuesta ya calculada o un resumen de totales; nunca el nombre, el negocio, el Yape ni un cierre suelto. Ver [El chat](#el-chat-preguntarle-a-mis-datos).
 
 ## Limitaciones conocidas
@@ -208,13 +225,17 @@ servidor/       Servidor intermedio del chat (Cloudflare Worker): guarda la clav
 | La conversación del asistente solo vive en memoria: se pierde al cerrar la app.                                                                     |
 | La cuota de referencia y el código de constancia **no son una aprobación ni una calificación**: la entidad decide con su propio análisis.          |
 | El reporte se puede compartir desde el primer cierre, pero la **cuota de referencia** sigue pidiendo al menos un mes completo: antes de eso el reporte lo dice con palabras y trae todo lo demás. El texto compartido se recorta a 2,000 caracteres; el PDF lleva todo. |
-| El PDF de varias páginas y el dibujo de la torta se probaron en el simulador y con medidas en un navegador, no en un iPhone ni en un Android reales. El día de la semana que más deja necesita al menos 4 semanas de registro. |
+| El PDF de varias páginas, el PDF con el QR de su enlace y el dibujo de la torta se probaron en el simulador y con medidas en un navegador, no en un iPhone ni en un Android reales. El día de la semana que más deja necesita al menos 4 semanas de registro. |
 | El asistente reconoce catorce tipos de preguntas con cifras calculadas por la app; lo demás lo conversa un modelo que puede opinar en palabras sin que la app lo compruebe, y puede tardar unos segundos. Sin internet solo responde lo predefinido. Su endpoint es público (con límite por IP y tope de gasto, sin autenticación). |
 | iPhone: con la firma gratuita de Apple la app dura 7 días.                                                                                          |
 | Android y los iPhone chicos con texto del sistema agrandado **no se probaron en un dispositivo real**; las pruebas automáticas no reemplazan esa revisión. |
 | El dinero se calcula en soles con redondeo a 2 decimales en cada total (no en centavos enteros); las pruebas de propiedades vigilan que no aparezcan decimales de más. |
 | Con el simulador encendido, las pruebas de interfaz son lentas y pueden agotar el tiempo (ver Cómo probarla).                                       |
-| Sin backend ni inicio de sesión, por decisión de diseño. Si se pierde el teléfono, se pierden los datos: no hay respaldo ni importación.            |
+| Sin cuentas ni inicio de sesión, por decisión de diseño. Los datos viven en el teléfono: si se pierde, se pierden (no hay respaldo ni importación). Lo único que sale es lo que la persona decide enviar (el reporte, si crea un enlace). |
+| El **QR del enlace del reporte no se probó escaneado con otro teléfono** ni «Copiar enlace» en un dispositivo; el servidor sí se probó con peticiones reales. |
+| El enlace del reporte es **público** durante 30 días y **no se puede revocar si se pierde el teléfono** (el código de borrado vive solo en él): solo caduca. No hay un borrado total de datos. |
+| Los topes de creación de enlaces del servidor (por minuto, por día y por dirección) son aproximados y sin cuentas: cualquiera podría agotarlos y bloquear crear enlaces nuevos (compartir el PDF o el texto sigue funcionando). |
+| Se quitó la voz sin volver a compilar Android. |
 
 Estado del build de Android: se genera el APK release (ver arriba), pendiente de probar en un teléfono físico.
 
