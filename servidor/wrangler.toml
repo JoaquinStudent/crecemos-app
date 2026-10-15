@@ -28,7 +28,7 @@ namespace_id = "48210"
   limit = 40
   period = 60
 
-# Límite por IP, MÁS ESTRICTO, solo para subir el reporte (`subirReporte`): 5 subidas por minuto por IP en
+# Límite por IP, MÁS ESTRICTO, solo para reservar, subir y borrar un reporte: 5 por minuto por IP en
 # cada ubicación. Es un binding aparte del de arriba para que las subidas (que cuestan almacenamiento) no
 # gasten las preguntas del chat ni al revés. `namespace_id` debe ser único en la cuenta.
 [[ratelimits]]

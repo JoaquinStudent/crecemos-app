@@ -5,6 +5,14 @@ import { createAsyncStorage } from '@react-native-async-storage/async-storage';
 import { PRODUCTOS_POR_DEFECTO } from '@dominio/productosPorDefecto';
 import { marcarCobrados } from '@dominio/cobro';
 import { Meta, normalizarMeta } from '@dominio/meta';
+import {
+  esEntradaReporte,
+  estaVigente,
+  MAX_ENLACES_TEMPORALES,
+  MAX_REPORTES_GUARDADOS,
+  sanearTitulo,
+  type EntradaReporte,
+} from '@dominio/reporteGuardado';
 import { contarDatosDeEjemplo, DatosDeEjemplo, sinDatosDeEjemplo } from '@dominio/origen';
 import type {
   Cierre,
@@ -26,6 +34,7 @@ const CLAVE_META = '@crecemos/meta';
 const CLAVE_YAPES = '@crecemos/yapes';
 const CLAVE_VERSION = '@crecemos/version';
 const CLAVE_RECORRIDO = '@crecemos/recorrido-visto';
+const CLAVE_ENLACES = '@crecemos/enlaces-reporte';
 
 /** Versión actual del esquema guardado. Subirla exige agregar su paso en `MIGRACIONES`. */
 export const VERSION_ESQUEMA = 1;
@@ -201,6 +210,130 @@ export const marcarRecorridoVisto = (): Promise<void> =>
 /** Olvida que lo vio: lo usa "Ver el recorrido otra vez". */
 export const olvidarRecorridoVisto = (): Promise<void> =>
   enCola(() => base().removeItem(CLAVE_RECORRIDO));
+
+// --- Enlaces del reporte en la nube y "Mis reportes" (Sprint-16) -------------------------------
+// Una sola lista de entradas (ver `EntradaReporte`): las GUARDADAS (con título) aparecen en "Mis reportes" y
+// son a lo más 20; las TEMPORALES solo recuerdan el enlace para no subir dos veces el mismo contenido (a lo
+// más 5 vigentes, ocultas). Los vencidos temporales se descartan; los guardados vencidos se conservan para
+// mostrarlos como «Caducó el …». Ninguna entrada lleva cierres, Yape ni ubicación.
+
+/** Resultado de guardar un reporte en "Mis reportes". */
+export type ResultadoGuardarReporte = 'ok' | 'limite' | 'titulo-vacio' | 'no-existe';
+
+const leerEntradas = async (): Promise<{ entradas: EntradaReporte[]; limpias: boolean }> => {
+  const crudo = await leer<unknown>(CLAVE_ENLACES);
+  if (crudo === null) return { entradas: [], limpias: true };
+  const lista = Array.isArray(crudo) ? crudo : [];
+  const entradas = lista.filter(esEntradaReporte);
+  return { entradas, limpias: Array.isArray(crudo) && entradas.length === lista.length };
+};
+
+const escribirEntradas = (entradas: EntradaReporte[]): Promise<void> =>
+  base().setItem(CLAVE_ENLACES, JSON.stringify(entradas));
+
+/** Sin los temporales vencidos y con solo los últimos 5 temporales vigentes (los guardados se quedan). */
+const depuradas = (entradas: EntradaReporte[], ahora: number): EntradaReporte[] => {
+  const vigentesTemporales = entradas.filter(e => !e.guardado && estaVigente(e, ahora));
+  const sobrantes = new Set(vigentesTemporales.slice(0, -MAX_ENLACES_TEMPORALES));
+  return entradas.filter(e => (e.guardado ? true : estaVigente(e, ahora) && !sobrantes.has(e)));
+};
+
+/**
+ * La entrada VIGENTE de esa clave (temporal o guardada), o `null`. Lo vencido que no está guardado se
+ * descarta y se limpia. Nunca lanza: si leer falla responde `null` (lo peor: se crea un enlace de más).
+ */
+export const entradaDeReporte = (
+  clave: string,
+  ahora: number = Date.now(),
+): Promise<EntradaReporte | null> =>
+  enCola(async () => {
+    try {
+      const { entradas, limpias } = await leerEntradas();
+      const buenas = depuradas(entradas, ahora);
+      if (!limpias || buenas.length !== entradas.length) await escribirEntradas(buenas);
+      return buenas.find(e => e.clave === clave && estaVigente(e, ahora)) ?? null;
+    } catch {
+      return null;
+    }
+  });
+
+/**
+ * Recuerda un enlace recién creado. Si ya había una entrada con esa clave (por ejemplo una guardada que
+ * caducó), la nueva la reemplaza y hereda su lugar en "Mis reportes" y su título. Nunca lanza.
+ */
+export const registrarEntradaDeReporte = (
+  entrada: EntradaReporte,
+  ahora: number = Date.now(),
+): Promise<void> =>
+  enCola(async () => {
+    try {
+      const { entradas } = await leerEntradas();
+      const previa = entradas.find(e => e.clave === entrada.clave);
+      const nueva: EntradaReporte = previa?.guardado
+        ? { ...entrada, guardado: true, titulo: previa.titulo }
+        : entrada;
+      await escribirEntradas(
+        depuradas([...entradas.filter(e => e.clave !== entrada.clave), nueva], ahora),
+      );
+    } catch {
+      // No recordar el enlace no rompe nada: a lo más se crea otro si lo piden de nuevo.
+    }
+  });
+
+/** Los reportes guardados, del más reciente al más viejo (incluye los que ya caducaron). */
+export const listarReportesGuardados = async (): Promise<EntradaReporte[]> => {
+  try {
+    const { entradas } = await leerEntradas();
+    return entradas
+      .filter(e => e.guardado)
+      .sort((a, b) => (a.creadoEn < b.creadoEn ? 1 : a.creadoEn > b.creadoEn ? -1 : 0));
+  } catch {
+    return [];
+  }
+};
+
+/**
+ * Guarda (o cambia el título de) el reporte de esa clave en "Mis reportes". `limite` si ya hay 20 guardados y
+ * este no lo estaba; `titulo-vacio` si el título queda vacío al limpiarlo. Nunca lanza.
+ */
+export const guardarReporteEnLista = (
+  clave: string,
+  titulo: string,
+  ahora: number = Date.now(),
+): Promise<ResultadoGuardarReporte> =>
+  enCola(async () => {
+    try {
+      const limpio = sanearTitulo(titulo);
+      if (limpio === '') return 'titulo-vacio';
+      const { entradas } = await leerEntradas();
+      const objetivo = entradas.find(e => e.clave === clave);
+      if (!objetivo || (!objetivo.guardado && !estaVigente(objetivo, ahora))) return 'no-existe';
+      if (!objetivo.guardado && entradas.filter(e => e.guardado).length >= MAX_REPORTES_GUARDADOS) {
+        return 'limite';
+      }
+      await escribirEntradas(
+        entradas.map(e => (e.clave === clave ? { ...e, guardado: true, titulo: limpio } : e)),
+      );
+      return 'ok';
+    } catch {
+      return 'no-existe';
+    }
+  });
+
+/** Olvida la entrada de esa clave (solo en el teléfono; el archivo en la nube sigue hasta que caduque). */
+export const quitarReporteDeLista = (clave: string): Promise<void> =>
+  enCola(async () => {
+    try {
+      const { entradas } = await leerEntradas();
+      await escribirEntradas(entradas.filter(e => e.clave !== clave));
+    } catch {
+      // Sin cambios.
+    }
+  });
+
+/** Olvida TODOS los enlaces recordados (para cualquier opción que borre todos los datos). */
+export const borrarEnlacesDeReporte = (): Promise<void> =>
+  enCola(() => base().removeItem(CLAVE_ENLACES));
 
 // Pasos de migración: MIGRACIONES[n] lleva los datos de la versión n a la n + 1.
 // Hoy no hay ninguno que hacer (la versión 1 es la forma actual), pero el mecanismo ya corre.

@@ -8,14 +8,15 @@
 // puede compartir siempre que haya al menos un cierre en el periodo: ya no espera al fin de mes. La
 // hoja del banco de siempre va primero; debajo, la inteligencia de negocio del periodo.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Linking, ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { CircleCheck, Copy, Download, Link2, Lock, Share2 } from 'lucide-react-native';
+import { CircleCheck, FolderOpen, Link2, Lock, Share2 } from 'lucide-react-native';
 import { colors, radius, spacing } from '@theme';
 import { Text } from '@components/atoms/Text';
 import { Button } from '@components/atoms/Button';
+import { Input } from '@components/atoms/Input';
 import { Icon } from '@components/atoms/Icon';
 import { ProgressBar } from '@components/atoms/ProgressBar';
 import { AvatarPerfil } from '@components/molecules/AvatarPerfil';
@@ -24,14 +25,19 @@ import { CargandoBloques } from '@components/molecules/CargandoBloques';
 import { CodigoQR } from '@components/molecules/CodigoQR';
 import { ScreenHeader } from '@components/molecules/ScreenHeader';
 import { BottomSheet } from '@components/organisms/BottomSheet';
+import { DetalleEnlaceReporte } from '@components/organisms/DetalleEnlaceReporte';
 import { InteligenciaReporte } from '@components/organisms/InteligenciaReporte';
 import { SelectorPeriodo } from '@components/organisms/SelectorPeriodo';
+import { claveDelReporte } from '@analisis/claveReporte';
 import { htmlReporte, NOMBRE_ARCHIVO_PDF } from '@analisis/htmlReporte';
 import {
   AVISO_EJEMPLO_SECCION,
+  AVISO_SIN_ENLACE,
+  codigoDeEnlace,
   construirPasaporte,
   explicacionCuota,
   modulosQR,
+  textoCaduca,
   NOTA_CODIGO,
   NOTA_CUOTA,
   SIN_CONSTANCIA_MES,
@@ -63,13 +69,21 @@ import { useCrecemos } from '@context/CrecemosProvider';
 import { compartirReporte } from '@services/compartir';
 import { compartirPdf } from '@services/pdf';
 import {
-  copiarEnlace,
+  creacionEnCurso,
   crearEnlaceReporte,
-  enlaceVigente,
+  enlaceDe,
+  entradaVigente,
   type ResultadoCrearEnlace,
 } from '@services/reporteNube';
 import { DIAS_ENLACE_REPORTE, TEXTO_SIN_INTERNET, type EnlaceReporte } from '@services/jev';
 import { JEV_URL } from '../config';
+import { guardarReporteEnLista, type ResultadoGuardarReporte } from '@storage/repositorio';
+import {
+  MAX_REPORTES_GUARDADOS,
+  MAX_TITULO,
+  tituloSugerido,
+  type EntradaReporte,
+} from '@dominio/reporteGuardado';
 import type { RootStackParamList } from '@navigation/RootStack';
 
 const TEXTO_PRIVACIDAD =
@@ -85,7 +99,7 @@ const TITULO_PDF = 'Reporte de actividad del negocio';
 // Crear enlace con QR (Sprint-16). El enlace es público: la confirmación lo dice con palabras sencillas.
 export const TITULO_CONFIRMAR_SUBIDA = '¿Subir tu reporte para crear un enlace?';
 export const TEXTO_CONFIRMAR_QUE_SUBE =
-  'Se sube a internet el reporte en PDF del periodo que elegiste: tus ventas, tu resultado y tu constancia, con tu nombre, el de tu negocio y tu foto si la pusiste.';
+  'Se sube a internet el reporte en PDF del periodo que elegiste: tus ventas, tu resultado y tu constancia, con tu nombre, el de tu negocio y tu foto si la pusiste. El reporte llevará impreso el QR de su propio enlace.';
 export const TEXTO_CONFIRMAR_QUE_NO =
   'No se sube tu Yape, tu ubicación ni tus cierres uno por uno.';
 export const TEXTO_CONFIRMAR_PUBLICO = `Cualquiera que tenga el enlace podrá ver y descargar el reporte durante ${DIAS_ENLACE_REPORTE} días. Después el enlace deja de funcionar.`;
@@ -96,16 +110,14 @@ const TEXTO_ERROR_NUBE: Record<string, string> = {
   LIMITE: 'Hay muchas subidas ahora. Prueba en un minuto.',
   SERVIDOR: 'No pudimos crear el enlace ahora. Inténtalo más tarde.',
   RESPUESTA_INVALIDA: 'No pudimos crear el enlace ahora. Inténtalo más tarde.',
+  LIMITE_DIARIO: 'Hoy ya se subieron muchos reportes. Inténtalo mañana.',
 };
-const TEXTO_COPIADO = 'Enlace copiado.';
-const TEXTO_NO_DESCARGA = 'No pude abrir la descarga. Usa "Compartir enlace".';
-const TEXTO_NO_COPIADO = 'No pude copiarlo. Usa "Compartir enlace".';
-/** Lado del QR del enlace en su hoja, en dp. */
-const TAMANO_QR_ENLACE = 200;
-
-/** 'Caduca el 22 de octubre': la fecha local del vencimiento, en palabras. */
-export const textoCaduca = (caduca: string): string =>
-  `Caduca el ${formatoFechaCorta(fechaLocal(new Date(caduca)))}`;
+/** Por qué no se pudo guardar el título en Mis reportes, en palabras claras. */
+const TEXTO_ERROR_TITULO: Record<Exclude<ResultadoGuardarReporte, 'ok'>, string> = {
+  limite: `Ya tienes ${MAX_REPORTES_GUARDADOS} reportes guardados. Quita uno de Mis reportes para guardar otro.`,
+  'titulo-vacio': 'Escribe un título para tu reporte.',
+  'no-existe': 'No pudimos guardarlo ahora. Inténtalo otra vez.',
+};
 
 const errorNubeDe = (r: Extract<ResultadoCrearEnlace, { ok: false }>): string =>
   TEXTO_ERROR_NUBE[r.error] ?? TEXTO_SIN_INTERNET;
@@ -154,7 +166,7 @@ export const MiReporteScreen = () => {
     () => mesesConCierres(cierresDelReporte(cierres).cierres, hoy),
     [cierres, hoy],
   );
-  const pasaporte = useMemo(() => construirPasaporte(senales, hoy), [senales, hoy]);
+  const pasaporte = useMemo(() => construirPasaporte(senales), [senales]);
 
   // El mensaje amable del último fallo (o nada). Cerrar la hoja sin compartir no es un fallo.
   const [mensajeError, setMensajeError] = useState<string | null>(null);
@@ -164,27 +176,59 @@ export const MiReporteScreen = () => {
   // Se puede compartir siempre que el periodo tenga al menos un cierre.
   const sinDias = !puedeEmitirReporte(periodo);
 
-  // Crear enlace con QR: nada sale hasta que la persona confirma. El enlace vive solo en esta pantalla.
+  // Crear enlace con QR: nada sale hasta que la persona confirma. El enlace se recuerda en el teléfono.
   const [confirmando, setConfirmando] = useState(false);
   const [subiendo, setSubiendo] = useState(false);
-  const [enlace, setEnlace] = useState<EnlaceReporte | null>(null);
+  const [hojaAbierta, setHojaAbierta] = useState(false);
+  const [entrada, setEntrada] = useState<EntradaReporte | null>(null);
   const [errorNube, setErrorNube] = useState<string | null>(null);
-  const [avisoCopia, setAvisoCopia] = useState<string | null>(null);
-  // Si cambia el periodo (o los datos), el enlace anterior ya no es de este reporte.
+  // Guardar en "Mis reportes": solo si la persona lo pide, con un título que ella puede cambiar.
+  const [editandoTitulo, setEditandoTitulo] = useState(false);
+  const [titulo, setTitulo] = useState('');
+  const [errorTitulo, setErrorTitulo] = useState<string | null>(null);
+  const enlace = entrada === null ? null : enlaceDe(entrada);
+  // La clave del reporte sale de sus DATOS (periodo, cierres, productos, nombre, negocio y foto), no de su
+  // documento: no cambia con la fecha ni con la hora, ni con el QR del enlace.
+  const clave = useMemo(
+    () => claveDelReporte(periodo.etiqueta, periodo.cierres, productos, perfil, datos.soloEjemplo),
+    [periodo, productos, perfil, datos.soloEjemplo],
+  );
+  // Si el contenido cambia, el QR desaparece; si vuelve a uno que ya tiene enlace vigente (de esta sesión o de
+  // una anterior), reaparece. Esto solo mira el almacenamiento del teléfono: nunca habla con el Worker. Y si
+  // ya hay una creación en curso para este contenido (la persona salió y volvió), se espera esa: no se lanza otra.
   useEffect(() => {
-    setEnlace(null);
+    let vivo = true;
+    setEntrada(null);
     setErrorNube(null);
-  }, [filtro, datos]);
+    setHojaAbierta(false);
+    setEditandoTitulo(false);
+    entradaVigente(clave).then(vigente => {
+      if (vivo) setEntrada(vigente);
+    });
+    const enCurso = creacionEnCurso(clave);
+    if (enCurso) {
+      setSubiendo(true);
+      enCurso.then(r => {
+        if (!vivo) return;
+        setSubiendo(false);
+        if (r.ok) setEntrada(r.entrada);
+      });
+    }
+    return () => {
+      vivo = false;
+    };
+  }, [clave]);
 
-  const documento = () => htmlReporte(senales, perfil, hoy, extra);
+  // El documento con el QR del enlace (si lo hay): lo que se comparte y lo que se sube es el mismo.
+  const documento = (con?: EnlaceReporte | null) =>
+    htmlReporte(senales, perfil, hoy, extra, con ?? undefined);
 
   const pedirEnlace = () => {
-    if (ocupado.current || sinDias) return;
+    if (ocupado.current || sinDias || subiendo) return;
     setErrorNube(null);
-    // Ya se creó uno para este mismo reporte en esta sesión: se muestra, sin subir nada otra vez.
-    const vigente = enlaceVigente(documento());
-    if (vigente) {
-      setEnlace(vigente);
+    // Ya hay un enlace para este mismo contenido: se muestra, sin confirmar ni subir nada otra vez.
+    if (entrada !== null) {
+      setHojaAbierta(true);
       return;
     }
     setConfirmando(true);
@@ -197,18 +241,23 @@ export const MiReporteScreen = () => {
     setSubiendo(true);
     try {
       const resultado = await crearEnlaceReporte(
-        documento(),
+        clave,
+        { filtro, periodoEtiqueta: periodo.etiqueta },
+        reservado => documento(reservado),
         NOMBRE_ARCHIVO_PDF(hoy),
         globalThis.fetch,
         JEV_URL,
       );
       if (resultado.ok) {
-        setEnlace(resultado.enlace);
-        setAvisoCopia(null);
+        setEntrada(resultado.entrada);
+        setHojaAbierta(true);
       } else {
+        // Si algo falló no queda QR ni enlace en pantalla.
+        setEntrada(null);
         setErrorNube(errorNubeDe(resultado));
       }
     } catch {
+      setEntrada(null);
       setErrorNube(TEXTO_ERROR_NUBE.SERVIDOR);
     } finally {
       ocupado.current = false;
@@ -216,30 +265,21 @@ export const MiReporteScreen = () => {
     }
   };
 
-  const copiar = () => {
-    if (enlace) setAvisoCopia(copiarEnlace(enlace.url) ? TEXTO_COPIADO : TEXTO_NO_COPIADO);
+  const abrirTitulo = () => {
+    setTitulo(entrada?.titulo ?? tituloSugerido(filtro.tipo, periodo.etiqueta, hoy));
+    setErrorTitulo(null);
+    setEditandoTitulo(true);
   };
-
-  const compartirEnlace = async () => {
-    if (!enlace) return;
-    const resultado = await compartirReporte(
-      `Mi reporte de Crecemos. ${textoCaduca(enlace.caduca)}: ${enlace.url}`,
-    );
-    setAvisoCopia(resultado?.ok === false ? TEXTO_ERROR : null);
-  };
-
-  // Descargar: abre el enlace de descarga directa con lo que el teléfono tenga para PDF.
-  const descargarPdf = async () => {
-    if (!enlace) return;
-    try {
-      await Linking.openURL(`${enlace.url}?descargar=1`);
-      setAvisoCopia(null);
-    } catch {
-      setAvisoCopia(TEXTO_NO_DESCARGA);
+  const guardarTitulo = async () => {
+    const r = await guardarReporteEnLista(clave, titulo);
+    if (r === 'ok') {
+      setEntrada(await entradaVigente(clave));
+      setEditandoTitulo(false);
+      setErrorTitulo(null);
+    } else {
+      setErrorTitulo(TEXTO_ERROR_TITULO[r]);
     }
   };
-
-  const modulosEnlace = useMemo(() => (enlace ? modulosQR(enlace.url) : null), [enlace]);
 
   const compartirComoPdf = async () => {
     if (ocupado.current || sinDias) return;
@@ -248,11 +288,8 @@ export const MiReporteScreen = () => {
     setPreparando(true);
     try {
       // El documento se arma aquí, al tocar: abrir la pantalla no genera ni comparte nada.
-      const resultado = await compartirPdf(
-        htmlReporte(senales, perfil, hoy, extra),
-        NOMBRE_ARCHIVO_PDF(hoy),
-        TITULO_PDF,
-      );
+      // Con enlace vigente para este contenido el PDF lleva su QR; sin enlace, ninguno.
+      const resultado = await compartirPdf(documento(enlace), NOMBRE_ARCHIVO_PDF(hoy), TITULO_PDF);
       setMensajeError(
         resultado?.ok !== false
           ? null
@@ -325,7 +362,9 @@ export const MiReporteScreen = () => {
           </Text>
         </View>
 
-        {cargando ? null : <Hoja senales={senales} perfil={perfil} pasaporte={pasaporte} />}
+        {cargando ? null : (
+          <Hoja senales={senales} perfil={perfil} pasaporte={pasaporte} enlace={enlace} />
+        )}
         {cargando || sinDias ? null : (
           <InteligenciaReporte inteligencia={inteligencia} etiquetaPeriodo={periodo.etiqueta} />
         )}
@@ -379,7 +418,9 @@ export const MiReporteScreen = () => {
           </Text>
         ) : null}
         <Button
-          title={subiendo ? TEXTO_SUBIENDO : 'Crear enlace con QR'}
+          title={
+            subiendo ? TEXTO_SUBIENDO : enlace !== null ? 'Ver mi enlace' : 'Crear enlace con QR'
+          }
           leftIcon={Link2}
           variant="outline"
           size="md"
@@ -387,6 +428,15 @@ export const MiReporteScreen = () => {
           disabled={sinDias || preparando || cargando || subiendo}
           onPress={pedirEnlace}
           testID="reporte-crear-enlace"
+        />
+        <Button
+          title="Mis reportes"
+          leftIcon={FolderOpen}
+          variant="ghost"
+          size="md"
+          fullWidth
+          onPress={() => navigation.navigate('MisReportes')}
+          testID="reporte-mis-reportes"
         />
         <Text variant="caption" color="textMuted" align="center" testID="reporte-ayuda-pdf">
           {TEXTO_AYUDA_PDF}
@@ -426,8 +476,8 @@ export const MiReporteScreen = () => {
       </BottomSheet>
 
       <BottomSheet
-        visible={enlace !== null}
-        onClose={() => setEnlace(null)}
+        visible={hojaAbierta && entrada !== null}
+        onClose={() => setHojaAbierta(false)}
         accessibilityLabel="Tu enlace con QR"
         testID="reporte-enlace-hoja"
         footer={
@@ -435,63 +485,58 @@ export const MiReporteScreen = () => {
             title="Listo"
             size="lg"
             fullWidth
-            onPress={() => setEnlace(null)}
+            onPress={() => setHojaAbierta(false)}
             testID="reporte-enlace-listo"
           />
         }
       >
-        {enlace !== null && modulosEnlace !== null ? (
+        {entrada !== null ? (
           <View style={styles.enlaceContenido}>
             <Text variant="h3">Tu enlace está listo</Text>
-            <CodigoQR
-              modulos={modulosEnlace}
-              codigo={enlace.id}
-              etiqueta="Código QR del enlace de tu reporte"
-              size={TAMANO_QR_ENLACE}
-              testID="reporte-enlace-qr"
+            <DetalleEnlaceReporte
+              id={entrada.id}
+              url={entrada.url}
+              caduca={entrada.caduca}
+              prefijo="reporte-enlace"
             />
-            <Text variant="bodySmall" selectable testID="reporte-enlace-url">
-              {enlace.url}
-            </Text>
-            <Text variant="bodyStrong" testID="reporte-enlace-caduca">
-              {textoCaduca(enlace.caduca)}
-            </Text>
-            <Text variant="bodySmall" color="textMuted">
-              Cualquiera que tenga este enlace puede ver y descargar el reporte hasta esa fecha.
-            </Text>
-            <Button
-              title="Copiar enlace"
-              leftIcon={Copy}
-              variant="outline"
-              fullWidth
-              onPress={copiar}
-              testID="reporte-enlace-copiar"
-            />
-            <Button
-              title="Compartir enlace"
-              leftIcon={Share2}
-              variant="outline"
-              fullWidth
-              onPress={compartirEnlace}
-              testID="reporte-enlace-compartir"
-            />
-            <Button
-              title="Descargar PDF"
-              leftIcon={Download}
-              variant="outline"
-              fullWidth
-              onPress={descargarPdf}
-              testID="reporte-enlace-descargar"
-            />
-            {avisoCopia !== null ? (
-              <Text
-                variant="bodySmall"
-                accessibilityLiveRegion="polite"
-                testID="reporte-enlace-aviso"
-              >
-                {avisoCopia}
+            {entrada.guardado && !editandoTitulo ? (
+              <Text variant="bodyStrong" testID="reporte-enlace-guardado">
+                {`Guardado en Mis reportes: «${entrada.titulo}»`}
               </Text>
             ) : null}
+            {editandoTitulo ? (
+              <View style={styles.tituloCampo}>
+                <Input
+                  label="Título del reporte"
+                  value={titulo}
+                  onChangeText={setTitulo}
+                  maxLength={MAX_TITULO}
+                  error={errorTitulo ?? undefined}
+                  testID="reporte-titulo"
+                />
+                <Button
+                  title="Guardar"
+                  fullWidth
+                  onPress={guardarTitulo}
+                  testID="reporte-titulo-guardar"
+                />
+                <Button
+                  title="Cancelar"
+                  variant="ghost"
+                  fullWidth
+                  onPress={() => setEditandoTitulo(false)}
+                  testID="reporte-titulo-cancelar"
+                />
+              </View>
+            ) : (
+              <Button
+                title={entrada.guardado ? 'Editar título' : 'Guardar en Mis reportes'}
+                variant="outline"
+                fullWidth
+                onPress={abrirTitulo}
+                testID="reporte-guardar"
+              />
+            )}
           </View>
         ) : null}
       </BottomSheet>
@@ -524,10 +569,12 @@ const Hoja = ({
   senales,
   perfil,
   pasaporte,
+  enlace,
 }: {
   senales: Senales;
   perfil: Perfil;
   pasaporte: Pasaporte | null;
+  enlace: EnlaceReporte | null;
 }) => {
   const quien = [perfil.nombre, perfil.negocio]
     .map(parte => parte.trim())
@@ -589,7 +636,7 @@ const Hoja = ({
 
       {hayMeses ? <Barras meses={senales.meses} /> : null}
 
-      {pasaporte !== null ? <SeccionPasaporte pasaporte={pasaporte} /> : null}
+      {pasaporte !== null ? <SeccionPasaporte pasaporte={pasaporte} enlace={enlace} /> : null}
 
       {hayDias ? (
         <View style={styles.pieHoja}>
@@ -611,9 +658,15 @@ const Hoja = ({
  * El pasaporte para el banco: la cuota de referencia, los días registrados por mes y el código de
  * constancia con su QR. Todo en palabras y con su aclaración: es una referencia, no una aprobación.
  */
-const SeccionPasaporte = ({ pasaporte }: { pasaporte: Pasaporte }) => {
-  const modulos = useMemo(() => modulosQR(pasaporte.textoQR), [pasaporte.textoQR]);
-  const { cuota, constanciaMensual, codigo, soloEjemplo } = pasaporte;
+const SeccionPasaporte = ({
+  pasaporte,
+  enlace,
+}: {
+  pasaporte: Pasaporte;
+  enlace: EnlaceReporte | null;
+}) => {
+  const modulos = useMemo(() => (enlace ? modulosQR(enlace.url) : null), [enlace]);
+  const { cuota, constanciaMensual, soloEjemplo } = pasaporte;
   const marca = soloEjemplo ? (
     <Text variant="captionStrong" color="primary">
       {AVISO_EJEMPLO_SECCION}
@@ -656,17 +709,37 @@ const SeccionPasaporte = ({ pasaporte }: { pasaporte: Pasaporte }) => {
       </View>
 
       <View style={styles.bloque} testID="reporte-codigo-bloque">
-        <Text variant="labelStrong">{TITULO_CODIGO}</Text>
-        {marca}
-        <View style={styles.codigoFila}>
-          <CodigoQR modulos={modulos} codigo={codigo} size={TAMANO_QR} testID="reporte-qr" />
-          <Text variant="bodyStrong" style={styles.codigoTexto} testID="reporte-codigo">
-            {codigo}
+        {enlace !== null && modulos !== null ? (
+          <>
+            <Text variant="labelStrong">{TITULO_CODIGO}</Text>
+            {marca}
+            <View style={styles.codigoFila}>
+              <CodigoQR
+                modulos={modulos}
+                codigo={codigoDeEnlace(enlace.id)}
+                etiqueta="Código QR del enlace de tu reporte"
+                size={TAMANO_QR}
+                testID="reporte-qr"
+              />
+              <Text variant="bodyStrong" style={styles.codigoTexto} testID="reporte-codigo">
+                {codigoDeEnlace(enlace.id)}
+              </Text>
+            </View>
+            <Text variant="bodyStrong" testID="reporte-qr-caduca">
+              {textoCaduca(enlace.caduca)}
+            </Text>
+            <Text variant="caption" color="textMuted" selectable testID="reporte-qr-url">
+              {enlace.url}
+            </Text>
+            <Text variant="bodySmall" color="textMuted" testID="reporte-codigo-nota">
+              {NOTA_CODIGO}
+            </Text>
+          </>
+        ) : (
+          <Text variant="bodySmall" color="textMuted" testID="reporte-qr-aviso">
+            {AVISO_SIN_ENLACE}
           </Text>
-        </View>
-        <Text variant="bodySmall" color="textMuted" testID="reporte-codigo-nota">
-          {NOTA_CODIGO}
-        </Text>
+        )}
       </View>
     </View>
   );
@@ -778,6 +851,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 6,
   },
   enlaceContenido: { gap: spacing.md, alignItems: 'center' },
+  tituloCampo: { gap: spacing.md, alignSelf: 'stretch' },
   pasaporte: { gap: spacing.md },
   bloque: { gap: spacing.xs },
   codigoFila: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },

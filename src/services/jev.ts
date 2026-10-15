@@ -52,7 +52,13 @@ import { bytesUtf8 } from './seed';
  * asistente no está disponible) se distinguen de `SIN_RED` (sin señal o HTTP raro) para que Freddy
  * lea el mensaje que de verdad corresponde.
  */
-export type ErrorJev = 'SIN_RED' | 'TIEMPO_AGOTADO' | 'RESPUESTA_INVALIDA' | 'LIMITE' | 'SERVIDOR';
+export type ErrorJev =
+  | 'SIN_RED'
+  | 'TIEMPO_AGOTADO'
+  | 'RESPUESTA_INVALIDA'
+  | 'LIMITE'
+  | 'LIMITE_DIARIO'
+  | 'SERVIDOR';
 
 export type ResultadoJev = { ok: true; consulta: Consulta } | { ok: false; error: ErrorJev };
 
@@ -136,6 +142,8 @@ const publicar = async (
   url: string,
   cuerpo: unknown,
   clasificando = false,
+  /** Un 404 de las rutas del reporte (reserva vencida o usada) es del servidor, no falta de red. */
+  de404ComoServidor = false,
 ): Promise<Publicacion> => {
   const controlador = new AbortController();
   let agotado = false;
@@ -160,7 +168,17 @@ const publicar = async (
       });
       // Hubo respuesta del servidor (buena o mala): la red funciona.
       ultimaFallaDeRed = null;
-      if (!respuesta.ok) return { ok: false, error: errorDeEstado(respuesta.status) };
+      if (!respuesta.ok) {
+        // 503 con LIMITE_DIARIO: el Worker llegó a su tope de reportes de hoy (no es una caída).
+        if (respuesta.status === 503) {
+          const cuerpoError = await respuesta.text().catch(() => '');
+          if (typeof cuerpoError === 'string' && cuerpoError.includes('LIMITE_DIARIO')) {
+            return { ok: false, error: 'LIMITE_DIARIO' };
+          }
+        }
+        if (de404ComoServidor && respuesta.status === 404) return { ok: false, error: 'SERVIDOR' };
+        return { ok: false, error: errorDeEstado(respuesta.status) };
+      }
       texto = await respuesta.text();
     } catch {
       if (clasificando || !agotado) ultimaFallaDeRed = Date.now();
@@ -419,13 +437,14 @@ export const consultar = async (
 
 // --- Subir el reporte (Sprint-16) ---------------------------------------------------------------
 // OJO: este archivo se llama "jev" por historia; es la puerta de la app al Worker, y el Worker también
-// guarda el PDF del reporte. Es una llamada más a la MISMA dirección (`JEV_URL`), no una nueva: un
-// encabezado, un intento, 8 s, nunca lanza y ningún código técnico llega a un texto. Solo la dispara el
+// guarda el PDF del reporte. Son llamadas más a la MISMA dirección (`JEV_URL`), no una nueva: un
+// encabezado, un intento, 8 s, nunca lanzan y ningún código técnico llega a un texto. Solo las dispara el
 // botón "Crear enlace con QR", después de que la persona confirma que cualquiera con el enlace verá el PDF.
+// Van en dos pasos porque el PDF lleva impreso el QR de su propio enlace: primero se RESERVA el id (y con
+// él la dirección definitiva) y después se sube el PDF que ya la lleva.
 
 /** El PDF decodificado no puede pasar de esto (el Worker pone el mismo tope). */
-export const MAX_PDF_BYTES_SUBIDA = 1048576;
-
+export const MAX_PDF_BYTES_SUBIDA = 400 * 1024;
 /** Cuántos días dura el enlace (el Worker usa el mismo número: una prueba lo vigila). */
 export const DIAS_ENLACE_REPORTE = 30;
 
@@ -446,34 +465,104 @@ export type ResultadoSubida =
 const bytesDeBase64 = (b64: string): number =>
   Math.floor((b64.length * 3) / 4) - (b64.endsWith('==') ? 2 : b64.endsWith('=') ? 1 : 0);
 
+/** Lee `{ id, url, caduca }` y lo acepta solo si la url es exactamente `<Worker>/r/<id>`. */
+const leerEnlace = (json: unknown, url: string, idEsperado?: string): EnlaceReporte | null => {
+  const dato = json as { id?: unknown; url?: unknown; caduca?: unknown } | null;
+  const id = typeof dato?.id === 'string' ? dato.id : '';
+  const esperada = `${url.replace(/\/+$/, '')}/r/${id}`;
+  if (
+    !/^[0-9a-f]{32}$/.test(id) ||
+    (idEsperado !== undefined && id !== idEsperado) ||
+    dato?.url !== esperada ||
+    typeof dato.caduca !== 'string' ||
+    Number.isNaN(Date.parse(dato.caduca))
+  ) {
+    return null;
+  }
+  return { id, url: esperada, caduca: dato.caduca };
+};
+
+/** La reserva: el enlace definitivo y el token que permite borrarlo (se entrega una sola vez). */
+export type ResultadoReserva =
+  | { ok: true; enlace: EnlaceReporte; token: string }
+  | { ok: false; error: ErrorSubida };
+
 /**
- * Sube el PDF (en base64) al Worker. Viaja SOLO `{ tipo: 'subirReporte', pdf }`. La respuesta se acepta
- * únicamente si trae un id de 32 hexadecimales, una `url` que es exactamente `<Worker>/r/<id>` y una
- * fecha de caducidad legible: así un servidor raro no puede poner en el QR otra dirección.
+ * Paso 1: reserva el id y la dirección definitiva del enlace, sin archivo todavía. Viaja SOLO
+ * `{ tipo: 'reservarReporte' }`. La respuesta se acepta únicamente si la `url` es exactamente `<Worker>/r/<id>`
+ * y trae el token de borrado (32 hexadecimales).
+ */
+export const reservarReporte = async (
+  fetchFn: typeof fetch,
+  url: string,
+): Promise<ResultadoReserva> => {
+  try {
+    const publicada = await publicar(fetchFn, url, { tipo: 'reservarReporte' }, false, true);
+    if (!publicada.ok) return publicada;
+    const enlace = leerEnlace(publicada.json, url);
+    const token = (publicada.json as { token?: unknown } | null)?.token;
+    if (enlace === null || typeof token !== 'string' || !/^[0-9a-f]{32}$/.test(token)) {
+      return { ok: false, error: 'RESPUESTA_INVALIDA' };
+    }
+    return { ok: true, enlace, token };
+  } catch {
+    return { ok: false, error: 'SIN_RED' };
+  }
+};
+
+/**
+ * Paso 2: sube el PDF (en base64) al id reservado. Viaja SOLO `{ tipo: 'subirReporte', id, pdf }`. Un PDF
+ * de más de 400 KB ni siquiera sale del teléfono.
  */
 export const subirReporte = async (
   fetchFn: typeof fetch,
   url: string,
+  id: string,
   pdfBase64: string,
 ): Promise<ResultadoSubida> => {
   try {
     if (typeof pdfBase64 !== 'string' || pdfBase64 === '')
       return { ok: false, error: 'RESPUESTA_INVALIDA' };
     if (bytesDeBase64(pdfBase64) > MAX_PDF_BYTES_SUBIDA) return { ok: false, error: 'PDF_GRANDE' };
-    const publicada = await publicar(fetchFn, url, { tipo: 'subirReporte', pdf: pdfBase64 });
+    const publicada = await publicar(
+      fetchFn,
+      url,
+      { tipo: 'subirReporte', id, pdf: pdfBase64 },
+      false,
+      true,
+    );
     if (!publicada.ok) return publicada;
-    const json = publicada.json as { id?: unknown; url?: unknown; caduca?: unknown } | null;
-    const id = typeof json?.id === 'string' ? json.id : '';
-    const esperada = `${url.replace(/\/+$/, '')}/r/${id}`;
-    if (
-      !/^[0-9a-f]{32}$/.test(id) ||
-      json?.url !== esperada ||
-      typeof json.caduca !== 'string' ||
-      Number.isNaN(Date.parse(json.caduca))
-    ) {
-      return { ok: false, error: 'RESPUESTA_INVALIDA' };
-    }
-    return { ok: true, enlace: { id, url: esperada, caduca: json.caduca } };
+    const enlace = leerEnlace(publicada.json, url, id);
+    return enlace === null ? { ok: false, error: 'RESPUESTA_INVALIDA' } : { ok: true, enlace };
+  } catch {
+    return { ok: false, error: 'SIN_RED' };
+  }
+};
+
+export type ResultadoBorrado = { ok: true } | { ok: false; error: ErrorSubida };
+
+/**
+ * Borra el PDF de la nube. Viaja SOLO `{ tipo: 'borrarReporte', id, token }`. El Worker responde lo mismo
+ * haya o no algo que borrar; aquí `ok` solo significa que el Worker lo recibió y dejó de existir el enlace.
+ */
+export const borrarReporteEnNube = async (
+  fetchFn: typeof fetch,
+  url: string,
+  id: string,
+  token: string,
+): Promise<ResultadoBorrado> => {
+  try {
+    const publicada = await publicar(
+      fetchFn,
+      url,
+      { tipo: 'borrarReporte', id, token },
+      false,
+      true,
+    );
+    if (!publicada.ok) return publicada;
+    return (publicada.json as { ok?: unknown } | null)?.ok === true
+      ? { ok: true }
+      : { ok: false, error: 'RESPUESTA_INVALIDA' };
   } catch {
     return { ok: false, error: 'SIN_RED' };
   }

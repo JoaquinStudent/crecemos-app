@@ -8,7 +8,7 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { escaparHtml, htmlReporte, NOMBRE_ARCHIVO_PDF } from '@analisis/htmlReporte';
-import { construirPasaporte, cuotaReferencia, modulosQR, svgQR } from '@analisis/pasaporte';
+import { codigoDeEnlace, cuotaReferencia, modulosQR, svgQR } from '@analisis/pasaporte';
 import { senalesBanco } from '@analisis/senales';
 import { formatoSoles } from '@dominio/formato';
 import { materializarSemilla, validarSemilla } from '@dominio/semilla';
@@ -802,7 +802,6 @@ describe('con la semilla real y hoy = 2026-10-20', () => {
 describe('htmlReporte · pasaporte para el banco', () => {
   const html = htmlReporte(senalesDe(), perfilDe(), HOY);
   const texto = soloTexto(html);
-  const pasaporte = construirPasaporte(senalesDe(), HOY);
 
   it('lleva la cuota de referencia y dice que es una referencia', () => {
     expect(texto).toContain('Cuota mensual de referencia');
@@ -813,21 +812,34 @@ describe('htmlReporte · pasaporte para el banco', () => {
     );
   });
 
-  it('lleva el código de constancia, el QR en línea y la aclaración honesta', () => {
-    expect(pasaporte?.codigo).toMatch(/^CR-[0-9A-F]{4}-[0-9A-F]{4}$/);
-    expect(texto).toContain('Código de constancia');
-    expect(html).toContain(`<div class="numero-codigo">${pasaporte?.codigo}</div>`);
-    expect(html).toContain('<svg');
-    expect(cuenta(html, '<svg')).toBe(1);
-    expect(texto).toContain(
-      'Se generó en el teléfono con tus registros; sirve para comparar con los números del reporte. No reemplaza una verificación de la entidad.',
-    );
-    expect(texto).not.toMatch(/certific|garant|aprobad|criptogr|prueba de/i);
+  it('sin enlace no hay ni QR ni código de constancia, pero la constancia del mes sigue', () => {
+    expect(html).not.toContain('<svg');
+    expect(html).not.toContain('numero-codigo"');
+    expect(html).not.toMatch(/CR-[0-9A-F]{4}/);
+    expect(texto).not.toContain('Código de constancia');
+    expect(texto).not.toContain('Identifica este reporte');
+    expect(texto).toContain('Constancia de registro');
+    expect(texto).toContain('Registraste 18 de 30 días en septiembre');
   });
 
-  it('el QR del PDF dibuja exactamente los módulos del QR del código', () => {
-    const modulos = modulosQR(pasaporte?.textoQR ?? '');
-    expect(html).toContain(svgQR(modulos, 84));
+  it('con enlace: el QR dibuja exactamente los módulos del enlace, con su código, su caducidad y su dirección', () => {
+    const enlace = {
+      id: '0123456789abcdef0123456789abcdef',
+      url: 'https://crecemos.ejemplo.test/r/0123456789abcdef0123456789abcdef',
+      caduca: '2026-11-19T12:00:00-05:00',
+    };
+    const conEnlace = htmlReporte(senalesDe(), perfilDe(), HOY, undefined, enlace);
+    expect(conEnlace).toContain(svgQR(modulosQR(enlace.url), 84));
+    expect(cuenta(conEnlace, '<svg')).toBe(1);
+    expect(conEnlace).toContain(`<div class="numero-codigo">${codigoDeEnlace(enlace.id)}</div>`);
+    expect(conEnlace).toContain('CR-0123-4567-89AB');
+    expect(conEnlace).toContain('Caduca el 19 de noviembre');
+    expect(conEnlace).toContain(enlace.url);
+    const t = soloTexto(conEnlace);
+    expect(t).toContain(
+      'Identifica este reporte en la nube; el enlace del QR lo muestra tal cual. Caduca con el enlace.',
+    );
+    expect(t).not.toMatch(/certific|garant|aprobad|criptogr|prueba de/i);
   });
 
   it('lleva la frase de constancia del último mes completo', () => {
@@ -841,17 +853,18 @@ describe('htmlReporte · pasaporte para el banco', () => {
     expect(texto).not.toContain('· Datos de ejemplo');
   });
 
-  it('sin días registrados no hay pasaporte; sin mes completo, el código sí y la cifra no', () => {
+  it('sin días registrados no hay pasaporte; sin mes completo, la cifra no pero sí el aviso', () => {
     const vacio = htmlReporte(senalesBanco([], HOY), perfilDe(), HOY);
     expect(vacio).not.toContain('<svg');
-    expect(vacio).not.toContain('Código de constancia');
+    expect(vacio).not.toContain('seccion pasaporte');
     const sinMes = soloTexto(htmlReporte(sinMeses(), perfilDe(), HOY));
     expect(sinMes).toContain('Aún no hay un mes completo para calcular una referencia.');
-    expect(sinMes).toContain('Código de constancia');
   });
 
   it('el pasaporte va después del gráfico y antes de "Cómo leer este reporte"', () => {
-    expect(html.indexOf('Cuota mensual de referencia')).toBeGreaterThan(html.indexOf('Venta por mes'));
+    expect(html.indexOf('Cuota mensual de referencia')).toBeGreaterThan(
+      html.indexOf('Venta por mes'),
+    );
     expect(html.indexOf('Cuota mensual de referencia')).toBeLessThan(
       html.indexOf('Cómo leer este reporte'),
     );

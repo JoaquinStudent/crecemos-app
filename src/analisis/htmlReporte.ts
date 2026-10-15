@@ -7,15 +7,19 @@ import { formatoFecha, formatoFechaCorta, formatoSoles, nombreMes } from '@domin
 import type { FechaNegocio, MesCompleto, Perfil, Senales } from '@dominio/tipos';
 import {
   AVISO_EJEMPLO_SECCION,
+  codigoDeEnlace,
   construirPasaporte,
   explicacionCuota,
   modulosQR,
   NOTA_CODIGO,
   NOTA_CUOTA,
   svgQR,
+  textoCaduca,
   textoCuota,
   TITULO_CODIGO,
+  TITULO_CONSTANCIA,
   TITULO_CUOTA_BANCO,
+  type EnlaceQR,
   type Pasaporte,
 } from './pasaporte';
 import {
@@ -126,6 +130,7 @@ td.num { text-align: right; font-weight: 700 }
 .constancia-mes { margin-top: 5pt }
 .codigo { flex: 1.1; min-width: 0; display: flex; align-items: flex-start }
 .codigo svg { flex-shrink: 0; margin-right: 10pt; border: 1pt solid #E4D7DE }
+.enlace-reporte { font-size: 11pt; margin-top: 2pt; color: #6B5A62; overflow-wrap: anywhere; font-family: Menlo, Courier, monospace }
 .numero-codigo { font-size: 14pt; font-weight: 700; letter-spacing: 0.5pt; font-family: Menlo, Courier, monospace }
 .ejemplo { font-size: 11pt; font-weight: 700; color: #CD0157 }
 .pie { margin-top: auto; display: flex; justify-content: space-between; align-items: flex-start; padding: 8pt 36pt; border-top: 1pt solid #E4D7DE; color: #6B5A62; page-break-inside: avoid; break-inside: avoid }
@@ -267,7 +272,7 @@ const marcaEjemplo = (p: Pasaporte): string =>
  * izquierda; el código de constancia con su QR, los días del último mes y lo que ES (y no es) el
  * código a la derecha.
  */
-const pasaporte = (p: Pasaporte | null): string => {
+const pasaporte = (p: Pasaporte | null, enlace?: EnlaceQR): string => {
   if (p === null) return '';
   const ultimoMes = p.constanciaMensual[p.constanciaMensual.length - 1];
   const cuota =
@@ -277,15 +282,26 @@ const pasaporte = (p: Pasaporte | null): string => {
       ? `<div class="detalle">${escaparHtml(explicacionCuota(p.cuota))}</div>`
       : '') +
     `<div class="detalle">${NOTA_CUOTA}</div></div>`;
+  // Sin enlace no hay ni QR ni código: solo la constancia del último mes, en palabras. Con enlace: el QR de SU
+  // dirección, el código que sale de su id, la fecha en que deja de funcionar y la dirección en texto pequeño.
   const codigo =
-    `<div class="codigo">${svgQR(modulosQR(p.textoQR), LADO_QR_PT)}` +
-    `<div><div class="subtitulo">${TITULO_CODIGO}${marcaEjemplo(p)}</div>` +
-    `<div class="numero-codigo">${p.codigo}</div>` +
+    `<div class="codigo">${enlace === undefined ? '' : svgQR(modulosQR(enlace.url), LADO_QR_PT)}` +
+    `<div><div class="subtitulo">${
+      enlace === undefined ? TITULO_CONSTANCIA : TITULO_CODIGO
+    }${marcaEjemplo(p)}</div>` +
+    (enlace === undefined ? '' : `<div class="numero-codigo">${codigoDeEnlace(enlace.id)}</div>`) +
     (ultimoMes === undefined
       ? ''
       : `<div class="constancia-mes">${escaparHtml(ultimoMes.frase)}</div>`) +
+    (enlace === undefined
+      ? ''
+      : `<div class="constancia-mes"><strong>${escaparHtml(
+          textoCaduca(enlace.caduca),
+        )}</strong></div>` + `<div class="enlace-reporte">${escaparHtml(enlace.url)}</div>`) +
     '</div></div>';
-  return `<div class="seccion pasaporte">${cuota}${codigo}<div class="nota-codigo">${NOTA_CODIGO}</div></div>`;
+  return `<div class="seccion pasaporte">${cuota}${codigo}${
+    enlace === undefined ? '' : `<div class="nota-codigo">${NOTA_CODIGO}</div>`
+  }</div>`;
 };
 
 const comoLeer = (): string => {
@@ -574,6 +590,7 @@ export const htmlReporte = (
   perfil: Perfil | null,
   hoy: FechaNegocio,
   extra?: ExtraReporte,
+  enlace?: EnlaceQR,
 ): string => {
   const estilo = s.enConstruccion ? ` style="opacity: ${OPACIDAD_EN_CONSTRUCCION}"` : '';
   return (
@@ -602,7 +619,7 @@ export const htmlReporte = (
       : '') +
     tarjetas(s) +
     graficoYTabla(s) +
-    pasaporte(construirPasaporte(s, hoy)) +
+    pasaporte(construirPasaporte(s), enlace) +
     comoLeer() +
     '</div>' +
     `<div class="pie"><div class="privacidad">${FRASE_PIE}</div><div class="generado">Generado el ${fechaEnFrase(

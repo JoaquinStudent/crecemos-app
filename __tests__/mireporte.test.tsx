@@ -17,7 +17,6 @@ import { restarDias } from '@dominio/fecha';
 import { formatoFechaCorta, formatoSoles } from '@dominio/formato';
 import type { Cierre, FechaNegocio, Perfil } from '@dominio/tipos';
 import { htmlReporte, NOMBRE_ARCHIVO_PDF } from '@analisis/htmlReporte';
-import { construirPasaporte } from '@analisis/pasaporte';
 import { FILTRO_TODO } from '@analisis/periodo';
 import { datosDelReporte } from '@analisis/reporteDelPeriodo';
 import { senalesBanco, textoReporte } from '@analisis/senales';
@@ -1056,8 +1055,6 @@ describe('Mi reporte · pasaporte para el banco', () => {
     if (app) await act(async () => app.unmount());
   });
 
-  const pasaporteDe = (cierres: Cierre[]) => construirPasaporte(senalesBanco(cierres, HOY), HOY);
-
   it('la vista previa muestra la cuota de referencia con su aclaración', async () => {
     await sembrar(tresMeses(), FREDDY);
     const app = await montarApp();
@@ -1088,28 +1085,26 @@ describe('Mi reporte · pasaporte para el banco', () => {
     );
   });
 
-  it('el código y el QR: "Código de constancia", CR-XXXX-XXXX y la aclaración honesta', async () => {
+  it('el código y el QR: sin enlace no hay ni código ni QR, solo un aviso', async () => {
     const cierres = tresMeses();
     await sembrar(cierres, FREDDY);
     const app = await montarApp();
     await abrirReporte(app);
 
-    const codigo = pasaporteDe(cierres)?.codigo ?? '';
-    expect(codigo).toMatch(/^CR-[0-9A-F]{4}-[0-9A-F]{4}$/);
-    expect(app.textosDeLaPantalla()).toContain('Código de constancia');
-    expect(app.textoDe('reporte-codigo')).toBe(codigo);
-    expect(app.textoDe('reporte-codigo-nota')).toBe(
-      'Se generó en el teléfono con tus registros; sirve para comparar con los números del reporte. No reemplaza una verificación de la entidad.',
+    // Sprint-16: el QR de "constancia" no abría nada y se quitó; el código y el QR llegan con el enlace.
+    expect(app.existe('reporte-qr')).toBe(false);
+    expect(app.existe('reporte-codigo')).toBe(false);
+    expect(app.textosDeLaPantalla()).not.toContain('Código de constancia');
+    expect(app.textoDe('reporte-qr-aviso')).toBe(
+      'El código y el QR aparecerán cuando crees el enlace.',
     );
-    const qr = montada?.root.findAll(n => n.props.testID === 'reporte-qr' && n.props.accessible)[0];
-    expect(qr?.props.accessibilityLabel).toBe(`Código de constancia ${codigo}`);
     // Y no promete lo que no es.
     for (const t of app.textosDeLaPantalla()) {
       expect(t).not.toMatch(/certific|garant|aprobad|criptogr|prueba de/i);
     }
   });
 
-  it('el texto compartido lleva la cuota y el mismo código que la pantalla', async () => {
+  it('el texto compartido lleva la cuota y ningún código (sin enlace no hay código)', async () => {
     const cierres = tresMeses();
     await sembrar(cierres, FREDDY);
     const app = await montarApp();
@@ -1118,11 +1113,11 @@ describe('Mi reporte · pasaporte para el banco', () => {
     await app.tocar('reporte-compartir');
     const enviado = compartir.mock.calls[0][0];
     expect(enviado).toContain('Cuota mensual de referencia: S/ 650.00 al mes');
-    expect(enviado).toContain(`Código de constancia: ${app.textoDe('reporte-codigo')}`);
+    expect(enviado).not.toContain('Código de constancia');
     expect(enviado.length).toBeLessThan(2000);
   });
 
-  it('el PDF lleva el mismo código y el QR en línea', async () => {
+  it('el PDF, sin enlace, no lleva ni código ni QR', async () => {
     const cierres = tresMeses();
     await sembrar(cierres, FREDDY);
     const app = await montarApp();
@@ -1131,8 +1126,10 @@ describe('Mi reporte · pasaporte para el banco', () => {
 
     expect(generar).toHaveBeenCalledTimes(1);
     const html = String(generar.mock.calls[0][0].html);
-    expect(html).toContain(app.textoDe('reporte-codigo'));
-    expect(html).toContain('<svg');
+    expect(html).not.toMatch(/CR-[0-9A-F]{4}/);
+    expect(html).not.toContain('numero-codigo"');
+    // (Con la inteligencia hay gráficos <svg>; lo que no hay es el QR del enlace.)
+    expect(html).not.toContain('Código QR del enlace');
   });
 
   it('con pocos días registrados y sin mes completo: sin cifra de cuota, pero con su explicación', async () => {
@@ -1147,7 +1144,7 @@ describe('Mi reporte · pasaporte para el banco', () => {
     expect(app.textoDe('reporte-constancia-sin-mes')).toBe(
       'Aún no hay un mes completo registrado.',
     );
-    expect(app.existe('reporte-codigo')).toBe(true);
+    expect(app.existe('reporte-qr-aviso')).toBe(true);
   });
 
   it('sin ningún día cerrado no hay pasaporte', async () => {
@@ -1167,7 +1164,8 @@ describe('Mi reporte · pasaporte para el banco', () => {
     await abrirReporte(app);
 
     const marcas = app.textosDeLaPantalla().filter(t => t === 'Datos de ejemplo');
-    // El aviso del reporte (título) y una marca por cada una de las tres secciones nuevas.
-    expect(marcas.length).toBeGreaterThanOrEqual(4);
+    // El aviso del reporte (título) y una marca por cada sección nueva que hay sin enlace: la cuota y la
+    // constancia. La del código llega con el enlace en la nube (Sprint-16).
+    expect(marcas.length).toBeGreaterThanOrEqual(3);
   });
 });

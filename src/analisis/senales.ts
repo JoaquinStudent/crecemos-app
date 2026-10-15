@@ -207,7 +207,7 @@ export const textoReporte = (
           s.diasRegistrados,
         )})`;
 
-  const pasaporte = hoy === undefined ? null : construirPasaporte(s, hoy);
+  const pasaporte = hoy === undefined ? null : construirPasaporte(s);
   // Con inteligencia, la cuota dice con palabras por qué aún no hay cifra (no se inventa una).
   const lineaSinCuota =
     extra !== undefined && pasaporte !== null && !pasaporte.cuota.disponible

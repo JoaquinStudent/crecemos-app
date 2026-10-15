@@ -11,6 +11,7 @@ import { PerfilScreen } from '@screens/PerfilScreen';
 import { PerfilDatosScreen } from '@screens/PerfilDatosScreen';
 import { PerfilPagosScreen } from '@screens/PerfilPagosScreen';
 import { PerfilAyudaScreen } from '@screens/PerfilAyudaScreen';
+import { MisReportesScreen } from '@screens/MisReportesScreen';
 import { PerfilBorrarDatosScreen } from '@screens/PerfilBorrarDatosScreen';
 import { PerfilProductosScreen } from '@screens/PerfilProductosScreen';
 import { PerfilRecordatorioScreen } from '@screens/PerfilRecordatorioScreen';
@@ -41,6 +42,8 @@ export type RootStackParamList = {
   MiReporte: { filtro?: FiltroPeriodo } | undefined;
   /** La alcancía de la cuota del préstamo. */
   MiMeta: undefined;
+  /** Los enlaces de reporte que la persona guardó. */
+  MisReportes: undefined;
 };
 
 /** Las pantallas que se abren desde las opciones del menú de Perfil. */
@@ -67,5 +70,6 @@ export const RootStack = () => (
     <Stack.Screen name="QueMeDeja" component={QueMeDejaScreen} />
     <Stack.Screen name="MiReporte" component={MiReporteScreen} />
     <Stack.Screen name="MiMeta" component={MiMetaScreen} />
+    <Stack.Screen name="MisReportes" component={MisReportesScreen} />
   </Stack.Navigator>
 );

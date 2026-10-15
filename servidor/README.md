@@ -284,18 +284,26 @@ acaba, OpenRouter rechaza las peticiones de esa clave y el chat dice "Necesitas 
 
 El botón "Crear enlace con QR" de Mi reporte sube el PDF **solo cuando la persona lo confirma** y recibe un
 enlace público. Va al mismo Worker (misma dirección de red de la app) y se guarda en **Cloudflare R2**. No usa
-ninguna clave de OpenRouter.
+ninguna clave de OpenRouter. Como el PDF lleva impreso el QR de su propio enlace, la subida va en dos pasos:
+primero se **reserva** el id (y con él la dirección definitiva) y después se sube el PDF que ya la lleva.
 
 | Ruta | Qué hace |
 |---|---|
-| `POST /` con `{ "tipo": "subirReporte", "pdf": "<base64>" }` | Valida el PDF y lo guarda. Responde `{ id, url, caduca }`. |
-| `GET /r/<id>` | Sirve el PDF para VER (`application/pdf`, `inline`, `no-store`, `noindex`) mientras no haya caducado. Con `?descargar=1` lo sirve como descarga (`attachment; filename="reporte-crecemos.pdf"`); cualquier otro parámetro se ignora y el nombre del archivo lo fija el Worker. Vencido, inexistente o mal escrito: 404 con "Este enlace ya no está disponible." (el vencido además se borra). |
+| `POST /` con `{ "tipo": "reservarReporte" }` | Genera el id (128 bits aleatorios), guarda una reserva en R2 (`reservas/<id>`, vence en 15 minutos) y responde `{ id, url, caduca, token }`. `caduca` es la del enlace (30 días); `token` es el **token de borrado** (128 bits, distinto del id): se entrega **una sola vez**, aquí. |
+| `POST /` con `{ "tipo": "subirReporte", "id", "pdf": "<base64>" }` | Solo acepta un id con reserva vigente y aún no usada (una reserva sirve para UNA subida). Valida el PDF, lo guarda en `r/<id>` con la caducidad ya anunciada y borra la reserva. Responde `{ id, url, caduca }`. |
+| `POST /` con `{ "tipo": "borrarReporte", "id", "token" }` | Borra el PDF si el SHA-256 del token es el que se guardó al reservar (comparación en tiempo constante). **Responde siempre lo mismo** (`{"ok":true}`), haya o no algo que borrar y sea bueno o malo el token. |
+| `GET /r/<id>` | Sirve el PDF para VER (`application/pdf`, `inline`) mientras no haya caducado. Con `?descargar=1` lo sirve como descarga (`attachment; filename="reporte-crecemos.pdf"`); cualquier otro parámetro se ignora y el nombre lo fija el Worker. Lleva `Cache-Control: no-store`, `X-Robots-Tag: noindex`, `X-Content-Type-Options: nosniff` y `Content-Security-Policy: sandbox`. Vencido, borrado, inexistente o mal escrito: el mismo 404 "Este enlace ya no está disponible." (el vencido además se borra). |
 
-Reglas del Worker: el id son 128 bits aleatorios (32 caracteres hexadecimales, no se puede adivinar); el PDF
-decodificado pesa a lo más 1 MiB, tiene que empezar por `%PDF-` y venir en base64 válido; el nombre que llegue se
-ignora; el enlace dura 30 días (`DIAS_DE_VIDA_DEL_ENLACE` en `worker.js`); el contenido nunca se
-escribe en un log. Subir tiene su propio límite por IP, más estricto (5 por minuto, binding `LIMITE_SUBIDA`);
-pedir un enlace usa el límite general (`LIMITE`).
+Reglas del Worker: el id son 32 hexadecimales; el PDF decodificado pesa **a lo más 400 KB** (`MAX_PDF_BYTES`; el real
+pesa de 50 a 150 KB), tiene que empezar por `%PDF-` y venir en base64 válido; el enlace dura 30 días
+(`DIAS_DE_VIDA_DEL_ENLACE`); una reserva que nadie usa vence a los 15 minutos; el nombre del archivo lo pone el
+Worker; el contenido nunca se escribe en un log. En R2 **no se guarda el token, solo su hash**.
+
+**Límites.** Reservar, subir y borrar usan el binding estricto `LIMITE_SUBIDA` (5 por minuto por IP); pedir un
+enlace (`GET`) usa `LIMITE`. Además hay un **tope diario global** de `LIMITE_DIARIO_SUBIDAS` = 100 reportes por día
+(fecha UTC): al llegar, reservar y subir responden 503 `LIMITE_DIARIO` y la app dice "Hoy ya se subieron muchos
+reportes. Inténtalo mañana." El contador es un objeto de R2 por día (`contadores/AAAA-MM-DD`) y **no es atómico**:
+dos subidas a la vez pueden contarse como una. Es una aproximación para tener un techo de gasto, no un conteo exacto.
 
 ### A. Crear el bucket (una sola vez, ANTES de publicar)
 
@@ -308,10 +316,12 @@ npx wrangler r2 bucket create crecemos-reportes
 
 **Costo.** R2 puede pedir un método de pago en tu cuenta de Cloudflare **incluso para usar la capa gratuita**.
 No te doy cifras de precios porque no las verifiqué: míralas en la página oficial (Cloudflare R2 → Pricing).
-Los objetos no se borran solos: el Worker borra el vencido cuando alguien lo pide, pero uno que nadie vuelve a
-abrir se queda. Para limpiar, crea en el panel de Cloudflare (R2 → `crecemos-reportes` → Settings → regla de ciclo
-de vida / "object lifecycle") una regla que borre los objetos a los 31 días; revisa la sintaxis en la documentación
-oficial antes de usarla.
+
+**Reglas de ciclo de vida (recomendadas).** R2 no borra solo. El Worker borra el vencido cuando alguien lo pide, pero
+un objeto que nadie vuelve a abrir se queda, y las reservas que nadie usó también. En el panel de Cloudflare
+(R2 → `crecemos-reportes` → Settings → reglas de ciclo de vida / "object lifecycle") crea: (1) borrar todo a los
+**31 días**; (2) borrar lo que empiece por `reservas/` a **1 día**. No te escribo la sintaxis exacta de `wrangler`
+porque no la verifiqué: revisa la documentación oficial de R2 antes de usarla.
 
 ### B. Publicar otra vez
 
@@ -326,25 +336,33 @@ Un PDF mínimo de prueba (no es el reporte real):
 ```bash
 printf "%%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%%%EOF\n" > prueba.pdf
 PDF=$(base64 < prueba.pdf | tr -d '\n')
-curl -s -X POST https://crecemos-asistente.TU-CUENTA.workers.dev \
-  -H 'Content-Type: application/json' \
-  -d "{\"tipo\":\"subirReporte\",\"pdf\":\"$PDF\"}"
-# -> {"id":"...32 caracteres...","url":"https://.../r/...","caduca":"2026-..."}
-curl -s -D - -o /dev/null https://crecemos-asistente.TU-CUENTA.workers.dev/r/<id>
-# -> 200, content-type: application/pdf, content-disposition: inline
-curl -s -D - -o /dev/null "https://crecemos-asistente.TU-CUENTA.workers.dev/r/<id>?descargar=1"
-# -> content-disposition: attachment; filename="reporte-crecemos.pdf"
-curl -s -i https://crecemos-asistente.TU-CUENTA.workers.dev/r/00000000000000000000000000000000
-# -> 404 "Este enlace ya no está disponible."
+W=https://crecemos-asistente.TU-CUENTA.workers.dev
+# 1) reservar -> guarda el id y el token
+curl -s -X POST $W -H 'Content-Type: application/json' -d '{"tipo":"reservarReporte"}'
+# -> {"id":"...32...","url":"https://.../r/<id>","caduca":"2026-...","token":"...32..."}
+# 2) subir a ese id
+curl -s -X POST $W -H 'Content-Type: application/json' \
+  -d "{\"tipo\":\"subirReporte\",\"id\":\"<id>\",\"pdf\":\"$PDF\"}"
+# -> {"id":"...","url":"...","caduca":"..."}   (sin token)
+# 3) ver, descargar y probar un enlace que no existe
+curl -s -D - -o /dev/null $W/r/<id>                    # 200, content-disposition: inline
+curl -s -D - -o /dev/null "$W/r/<id>?descargar=1"      # 200, content-disposition: attachment; filename="reporte-crecemos.pdf"
+curl -s -i $W/r/00000000000000000000000000000000        # 404 "Este enlace ya no está disponible."
+# 4) borrar con el token; un token malo responde exactamente igual y NO borra
+curl -s -X POST $W -H 'Content-Type: application/json' -d '{"tipo":"borrarReporte","id":"<id>","token":"<token>"}'
+# -> {"ok":true}   y ahora  GET /r/<id>  da el 404 amable
 ```
 
-Pruebas que deben dar error: un archivo que no empiece por `%PDF-` (415), base64 roto (400) y uno de más de 1 MiB (413).
+Pruebas que deben dar error: un archivo que no empiece por `%PDF-` (415), base64 roto (400), uno de más de 400 KB
+(413) y subir a un id sin reserva, vencida o ya usada (404 amable).
 
 ### D. Riesgos dichos de frente
 
-- **El enlace es público.** Quien lo tenga puede ver el PDF hasta que caduque (30 días); el PDF lleva nombre, negocio,
-  foto (si la hay), ventas, resultado y constancia del periodo. No lleva Yape, ubicación ni cierres sueltos.
-- **Abuso.** Cualquiera que conozca la dirección del Worker puede intentar subir archivos: por eso el tope de 1 MiB,
-  la validación de `%PDF-`, el límite por IP y la caducidad. No hay autenticación (la app no tiene cuentas).
-- **Sin revocación.** No hay "Borrar enlace ahora": una vez creado, el enlace vive los 30 días completos. Es una mejora futura.
-- **Costo.** El almacenamiento crece si nadie borra: pon la regla de ciclo de vida de arriba.
+- **El enlace es público.** Quien lo tenga puede ver y descargar el PDF hasta que caduque (30 días) o hasta que se
+  borre; el PDF lleva nombre, negocio, foto (si la hay), ventas, resultado y constancia del periodo. No lleva Yape,
+  ubicación ni cierres sueltos.
+- **Sin autenticación de usuario.** La app no tiene cuentas. Lo que protege el endpoint de subida es el tope de
+  400 KB, la validación `%PDF-`, la reserva de un solo uso, el límite por IP, el tope diario y la caducidad.
+- **El token de borrado vive solo en el teléfono.** Si se pierde el teléfono (o se desinstala la app), ese enlace ya
+  no se puede revocar: solo caduca. Mejora futura: una marca de origen dentro del PDF.
+- **Costo.** El almacenamiento crece si nadie borra: pon las reglas de ciclo de vida de arriba.

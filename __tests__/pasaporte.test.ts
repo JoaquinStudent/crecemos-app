@@ -1,19 +1,17 @@
 /**
  * "Mi pasaporte para el banco" (src/analisis/pasaporte.ts): cuota de referencia, constancia por mes,
- * código de constancia (CRC-32) y QR. Todo puro: "hoy" siempre entra como parámetro.
+ * código del enlace y QR. Todo puro: "hoy" siempre entra como parámetro.
  */
 import { RATIO_CUOTA_REFERENCIA, REDONDEO_CUOTA_SOLES } from '@dominio/referencia';
 import type { Cierre, FechaNegocio, Senales } from '@dominio/tipos';
 import {
   construirPasaporte,
+  codigoDeEnlace,
   constanciaPorMes,
-  contenidoCanonico,
   corridasQR,
-  crc32Hex,
   cuotaReferencia,
   diasDelMes,
   explicacionCuota,
-  formatoCodigo,
   lineasTextoPasaporte,
   MARGEN_QR,
   modulosQR,
@@ -121,7 +119,9 @@ describe('cuotaReferencia', () => {
     const c = cuotaReferencia(uno);
     expect(c).toMatchObject({ disponible: true, meses: 1 });
     expect(explicacionCuota(c)).toContain('de 1 mes completo');
-    const dos = cuotaReferencia(senalesBanco([...diasDe('2026-08', 20), ...diasDe('2026-09', 24)], HOY));
+    const dos = cuotaReferencia(
+      senalesBanco([...diasDe('2026-08', 20), ...diasDe('2026-09', 24)], HOY),
+    );
     expect(explicacionCuota(dos)).toContain('de 2 meses completos');
   });
 
@@ -145,7 +145,7 @@ describe('cuotaReferencia', () => {
     const s = senalesBanco(tresMeses(true), HOY);
     expect(s.soloEjemplo).toBe(true);
     expect(cuotaReferencia(s).disponible).toBe(true);
-    expect(construirPasaporte(s, HOY)?.soloEjemplo).toBe(true);
+    expect(construirPasaporte(s)?.soloEjemplo).toBe(true);
   });
 
   it('el ejemplo no se mezcla con lo propio: con datos propios, el ejemplo no suma', () => {
@@ -153,7 +153,7 @@ describe('cuotaReferencia', () => {
     const mezclado = senalesBanco([...tresMeses(), ...diasDe('2026-06', 28, true)], HOY);
     expect(mezclado.soloEjemplo).toBeUndefined();
     expect(cuotaReferencia(mezclado)).toEqual(cuotaReferencia(solo));
-    expect(contenidoCanonico(mezclado, HOY)).toBe(contenidoCanonico(solo, HOY));
+    expect(construirPasaporte(mezclado)).toEqual(construirPasaporte(solo));
   });
 
   it('el texto dice "cerca de" y nunca "aprobado", "puntaje" ni "califica"', () => {
@@ -195,93 +195,57 @@ describe('constancia de registro por mes', () => {
   });
 });
 
-describe('suma de comprobación y código', () => {
-  it('CRC-32: el vector conocido de "123456789" es CBF43926', () => {
-    expect(crc32Hex('123456789')).toBe('CBF43926');
+describe('código del enlace', () => {
+  const ID = '0123456789abcdef0123456789abcdef';
+
+  it('el formato es CR-XXXX-XXXX-XXXX: los 12 primeros hexadecimales del id, en mayúscula', () => {
+    expect(codigoDeEnlace(ID)).toBe('CR-0123-4567-89AB');
+    expect(codigoDeEnlace('fedcba9876543210fedcba9876543210')).toBe('CR-FEDC-BA98-7654');
+    expect(codigoDeEnlace(ID)).toMatch(/^CR-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}$/);
   });
 
-  it('otros vectores conocidos', () => {
-    expect(crc32Hex('')).toBe('00000000');
-    expect(crc32Hex('a')).toBe('E8B7BE43');
-    expect(crc32Hex('The quick brown fox jumps over the lazy dog')).toBe('414FA339');
+  it('es determinista y no deja reconstruir el id completo', () => {
+    expect(codigoDeEnlace(ID)).toBe(codigoDeEnlace(ID));
+    expect(codigoDeEnlace(ID).slice(3).replace(/-/g, '')).toHaveLength(12);
+    expect(ID.length).toBe(32);
   });
 
-  it('siempre 8 dígitos en mayúscula, con ceros a la izquierda', () => {
-    for (const t of ['x', 'CRECEMOS1', 'Ñandú ✓', '0'.repeat(30)]) {
-      expect(crc32Hex(t)).toMatch(/^[0-9A-F]{8}$/);
-    }
-  });
-
-  it('el formato es CR-XXXX-XXXX', () => {
-    expect(formatoCodigo('CBF43926')).toBe('CR-CBF4-3926');
-    expect(construirPasaporte(senalesDe(), HOY)?.codigo).toMatch(/^CR-[0-9A-F]{4}-[0-9A-F]{4}$/);
-  });
-
-  it('el contenido canónico tiene un orden y formato fijos', () => {
-    expect(contenidoCanonico(senalesDe(), '2026-10-07')).toBe(
-      'CRECEMOS1|P=20260723-20261006|V=5120.00|G=2180.00|D=58|C=650|E=20261007',
+  it('dos ids distintos dan códigos distintos en una muestra de mil', () => {
+    const hex = (n: number) => n.toString(16).padStart(8, '0');
+    const codigos = new Set(
+      Array.from({ length: 1000 }, (_, k) =>
+        codigoDeEnlace(`${hex(k * 7919 + 13)}${hex(k)}${'a'.repeat(16)}`),
+      ),
     );
+    expect(codigos.size).toBe(1000);
   });
 
-  it('con datos de ejemplo el contenido lleva X=1', () => {
-    expect(contenidoCanonico(senalesDe({ soloEjemplo: true }), HOY)).toMatch(/\|X=1$/);
+  it('el pasaporte ya no trae código ni contenido: sin enlace no hay código', () => {
+    const p = construirPasaporte(senalesDe());
+    expect(p).not.toHaveProperty('codigo');
+    expect(p).not.toHaveProperty('contenido');
+    expect(p).not.toHaveProperty('textoQR');
   });
 
-  it('sin cuota el contenido dice C=0; sin periodo, P=-', () => {
-    const c = contenidoCanonico(
-      senalesDe({ gananciaPromedioMensual: 0, primerCierre: undefined, ultimoCierre: undefined }),
-      HOY,
-    );
-    expect(c).toContain('|P=-|');
-    expect(c).toContain('|C=0|');
-  });
-
-  it('es determinista: las mismas cifras y fecha dan siempre el mismo código y el mismo QR', () => {
-    const a = construirPasaporte(senalesDe(), HOY);
-    const b = construirPasaporte(senalesDe(), HOY);
-    expect(a).toEqual(b);
-    expect(modulosQR(a?.textoQR ?? '')).toEqual(modulosQR(b?.textoQR ?? ''));
-  });
-
-  it('un vector estable (verificado con zlib.crc32 de Node): estas cifras dan este código', () => {
-    const p = construirPasaporte(senalesDe(), '2026-10-07');
-    expect(p?.contenido).toBe(
-      'CRECEMOS1|P=20260723-20261006|V=5120.00|G=2180.00|D=58|C=650|E=20261007',
-    );
-    expect(p?.codigo).toBe(formatoCodigo(crc32Hex(p?.contenido ?? '')));
-    expect(p?.textoQR).toBe(`${p?.contenido}|K=${crc32Hex(p?.contenido ?? '')}`);
-    expect(p?.codigo).toBe('CR-178E-5687');
-  });
-
-  it('cualquier cambio en una cifra o en la fecha cambia el código', () => {
-    const base = construirPasaporte(senalesDe(), HOY)?.codigo;
-    const otros = [
-      construirPasaporte(senalesDe({ ventaPromedioMensual: 5121 }), HOY),
-      construirPasaporte(senalesDe({ gananciaPromedioMensual: 2181 }), HOY),
-      construirPasaporte(senalesDe({ diasRegistrados: 59 }), HOY),
-      construirPasaporte(senalesDe({ primerCierre: '2026-07-24' }), HOY),
-      construirPasaporte(senalesDe(), '2026-10-08'),
-      construirPasaporte(senalesDe({ soloEjemplo: true }), HOY),
-    ].map(p => p?.codigo);
-    for (const otro of otros) expect(otro).not.toBe(base);
-    expect(new Set([base, ...otros]).size).toBe(otros.length + 1);
+  it('es determinista: las mismas cifras dan siempre el mismo pasaporte', () => {
+    expect(construirPasaporte(senalesDe())).toEqual(construirPasaporte(senalesDe()));
   });
 
   it('no hay pasaporte sin ningún día registrado', () => {
-    expect(construirPasaporte(senalesBanco([], HOY), HOY)).toBeNull();
+    expect(construirPasaporte(senalesBanco([], HOY))).toBeNull();
   });
 
-  it('el código se puede verificar a mano: crc32 del contenido = lo que va tras K=', () => {
-    const p = construirPasaporte(senalesBanco(tresMeses(), HOY), HOY);
-    const [contenido, suma] = (p?.textoQR ?? '').split('|K=');
-    expect(contenido).toBe(p?.contenido);
-    expect(formatoCodigo(crc32Hex(contenido))).toBe(p?.codigo);
-    expect(crc32Hex(contenido)).toBe(suma);
+  it('la nota dice lo que el código es ahora y no promete una verificación', () => {
+    expect(NOTA_CODIGO).toBe(
+      'Identifica este reporte en la nube; el enlace del QR lo muestra tal cual. Caduca con el enlace.',
+    );
+    expect(NOTA_CODIGO).not.toMatch(/certific|garant|aprobad|criptogr|prueba de|verificaci/i);
   });
 });
 
 describe('QR', () => {
-  const texto = 'CRECEMOS1|P=20260723-20261006|V=5120.00|G=2180.00|D=58|C=650|E=20261007|K=CBF43926';
+  const texto =
+    'CRECEMOS1|P=20260723-20261006|V=5120.00|G=2180.00|D=58|C=650|E=20261007|K=CBF43926';
 
   it('es una matriz cuadrada de módulos con el patrón de búsqueda en las tres esquinas', () => {
     const m = modulosQR(texto);
@@ -339,15 +303,12 @@ describe('texto del reporte con pasaporte', () => {
     expect(t).not.toContain('referencia');
   });
 
-  it('con `hoy` suma la cuota, el código y sus avisos honestos', () => {
-    const s = senalesDe();
-    const t = textoReporte(s, null, HOY);
-    const p = construirPasaporte(s, HOY);
+  it('con `hoy` suma la cuota y su aviso honesto, y ningún código (sin enlace no hay código)', () => {
+    const t = textoReporte(senalesDe(), null, HOY);
     expect(t).toContain('Cuota mensual de referencia: S/ 650.00 al mes');
     expect(t).toContain(NOTA_CUOTA);
-    expect(t).toContain(`Código de constancia: ${p?.codigo}`);
-    expect(t).toContain(NOTA_CODIGO);
-    expect(t).toContain(`Datos del código: ${p?.contenido}`);
+    expect(t).not.toContain('Código de constancia');
+    expect(t).not.toContain('CR-');
   });
 
   it('cabe en el tope de 2,000 caracteres, también con nombres de 60 letras y 3 meses', () => {
@@ -365,17 +326,20 @@ describe('texto del reporte con pasaporte', () => {
     expect(ejemplo).toContain('Datos de ejemplo');
   });
 
-  it('sin cuota (sin mes completo) igual lleva el código y no promete una cifra', () => {
+  it('sin cuota (sin mes completo) no promete una cifra', () => {
     const s = senalesDe({ meses: [], mesesCompletos: 0 });
-    const lineas = lineasTextoPasaporte(construirPasaporte(s, HOY) as never);
+    const lineas = lineasTextoPasaporte(construirPasaporte(s) as never);
     expect(lineas.some(l => l.startsWith('Cuota mensual'))).toBe(false);
-    expect(lineas[0]).toContain('Código de constancia: CR-');
+    expect(lineas).toEqual([]);
   });
 });
 
 describe('pureza', () => {
   it('no muta las señales que recibe', () => {
-    const s = Object.freeze({ ...senalesDe(), meses: Object.freeze([...senalesDe().meses]) as never });
-    expect(() => construirPasaporte(s as Senales, HOY)).not.toThrow();
+    const s = Object.freeze({
+      ...senalesDe(),
+      meses: Object.freeze([...senalesDe().meses]) as never,
+    });
+    expect(() => construirPasaporte(s as Senales)).not.toThrow();
   });
 });

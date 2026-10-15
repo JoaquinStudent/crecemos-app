@@ -6,7 +6,9 @@
 //   { tipo: 'juzgar', hecho: {..., senales} }               -> { semaforo, confianza, modelo }   (solo Jev, sin respaldo)
 //   { tipo: 'redactar', pregunta, hilo, hecho }             -> { texto }   (DeepSeek reescribe una respuesta YA calculada)
 //   { tipo: 'conversar', texto, hilo, resumen }             -> { texto }   (DeepSeek conversa, acotado al negocio)
-//   { tipo: 'subirReporte', pdf: <base64>, nombre? }        -> { id, url, caduca }   (guarda el PDF en R2, sin proveedor de IA)
+//   { tipo: 'reservarReporte' }                             -> { id, url, caduca, token }   (reserva un id; todavía sin archivo)
+//   { tipo: 'subirReporte', id, pdf: <base64> }             -> { id, url, caduca }   (guarda el PDF en R2 con la reserva)
+//   { tipo: 'borrarReporte', id, token }                    -> { ok: true }   (borra el PDF si el token es el de su reserva)
 //   GET /r/<id>                                             -> el PDF para ver, mientras el enlace no haya caducado
 //   GET /r/<id>?descargar=1                                 -> el mismo PDF como descarga (cualquier otro parámetro se ignora)
 // Primero clasifica Jev por la API tipada de OpenRouter (/api/v1/systemone, preguntas "choice"). Si Jev
@@ -20,7 +22,7 @@
 // en ninguna parte (tampoco el PDF). No hay ninguna clave en este archivo: llega por `env`. La subida del
 // reporte y su enlace NO usan la clave de OpenRouter.
 
-/* global Response, TextDecoder, atob, crypto */
+/* global Response, TextDecoder, TextEncoder, atob, crypto */
 
 const URL_OPENROUTER = 'https://openrouter.ai/api/v1/chat/completions';
 const URL_SYSTEMONE = 'https://openrouter.ai/api/v1/systemone';
@@ -31,10 +33,18 @@ const TITULO = 'Crecemos';
 const MAX_CUERPO_BYTES = 2048;
 // `redactar` y `conversar` llevan el hilo, el hecho o el resumen: tienen más cuerpo (en bytes).
 const MAX_CUERPO_BYTES_TEXTO = 6144;
-// Subir el reporte: el PDF decodificado pesa a lo más 1 MiB; en base64 son ~1,4 MB de texto. Solo
-// esta ruta puede pasar del tope de lectura de las demás.
-export const MAX_PDF_BYTES = 1048576;
-export const MAX_CUERPO_BYTES_SUBIDA = 1500000;
+// Subir el reporte: el PDF decodificado pesa a lo más 400 KB (el real pesa de 50 a 150 KB); en base64 son
+// ~550 KB de texto. Solo `subirReporte` puede pasar del tope de lectura de las demás peticiones.
+export const MAX_PDF_BYTES = 400 * 1024;
+export const MAX_CUERPO_BYTES_SUBIDA = 600000;
+// Tope global de reportes subidos por día (fecha UTC): alojar archivos públicos sin cuentas tiene que
+// tener un techo de gasto aunque alguien reparta las peticiones entre muchas IP.
+export const LIMITE_DIARIO_SUBIDAS = 100;
+// Una reserva que nadie usa vence a los 15 minutos.
+export const MINUTOS_DE_VIDA_DE_LA_RESERVA = 15;
+const PREFIJO_RESERVA = 'reservas/';
+const PREFIJO_REPORTE = 'r/';
+const PREFIJO_CONTADOR = 'contadores/';
 // El enlace del reporte caduca a los 30 días. R2 no borra solo: al pedir un enlace vencido se borra.
 export const DIAS_DE_VIDA_DEL_ENLACE = 30;
 const MS_POR_DIA = 86400000;
@@ -828,6 +838,7 @@ const conversar = async (env, solicitud) => {
 
 const TEXTO_ENLACE_NO_DISPONIBLE = 'Este enlace ya no está disponible.';
 const CABECERAS_PRIVADAS = {
+  'Content-Security-Policy': 'sandbox',
   'Cache-Control': 'no-store',
   'X-Robots-Tag': 'noindex, nofollow',
   'X-Content-Type-Options': 'nosniff',
@@ -846,6 +857,23 @@ export const nuevoIdReporte = () => {
   const bytes = new Uint8Array(BYTES_ID_REPORTE);
   crypto.getRandomValues(bytes);
   return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+};
+
+/** El token de borrado: 128 bits aleatorios, distintos del id. Se entrega UNA vez y solo se guarda su hash. */
+export const nuevoTokenDeBorrado = () => nuevoIdReporte();
+
+/** SHA-256 de un texto, en hexadecimal (`crypto.subtle`, sin dependencias). */
+const hashHex = async texto => {
+  const resumen = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(texto));
+  return Array.from(new Uint8Array(resumen), b => b.toString(16).padStart(2, '0')).join('');
+};
+
+/** Compara dos textos en tiempo constante (no se detiene en la primera diferencia). */
+const iguales = (a, b) => {
+  if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false;
+  let diferencia = 0;
+  for (let i = 0; i < a.length; i += 1) diferencia |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diferencia === 0;
 };
 
 /** Base64 estándar con relleno: solo sus 64 símbolos, largo múltiplo de 4. */
@@ -877,16 +905,70 @@ const permitido = async (binding, request) => {
   }
 };
 
+/** Hoy en UTC, 'AAAA-MM-DD': la llave del contador diario. */
+const fechaUtc = () => new Date().toISOString().slice(0, 10);
+
 /**
- * `{ tipo: 'subirReporte', pdf, nombre? }` -> `{ id, url, caduca }`. El nombre que llegue se IGNORA:
- * el objeto se guarda con el id. Nada del PDF se escribe en ningún log.
+ * Cuántos reportes se subieron hoy. Es un contador en R2 (un objeto por día) y NO es atómico: dos
+ * subidas a la vez pueden contarse como una. Para un techo de gasto de aproximadamente 100 al día basta.
+ */
+const subidasDeHoy = async REPORTES => {
+  try {
+    const objeto = await REPORTES.get(`${PREFIJO_CONTADOR}${fechaUtc()}`);
+    const n = objeto ? Number.parseInt(await new Response(objeto.body).text(), 10) : 0;
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  } catch {
+    return 0;
+  }
+};
+
+const sumarSubidaDeHoy = async (REPORTES, antes) => {
+  try {
+    await REPORTES.put(`${PREFIJO_CONTADOR}${fechaUtc()}`, String(antes + 1));
+  } catch {
+    // Contar es una aproximación: si falla, la subida ya se hizo.
+  }
+};
+
+const topeDiario = () => error('LIMITE_DIARIO', 503);
+
+/** `{ tipo: 'reservarReporte' }` -> `{ id, url, caduca }`: el id y el enlace definitivos, sin archivo todavía. */
+const reservarReporte = async (request, env) => {
+  if (!env.REPORTES || typeof env.REPORTES.put !== 'function') return error('NO_CONFIGURADO', 500);
+  if (!(await permitido(env.LIMITE_SUBIDA, request))) return error('DEMASIADAS_PETICIONES', 429);
+  if ((await subidasDeHoy(env.REPORTES)) >= LIMITE_DIARIO_SUBIDAS) return topeDiario();
+
+  const id = nuevoIdReporte();
+  const ahora = Date.now();
+  // `caduca` es la del ENLACE (30 días desde ahora): el PDF la imprime junto a su QR, así que la subida
+  // la respeta tal cual. `venceReserva` es la corta: si nadie sube el archivo, la reserva muere sola.
+  const caduca = new Date(ahora + DIAS_DE_VIDA_DEL_ENLACE * MS_POR_DIA).toISOString();
+  const venceReserva = new Date(ahora + MINUTOS_DE_VIDA_DE_LA_RESERVA * 60000).toISOString();
+  // El token de borrado se devuelve UNA vez, aquí; en R2 solo queda su hash.
+  const token = nuevoTokenDeBorrado();
+  const hashBorrado = await hashHex(token);
+  try {
+    await env.REPORTES.put(`${PREFIJO_RESERVA}${id}`, '', {
+      customMetadata: { caduca, venceReserva, hashBorrado },
+    });
+  } catch {
+    return error('NO_DISPONIBLE', 502);
+  }
+  return responder({ id, url: `${new URL(request.url).origin}/r/${id}`, caduca, token });
+};
+
+/**
+ * `{ tipo: 'subirReporte', id, pdf }` -> `{ id, url, caduca }`. Solo acepta un id con reserva vigente y aún
+ * no usada; la reserva sirve para UNA subida. El nombre del archivo lo fija el Worker. Nada del PDF se
+ * escribe en ningún log.
  */
 const subirReporte = async (request, env, solicitud) => {
   if (!env.REPORTES || typeof env.REPORTES.put !== 'function') return error('NO_CONFIGURADO', 500);
   // Más estricto que el límite general: una subida cuesta almacenamiento.
   if (!(await permitido(env.LIMITE_SUBIDA, request))) return error('DEMASIADAS_PETICIONES', 429);
 
-  const { pdf } = solicitud;
+  const { pdf, id } = solicitud;
+  if (typeof id !== 'string' || !ID_REPORTE.test(id)) return enlaceNoDisponible();
   if (!base64Valido(pdf)) return error('PDF_INVALIDO', 400);
   if (pdf.length > Math.ceil(MAX_PDF_BYTES / 3) * 4) return error('PDF_GRANDE', 413);
   const bytes = decodificar(pdf);
@@ -894,17 +976,63 @@ const subirReporte = async (request, env, solicitud) => {
   if (bytes.length > MAX_PDF_BYTES) return error('PDF_GRANDE', 413);
   if (!EMPIEZA_PDF.every((b, i) => bytes[i] === b)) return error('NO_ES_PDF', 415);
 
-  const id = nuevoIdReporte();
-  const caduca = new Date(Date.now() + DIAS_DE_VIDA_DEL_ENLACE * MS_POR_DIA).toISOString();
+  const hoy = await subidasDeHoy(env.REPORTES);
+  if (hoy >= LIMITE_DIARIO_SUBIDAS) return topeDiario();
+
+  // La reserva: tiene que existir, estar vigente y no haberse usado (al usarla se borra).
+  let reserva = null;
   try {
-    await env.REPORTES.put(id, bytes, {
+    reserva = await env.REPORTES.get(`${PREFIJO_RESERVA}${id}`);
+  } catch {
+    return enlaceNoDisponible();
+  }
+  if (!reserva) return enlaceNoDisponible();
+  const vence = Date.parse(reserva.customMetadata?.venceReserva ?? '');
+  const caduca = reserva.customMetadata?.caduca ?? '';
+  // Se borra ANTES de guardar: así una reserva no sirve dos veces aunque algo falle a medias.
+  try {
+    await env.REPORTES.delete(`${PREFIJO_RESERVA}${id}`);
+  } catch {
+    return enlaceNoDisponible();
+  }
+  if (!(vence > Date.now()) || !(Date.parse(caduca) > Date.now())) return enlaceNoDisponible();
+
+  try {
+    await env.REPORTES.put(`${PREFIJO_REPORTE}${id}`, bytes, {
       httpMetadata: { contentType: 'application/pdf' },
-      customMetadata: { caduca },
+      customMetadata: { caduca, hashBorrado: reserva.customMetadata?.hashBorrado ?? '' },
     });
   } catch {
     return error('NO_DISPONIBLE', 502);
   }
+  await sumarSubidaDeHoy(env.REPORTES, hoy);
   return responder({ id, url: `${new URL(request.url).origin}/r/${id}`, caduca });
+};
+
+/**
+ * `{ tipo: 'borrarReporte', id, token }`: borra el PDF (y su reserva) si el hash del token es el que se guardó al
+ * reservar. Responde SIEMPRE lo mismo (`{ ok: true }`), haya o no algo que borrar y sea bueno o malo el token:
+ * quien no tiene el token no aprende nada. Usa el límite estricto por IP.
+ */
+const borrarReporte = async (request, env, solicitud) => {
+  if (!env.REPORTES || typeof env.REPORTES.get !== 'function') return error('NO_CONFIGURADO', 500);
+  if (!(await permitido(env.LIMITE_SUBIDA, request))) return error('DEMASIADAS_PETICIONES', 429);
+  const { id, token } = solicitud;
+  const generica = () => responder({ ok: true });
+  if (typeof id !== 'string' || !ID_REPORTE.test(id)) return generica();
+  if (typeof token !== 'string' || !ID_REPORTE.test(token)) return generica();
+  try {
+    const presentado = await hashHex(token);
+    for (const llave of [`${PREFIJO_REPORTE}${id}`, `${PREFIJO_RESERVA}${id}`]) {
+      const objeto = await env.REPORTES.get(llave);
+      if (objeto && iguales(objeto.customMetadata?.hashBorrado ?? '', presentado)) {
+        await env.REPORTES.delete(llave);
+      }
+    }
+  } catch {
+    // Igual que si no hubiera nada: no se revela nada.
+  }
+  return generica();
 };
 
 /**
@@ -920,7 +1048,7 @@ const servirReporte = async (request, env, ruta) => {
   }
   let objeto = null;
   try {
-    objeto = await env.REPORTES.get(id);
+    objeto = await env.REPORTES.get(`${PREFIJO_REPORTE}${id}`);
   } catch {
     return enlaceNoDisponible();
   }
@@ -929,7 +1057,7 @@ const servirReporte = async (request, env, ruta) => {
   // Sin fecha legible se trata como vencido: nunca queda un enlace eterno por error.
   if (!(caduca > Date.now())) {
     try {
-      await env.REPORTES.delete(id);
+      await env.REPORTES.delete(`${PREFIJO_REPORTE}${id}`);
     } catch {
       // Se borrará la próxima vez que lo pidan.
     }
@@ -978,6 +1106,11 @@ const manejar = async (request, env) => {
     solicitud = JSON.parse(leido.texto);
   } catch {
     solicitud = null;
+  }
+  if (esObjeto(solicitud) && solicitud.tipo === 'reservarReporte')
+    return reservarReporte(request, env);
+  if (esObjeto(solicitud) && solicitud.tipo === 'borrarReporte') {
+    return borrarReporte(request, env, solicitud);
   }
   if (esObjeto(solicitud) && solicitud.tipo === 'subirReporte') {
     return subirReporte(request, env, solicitud);
