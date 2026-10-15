@@ -58,3 +58,38 @@ export const compartirPdf = async (
     return { ok: false, error: 'NO_SE_PUDO_ABRIR' };
   }
 };
+
+/** Un PDF ya armado en el teléfono, con su contenido en base64 (para subirlo si la persona lo confirma). */
+export type ResultadoGenerarPdf =
+  | { ok: true; base64: string; ruta: string }
+  | { ok: false; error: 'NO_SE_PUDO_PREPARAR' };
+
+/**
+ * Genera el PDF SIN abrir la hoja de compartir y lo devuelve en base64 (`base64: true` de
+ * `react-native-html-to-pdf`, sin librerías nuevas). Solo lo llama "Crear enlace con QR", después de
+ * que la persona confirma. Nunca lanza.
+ */
+export const generarPdf = async (
+  html: string,
+  nombreArchivo: string,
+): Promise<ResultadoGenerarPdf> => {
+  try {
+    const pdf = await generatePDF({
+      html,
+      fileName: nombreArchivo,
+      width: ANCHO_A4_PT,
+      height: ALTO_A4_PT,
+      bgColor: FONDO_BLANCO,
+      padding: 0,
+      shouldPrintBackgrounds: true,
+      directory: 'Documents',
+      base64: true,
+    });
+    if (typeof pdf?.base64 !== 'string' || pdf.base64 === '' || typeof pdf.filePath !== 'string') {
+      return { ok: false, error: 'NO_SE_PUDO_PREPARAR' };
+    }
+    return { ok: true, base64: pdf.base64, ruta: pdf.filePath };
+  } catch {
+    return { ok: false, error: 'NO_SE_PUDO_PREPARAR' };
+  }
+};

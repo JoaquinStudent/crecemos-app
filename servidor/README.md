@@ -277,3 +277,74 @@ acaba, OpenRouter rechaza las peticiones de esa clave y el chat dice "Necesitas 
   el respaldo DeepSeek, sin romper la app.
 - **Sin registros.** El Worker no escribe ningún log con la pregunta ni con la frase. Aun así,
   OpenRouter y el proveedor tienen sus propias políticas.
+
+---
+
+## Reportes en la nube con enlace que caduca (Sprint-16)
+
+El botón "Crear enlace con QR" de Mi reporte sube el PDF **solo cuando la persona lo confirma** y recibe un
+enlace público. Va al mismo Worker (misma dirección de red de la app) y se guarda en **Cloudflare R2**. No usa
+ninguna clave de OpenRouter.
+
+| Ruta | Qué hace |
+|---|---|
+| `POST /` con `{ "tipo": "subirReporte", "pdf": "<base64>" }` | Valida el PDF y lo guarda. Responde `{ id, url, caduca }`. |
+| `GET /r/<id>` | Sirve el PDF para VER (`application/pdf`, `inline`, `no-store`, `noindex`) mientras no haya caducado. Con `?descargar=1` lo sirve como descarga (`attachment; filename="reporte-crecemos.pdf"`); cualquier otro parámetro se ignora y el nombre del archivo lo fija el Worker. Vencido, inexistente o mal escrito: 404 con "Este enlace ya no está disponible." (el vencido además se borra). |
+
+Reglas del Worker: el id son 128 bits aleatorios (32 caracteres hexadecimales, no se puede adivinar); el PDF
+decodificado pesa a lo más 1 MiB, tiene que empezar por `%PDF-` y venir en base64 válido; el nombre que llegue se
+ignora; el enlace dura 30 días (`DIAS_DE_VIDA_DEL_ENLACE` en `worker.js`); el contenido nunca se
+escribe en un log. Subir tiene su propio límite por IP, más estricto (5 por minuto, binding `LIMITE_SUBIDA`);
+pedir un enlace usa el límite general (`LIMITE`).
+
+### A. Crear el bucket (una sola vez, ANTES de publicar)
+
+```bash
+cd servidor
+npx wrangler r2 bucket create crecemos-reportes
+```
+
+`wrangler.toml` ya trae el binding `REPORTES` hacia ese bucket: si el bucket no existe, `wrangler deploy` falla.
+
+**Costo.** R2 puede pedir un método de pago en tu cuenta de Cloudflare **incluso para usar la capa gratuita**.
+No te doy cifras de precios porque no las verifiqué: míralas en la página oficial (Cloudflare R2 → Pricing).
+Los objetos no se borran solos: el Worker borra el vencido cuando alguien lo pide, pero uno que nadie vuelve a
+abrir se queda. Para limpiar, crea en el panel de Cloudflare (R2 → `crecemos-reportes` → Settings → regla de ciclo
+de vida / "object lifecycle") una regla que borre los objetos a los 31 días; revisa la sintaxis en la documentación
+oficial antes de usarla.
+
+### B. Publicar otra vez
+
+```bash
+npx wrangler deploy
+```
+
+### C. Probar con `curl`
+
+Un PDF mínimo de prueba (no es el reporte real):
+
+```bash
+printf "%%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%%%EOF\n" > prueba.pdf
+PDF=$(base64 < prueba.pdf | tr -d '\n')
+curl -s -X POST https://crecemos-asistente.TU-CUENTA.workers.dev \
+  -H 'Content-Type: application/json' \
+  -d "{\"tipo\":\"subirReporte\",\"pdf\":\"$PDF\"}"
+# -> {"id":"...32 caracteres...","url":"https://.../r/...","caduca":"2026-..."}
+curl -s -D - -o /dev/null https://crecemos-asistente.TU-CUENTA.workers.dev/r/<id>
+# -> 200, content-type: application/pdf, content-disposition: inline
+curl -s -D - -o /dev/null "https://crecemos-asistente.TU-CUENTA.workers.dev/r/<id>?descargar=1"
+# -> content-disposition: attachment; filename="reporte-crecemos.pdf"
+curl -s -i https://crecemos-asistente.TU-CUENTA.workers.dev/r/00000000000000000000000000000000
+# -> 404 "Este enlace ya no está disponible."
+```
+
+Pruebas que deben dar error: un archivo que no empiece por `%PDF-` (415), base64 roto (400) y uno de más de 1 MiB (413).
+
+### D. Riesgos dichos de frente
+
+- **El enlace es público.** Quien lo tenga puede ver el PDF hasta que caduque (30 días); el PDF lleva nombre, negocio,
+  foto (si la hay), ventas, resultado y constancia del periodo. No lleva Yape, ubicación ni cierres sueltos.
+- **Abuso.** Cualquiera que conozca la dirección del Worker puede intentar subir archivos: por eso el tope de 1 MiB,
+  la validación de `%PDF-`, el límite por IP y la caducidad. No hay autenticación (la app no tiene cuentas).
+- **Sin revocación.** No hay "Borrar enlace ahora": una vez creado, el enlace vive los 30 días completos. Es una mejora futura.
+- **Costo.** El almacenamiento crece si nadie borra: pon la regla de ciclo de vida de arriba.

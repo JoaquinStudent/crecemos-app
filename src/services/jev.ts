@@ -416,3 +416,65 @@ export const consultar = async (
     return noEntendi();
   }
 };
+
+// --- Subir el reporte (Sprint-16) ---------------------------------------------------------------
+// OJO: este archivo se llama "jev" por historia; es la puerta de la app al Worker, y el Worker también
+// guarda el PDF del reporte. Es una llamada más a la MISMA dirección (`JEV_URL`), no una nueva: un
+// encabezado, un intento, 8 s, nunca lanza y ningún código técnico llega a un texto. Solo la dispara el
+// botón "Crear enlace con QR", después de que la persona confirma que cualquiera con el enlace verá el PDF.
+
+/** El PDF decodificado no puede pasar de esto (el Worker pone el mismo tope). */
+export const MAX_PDF_BYTES_SUBIDA = 1048576;
+
+/** Cuántos días dura el enlace (el Worker usa el mismo número: una prueba lo vigila). */
+export const DIAS_ENLACE_REPORTE = 30;
+
+export interface EnlaceReporte {
+  id: string;
+  /** La dirección pública del PDF: `<Worker>/r/<id>`. */
+  url: string;
+  /** Cuándo vence el enlace (ISO 8601). */
+  caduca: string;
+}
+
+export type ErrorSubida = ErrorJev | 'PDF_GRANDE';
+export type ResultadoSubida =
+  | { ok: true; enlace: EnlaceReporte }
+  | { ok: false; error: ErrorSubida };
+
+/** Bytes que tendría el base64 una vez decodificado. */
+const bytesDeBase64 = (b64: string): number =>
+  Math.floor((b64.length * 3) / 4) - (b64.endsWith('==') ? 2 : b64.endsWith('=') ? 1 : 0);
+
+/**
+ * Sube el PDF (en base64) al Worker. Viaja SOLO `{ tipo: 'subirReporte', pdf }`. La respuesta se acepta
+ * únicamente si trae un id de 32 hexadecimales, una `url` que es exactamente `<Worker>/r/<id>` y una
+ * fecha de caducidad legible: así un servidor raro no puede poner en el QR otra dirección.
+ */
+export const subirReporte = async (
+  fetchFn: typeof fetch,
+  url: string,
+  pdfBase64: string,
+): Promise<ResultadoSubida> => {
+  try {
+    if (typeof pdfBase64 !== 'string' || pdfBase64 === '')
+      return { ok: false, error: 'RESPUESTA_INVALIDA' };
+    if (bytesDeBase64(pdfBase64) > MAX_PDF_BYTES_SUBIDA) return { ok: false, error: 'PDF_GRANDE' };
+    const publicada = await publicar(fetchFn, url, { tipo: 'subirReporte', pdf: pdfBase64 });
+    if (!publicada.ok) return publicada;
+    const json = publicada.json as { id?: unknown; url?: unknown; caduca?: unknown } | null;
+    const id = typeof json?.id === 'string' ? json.id : '';
+    const esperada = `${url.replace(/\/+$/, '')}/r/${id}`;
+    if (
+      !/^[0-9a-f]{32}$/.test(id) ||
+      json?.url !== esperada ||
+      typeof json.caduca !== 'string' ||
+      Number.isNaN(Date.parse(json.caduca))
+    ) {
+      return { ok: false, error: 'RESPUESTA_INVALIDA' };
+    }
+    return { ok: true, enlace: { id, url: esperada, caduca: json.caduca } };
+  } catch {
+    return { ok: false, error: 'SIN_RED' };
+  }
+};

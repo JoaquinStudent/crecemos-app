@@ -28,19 +28,6 @@ jest.mock('react-native-html-to-pdf', () => ({
   generatePDF: jest.fn(() => Promise.resolve({ filePath: '/tmp/prueba.pdf' })),
 }));
 
-// Reconocedor de voz (Cuéntame tu día): sin módulo nativo en Jest. Por defecto "no hay reconocedor",
-// así que el botón Hablar no aparece salvo en las pruebas que simulan @services/voz.
-jest.mock('@react-native-voice/voice', () => ({
-  __esModule: true,
-  default: {
-    isAvailable: jest.fn(() => Promise.resolve(0)),
-    start: jest.fn(() => Promise.resolve()),
-    stop: jest.fn(() => Promise.resolve()),
-    destroy: jest.fn(() => Promise.resolve()),
-    removeAllListeners: jest.fn(),
-  },
-}));
-
 jest.mock('react-native-share', () => ({
   __esModule: true,
   default: { open: jest.fn(() => Promise.resolve({ success: true })) },

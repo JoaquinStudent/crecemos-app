@@ -27,3 +27,21 @@ namespace_id = "48210"
   [ratelimits.simple]
   limit = 40
   period = 60
+
+# Límite por IP, MÁS ESTRICTO, solo para subir el reporte (`subirReporte`): 5 subidas por minuto por IP en
+# cada ubicación. Es un binding aparte del de arriba para que las subidas (que cuestan almacenamiento) no
+# gasten las preguntas del chat ni al revés. `namespace_id` debe ser único en la cuenta.
+[[ratelimits]]
+name = "LIMITE_SUBIDA"
+namespace_id = "48211"
+
+  [ratelimits.simple]
+  limit = 5
+  period = 60
+
+# Reportes en PDF que la persona decide subir para compartir un enlace que caduca (30 días). El bucket se
+# crea una sola vez con `npx wrangler r2 bucket create crecemos-reportes` (ver README.md). Sin este
+# binding, `subirReporte` responde NO_CONFIGURADO y el resto del Worker sigue igual.
+[[r2_buckets]]
+binding = "REPORTES"
+bucket_name = "crecemos-reportes"

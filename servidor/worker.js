@@ -6,6 +6,9 @@
 //   { tipo: 'juzgar', hecho: {..., senales} }               -> { semaforo, confianza, modelo }   (solo Jev, sin respaldo)
 //   { tipo: 'redactar', pregunta, hilo, hecho }             -> { texto }   (DeepSeek reescribe una respuesta YA calculada)
 //   { tipo: 'conversar', texto, hilo, resumen }             -> { texto }   (DeepSeek conversa, acotado al negocio)
+//   { tipo: 'subirReporte', pdf: <base64>, nombre? }        -> { id, url, caduca }   (guarda el PDF en R2, sin proveedor de IA)
+//   GET /r/<id>                                             -> el PDF para ver, mientras el enlace no haya caducado
+//   GET /r/<id>?descargar=1                                 -> el mismo PDF como descarga (cualquier otro parámetro se ignora)
 // Primero clasifica Jev por la API tipada de OpenRouter (/api/v1/systemone, preguntas "choice"). Si Jev
 // falla o responde algo inválido, clasifica DeepSeek por chat/completions. Y si Jev contesta, pero con
 // `noEntendi` o con duda (menos de 0.6), DeepSeek recibe la MISMA pregunta cerrada como segundo intento:
@@ -14,9 +17,10 @@
 // inventada y, si no pasa, muestra la frase fija. A `interpretar` (Jev) solo llega el texto de la pregunta;
 // el hilo y el resumen viajan únicamente a estas dos rutas.
 // Sin dependencias, sin CORS (es una app nativa) y SIN ningún log: lo que escribe Freddy no se escribe
-// en ninguna parte. No hay ninguna clave en este archivo: llega por `env`.
+// en ninguna parte (tampoco el PDF). No hay ninguna clave en este archivo: llega por `env`. La subida del
+// reporte y su enlace NO usan la clave de OpenRouter.
 
-/* global Response, TextDecoder */
+/* global Response, TextDecoder, atob, crypto */
 
 const URL_OPENROUTER = 'https://openrouter.ai/api/v1/chat/completions';
 const URL_SYSTEMONE = 'https://openrouter.ai/api/v1/systemone';
@@ -27,6 +31,16 @@ const TITULO = 'Crecemos';
 const MAX_CUERPO_BYTES = 2048;
 // `redactar` y `conversar` llevan el hilo, el hecho o el resumen: tienen más cuerpo (en bytes).
 const MAX_CUERPO_BYTES_TEXTO = 6144;
+// Subir el reporte: el PDF decodificado pesa a lo más 1 MiB; en base64 son ~1,4 MB de texto. Solo
+// esta ruta puede pasar del tope de lectura de las demás.
+export const MAX_PDF_BYTES = 1048576;
+export const MAX_CUERPO_BYTES_SUBIDA = 1500000;
+// El enlace del reporte caduca a los 30 días. R2 no borra solo: al pedir un enlace vencido se borra.
+export const DIAS_DE_VIDA_DEL_ENLACE = 30;
+const MS_POR_DIA = 86400000;
+// 128 bits aleatorios en hexadecimal: 32 caracteres, imposibles de adivinar.
+const BYTES_ID_REPORTE = 16;
+const ID_REPORTE = /^[0-9a-f]{32}$/;
 const MAX_TEXTO = 200;
 const MAX_FRASE = 300;
 const MAX_CIFRAS = 12;
@@ -810,31 +824,153 @@ const conversar = async (env, solicitud) => {
   return respuesta === null ? error('NO_DISPONIBLE', 502) : responder(respuesta);
 };
 
+// --- Reportes en la nube (R2) ---------------------------------------------------------------
+
+const TEXTO_ENLACE_NO_DISPONIBLE = 'Este enlace ya no está disponible.';
+const CABECERAS_PRIVADAS = {
+  'Cache-Control': 'no-store',
+  'X-Robots-Tag': 'noindex, nofollow',
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'no-referrer',
+};
+
+/** La misma respuesta para un enlace inexistente, mal escrito o vencido: no revela cuál fue. */
+const enlaceNoDisponible = () =>
+  new Response(TEXTO_ENLACE_NO_DISPONIBLE, {
+    status: 404,
+    headers: { 'Content-Type': 'text/plain; charset=utf-8', ...CABECERAS_PRIVADAS },
+  });
+
+/** Un id nuevo: 16 bytes de `crypto.getRandomValues` en hexadecimal. */
+export const nuevoIdReporte = () => {
+  const bytes = new Uint8Array(BYTES_ID_REPORTE);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+};
+
+/** Base64 estándar con relleno: solo sus 64 símbolos, largo múltiplo de 4. */
+const base64Valido = x =>
+  typeof x === 'string' && x.length >= 4 && x.length % 4 === 0 && /^[A-Za-z0-9+/]+={0,2}$/.test(x);
+
+/** Los bytes de un base64 válido, o `null`. */
+const decodificar = x => {
+  try {
+    const binario = atob(x);
+    const bytes = new Uint8Array(binario.length);
+    for (let i = 0; i < binario.length; i += 1) bytes[i] = binario.charCodeAt(i);
+    return bytes;
+  } catch {
+    return null;
+  }
+};
+
+const EMPIEZA_PDF = [0x25, 0x50, 0x44, 0x46, 0x2d]; // "%PDF-"
+
+/** Límite por IP con un binding de rate limit; sin binding (o si falla) no bloquea. */
+const permitido = async (binding, request) => {
+  if (!binding || typeof binding.limit !== 'function') return true;
+  try {
+    const ip = request.headers.get('cf-connecting-ip') || 'desconocida';
+    return (await binding.limit({ key: ip })).success !== false;
+  } catch {
+    return true;
+  }
+};
+
+/**
+ * `{ tipo: 'subirReporte', pdf, nombre? }` -> `{ id, url, caduca }`. El nombre que llegue se IGNORA:
+ * el objeto se guarda con el id. Nada del PDF se escribe en ningún log.
+ */
+const subirReporte = async (request, env, solicitud) => {
+  if (!env.REPORTES || typeof env.REPORTES.put !== 'function') return error('NO_CONFIGURADO', 500);
+  // Más estricto que el límite general: una subida cuesta almacenamiento.
+  if (!(await permitido(env.LIMITE_SUBIDA, request))) return error('DEMASIADAS_PETICIONES', 429);
+
+  const { pdf } = solicitud;
+  if (!base64Valido(pdf)) return error('PDF_INVALIDO', 400);
+  if (pdf.length > Math.ceil(MAX_PDF_BYTES / 3) * 4) return error('PDF_GRANDE', 413);
+  const bytes = decodificar(pdf);
+  if (bytes === null || bytes.length === 0) return error('PDF_INVALIDO', 400);
+  if (bytes.length > MAX_PDF_BYTES) return error('PDF_GRANDE', 413);
+  if (!EMPIEZA_PDF.every((b, i) => bytes[i] === b)) return error('NO_ES_PDF', 415);
+
+  const id = nuevoIdReporte();
+  const caduca = new Date(Date.now() + DIAS_DE_VIDA_DEL_ENLACE * MS_POR_DIA).toISOString();
+  try {
+    await env.REPORTES.put(id, bytes, {
+      httpMetadata: { contentType: 'application/pdf' },
+      customMetadata: { caduca },
+    });
+  } catch {
+    return error('NO_DISPONIBLE', 502);
+  }
+  return responder({ id, url: `${new URL(request.url).origin}/r/${id}`, caduca });
+};
+
+/**
+ * `GET /r/<id>`: el PDF para ver; con `?descargar=1`, como descarga. Cualquier otro parámetro se ignora y
+ * el nombre del archivo lo fija el Worker. Si venció, se borra y se responde 404.
+ */
+const servirReporte = async (request, env, ruta) => {
+  if (request.method !== 'GET') return error('NO_ENCONTRADO', 405, { Allow: 'GET' });
+  if (!(await permitido(env.LIMITE, request))) return enlaceNoDisponible();
+  const id = ruta.slice('/r/'.length);
+  if (!ID_REPORTE.test(id) || !env.REPORTES || typeof env.REPORTES.get !== 'function') {
+    return enlaceNoDisponible();
+  }
+  let objeto = null;
+  try {
+    objeto = await env.REPORTES.get(id);
+  } catch {
+    return enlaceNoDisponible();
+  }
+  if (!objeto) return enlaceNoDisponible();
+  const caduca = Date.parse(objeto.customMetadata?.caduca ?? '');
+  // Sin fecha legible se trata como vencido: nunca queda un enlace eterno por error.
+  if (!(caduca > Date.now())) {
+    try {
+      await env.REPORTES.delete(id);
+    } catch {
+      // Se borrará la próxima vez que lo pidan.
+    }
+    return enlaceNoDisponible();
+  }
+  const descargar = new URL(request.url).searchParams.get('descargar') === '1';
+  return new Response(objeto.body, {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `${
+        descargar ? 'attachment' : 'inline'
+      }; filename="reporte-crecemos.pdf"`,
+      ...CABECERAS_PRIVADAS,
+    },
+  });
+};
+
 // --- Entrada principal ----------------------------------------------------------------------
 
 const manejar = async (request, env) => {
-  if (new URL(request.url).pathname !== '/') return error('NO_ENCONTRADO', 404);
+  const ruta = new URL(request.url).pathname;
+  if (ruta.startsWith('/r/')) return servirReporte(request, env, ruta);
+  if (ruta !== '/') return error('NO_ENCONTRADO', 404);
   if (request.method !== 'POST') return error('NO_ENCONTRADO', 405, { Allow: 'POST' });
 
-  const clave = env.OPENROUTER_API_KEY;
-  if (typeof clave !== 'string' || clave.trim() === '') return error('NO_CONFIGURADO', 500);
-
   // Límite por IP, solo si el binding `LIMITE` existe (en `wrangler.toml`). Si falla, no bloquea.
-  if (env.LIMITE && typeof env.LIMITE.limit === 'function') {
-    let permitido = true;
-    try {
-      const ip = request.headers.get('cf-connecting-ip') || 'desconocida';
-      permitido = (await env.LIMITE.limit({ key: ip })).success !== false;
-    } catch {
-      permitido = true;
-    }
-    if (!permitido) return error('DEMASIADAS_PETICIONES', 429);
-  }
+  if (!(await permitido(env.LIMITE, request))) return error('DEMASIADAS_PETICIONES', 429);
 
   const tipoContenido = (request.headers.get('content-type') || '').toLowerCase();
   if (!tipoContenido.includes('application/json')) return error('TIPO_NO_SOPORTADO', 415);
 
-  const leido = await leerCuerpo(request, MAX_CUERPO_BYTES_TEXTO);
+  // Solo un cuerpo que DECLARA ser grande (o que no declara su tamaño) puede leerse hasta el tope de la
+  // subida del reporte; después se exige que no sea de ese tamaño salvo `subirReporte`.
+  const cabeceraLargo = request.headers.get('content-length');
+  const declarado = cabeceraLargo === null ? 0 : Number(cabeceraLargo);
+  const limiteLectura =
+    cabeceraLargo === null || (Number.isFinite(declarado) && declarado > MAX_CUERPO_BYTES_TEXTO)
+      ? MAX_CUERPO_BYTES_SUBIDA
+      : MAX_CUERPO_BYTES_TEXTO;
+  const leido = await leerCuerpo(request, limiteLectura);
   if (leido === null) return error('CUERPO_GRANDE', 413);
 
   let solicitud = null;
@@ -843,6 +979,16 @@ const manejar = async (request, env) => {
   } catch {
     solicitud = null;
   }
+  if (esObjeto(solicitud) && solicitud.tipo === 'subirReporte') {
+    return subirReporte(request, env, solicitud);
+  }
+  if (leido.bytes > MAX_CUERPO_BYTES_TEXTO || declarado > MAX_CUERPO_BYTES_TEXTO) {
+    return error('CUERPO_GRANDE', 413);
+  }
+
+  const clave = env.OPENROUTER_API_KEY;
+  if (typeof clave !== 'string' || clave.trim() === '') return error('NO_CONFIGURADO', 500);
+
   // Solo `redactar` y `conversar` pueden pasar de 2 KB; todo lo demás tiene el tope de siempre.
   const conTexto =
     esObjeto(solicitud) && (solicitud.tipo === 'redactar' || solicitud.tipo === 'conversar');

@@ -7,12 +7,12 @@
 // Sprint-15: el periodo ya se puede elegir (por defecto, todo el historial hasta hoy) y el reporte se
 // puede compartir siempre que haya al menos un cierre en el periodo: ya no espera al fin de mes. La
 // hoja del banco de siempre va primero; debajo, la inteligencia de negocio del periodo.
-import React, { useMemo, useRef, useState } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Linking, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { CircleCheck, Lock, Share2 } from 'lucide-react-native';
+import { CircleCheck, Copy, Download, Link2, Lock, Share2 } from 'lucide-react-native';
 import { colors, radius, spacing } from '@theme';
 import { Text } from '@components/atoms/Text';
 import { Button } from '@components/atoms/Button';
@@ -23,6 +23,7 @@ import { Callout } from '@components/molecules/Callout';
 import { CargandoBloques } from '@components/molecules/CargandoBloques';
 import { CodigoQR } from '@components/molecules/CodigoQR';
 import { ScreenHeader } from '@components/molecules/ScreenHeader';
+import { BottomSheet } from '@components/organisms/BottomSheet';
 import { InteligenciaReporte } from '@components/organisms/InteligenciaReporte';
 import { SelectorPeriodo } from '@components/organisms/SelectorPeriodo';
 import { htmlReporte, NOMBRE_ARCHIVO_PDF } from '@analisis/htmlReporte';
@@ -61,6 +62,14 @@ import type { MesCompleto, Perfil, Senales } from '@dominio/tipos';
 import { useCrecemos } from '@context/CrecemosProvider';
 import { compartirReporte } from '@services/compartir';
 import { compartirPdf } from '@services/pdf';
+import {
+  copiarEnlace,
+  crearEnlaceReporte,
+  enlaceVigente,
+  type ResultadoCrearEnlace,
+} from '@services/reporteNube';
+import { DIAS_ENLACE_REPORTE, TEXTO_SIN_INTERNET, type EnlaceReporte } from '@services/jev';
+import { JEV_URL } from '../config';
 import type { RootStackParamList } from '@navigation/RootStack';
 
 const TEXTO_PRIVACIDAD =
@@ -72,6 +81,34 @@ const TEXTO_AYUDA_VACIO = 'Cierra tu primer día para armar tu reporte';
 const TEXTO_AYUDA_PERIODO_VACIO = 'No hay días cerrados en este periodo. Elige otro periodo.';
 const TEXTO_AYUDA_PDF = 'El PDF lleva solo totales. No lleva tu Yape ni tus movimientos.';
 const TITULO_PDF = 'Reporte de actividad del negocio';
+
+// Crear enlace con QR (Sprint-16). El enlace es público: la confirmación lo dice con palabras sencillas.
+export const TITULO_CONFIRMAR_SUBIDA = '¿Subir tu reporte para crear un enlace?';
+export const TEXTO_CONFIRMAR_QUE_SUBE =
+  'Se sube a internet el reporte en PDF del periodo que elegiste: tus ventas, tu resultado y tu constancia, con tu nombre, el de tu negocio y tu foto si la pusiste.';
+export const TEXTO_CONFIRMAR_QUE_NO =
+  'No se sube tu Yape, tu ubicación ni tus cierres uno por uno.';
+export const TEXTO_CONFIRMAR_PUBLICO = `Cualquiera que tenga el enlace podrá ver y descargar el reporte durante ${DIAS_ENLACE_REPORTE} días. Después el enlace deja de funcionar.`;
+const TEXTO_SUBIENDO = 'Subiendo…';
+const TEXTO_ERROR_NUBE: Record<string, string> = {
+  PDF_GRANDE: 'El reporte pesa demasiado para subirlo. Prueba con un periodo más corto.',
+  NO_SE_PUDO_PREPARAR: 'No pudimos preparar el PDF. Inténtalo otra vez.',
+  LIMITE: 'Hay muchas subidas ahora. Prueba en un minuto.',
+  SERVIDOR: 'No pudimos crear el enlace ahora. Inténtalo más tarde.',
+  RESPUESTA_INVALIDA: 'No pudimos crear el enlace ahora. Inténtalo más tarde.',
+};
+const TEXTO_COPIADO = 'Enlace copiado.';
+const TEXTO_NO_DESCARGA = 'No pude abrir la descarga. Usa "Compartir enlace".';
+const TEXTO_NO_COPIADO = 'No pude copiarlo. Usa "Compartir enlace".';
+/** Lado del QR del enlace en su hoja, en dp. */
+const TAMANO_QR_ENLACE = 200;
+
+/** 'Caduca el 22 de octubre': la fecha local del vencimiento, en palabras. */
+export const textoCaduca = (caduca: string): string =>
+  `Caduca el ${formatoFechaCorta(fechaLocal(new Date(caduca)))}`;
+
+const errorNubeDe = (r: Extract<ResultadoCrearEnlace, { ok: false }>): string =>
+  TEXTO_ERROR_NUBE[r.error] ?? TEXTO_SIN_INTERNET;
 /** Foto de la identidad en la hoja de pantalla, en dp. */
 const TAMANO_FOTO = 56;
 /** Lado del QR en la hoja de pantalla, en dp. */
@@ -126,6 +163,83 @@ export const MiReporteScreen = () => {
   const ocupado = useRef(false);
   // Se puede compartir siempre que el periodo tenga al menos un cierre.
   const sinDias = !puedeEmitirReporte(periodo);
+
+  // Crear enlace con QR: nada sale hasta que la persona confirma. El enlace vive solo en esta pantalla.
+  const [confirmando, setConfirmando] = useState(false);
+  const [subiendo, setSubiendo] = useState(false);
+  const [enlace, setEnlace] = useState<EnlaceReporte | null>(null);
+  const [errorNube, setErrorNube] = useState<string | null>(null);
+  const [avisoCopia, setAvisoCopia] = useState<string | null>(null);
+  // Si cambia el periodo (o los datos), el enlace anterior ya no es de este reporte.
+  useEffect(() => {
+    setEnlace(null);
+    setErrorNube(null);
+  }, [filtro, datos]);
+
+  const documento = () => htmlReporte(senales, perfil, hoy, extra);
+
+  const pedirEnlace = () => {
+    if (ocupado.current || sinDias) return;
+    setErrorNube(null);
+    // Ya se creó uno para este mismo reporte en esta sesión: se muestra, sin subir nada otra vez.
+    const vigente = enlaceVigente(documento());
+    if (vigente) {
+      setEnlace(vigente);
+      return;
+    }
+    setConfirmando(true);
+  };
+
+  const subirYCrearEnlace = async () => {
+    setConfirmando(false);
+    if (ocupado.current || sinDias) return;
+    ocupado.current = true;
+    setSubiendo(true);
+    try {
+      const resultado = await crearEnlaceReporte(
+        documento(),
+        NOMBRE_ARCHIVO_PDF(hoy),
+        globalThis.fetch,
+        JEV_URL,
+      );
+      if (resultado.ok) {
+        setEnlace(resultado.enlace);
+        setAvisoCopia(null);
+      } else {
+        setErrorNube(errorNubeDe(resultado));
+      }
+    } catch {
+      setErrorNube(TEXTO_ERROR_NUBE.SERVIDOR);
+    } finally {
+      ocupado.current = false;
+      setSubiendo(false);
+    }
+  };
+
+  const copiar = () => {
+    if (enlace) setAvisoCopia(copiarEnlace(enlace.url) ? TEXTO_COPIADO : TEXTO_NO_COPIADO);
+  };
+
+  const compartirEnlace = async () => {
+    if (!enlace) return;
+    const resultado = await compartirReporte(
+      `Mi reporte de Crecemos. ${textoCaduca(enlace.caduca)}: ${enlace.url}`,
+    );
+    setAvisoCopia(resultado?.ok === false ? TEXTO_ERROR : null);
+  };
+
+  // Descargar: abre el enlace de descarga directa con lo que el teléfono tenga para PDF.
+  const descargarPdf = async () => {
+    if (!enlace) return;
+    try {
+      await Linking.openURL(`${enlace.url}?descargar=1`);
+      setAvisoCopia(null);
+    } catch {
+      setAvisoCopia(TEXTO_NO_DESCARGA);
+    }
+  };
+
+  const modulosEnlace = useMemo(() => (enlace ? modulosQR(enlace.url) : null), [enlace]);
 
   const compartirComoPdf = async () => {
     if (ocupado.current || sinDias) return;
@@ -249,14 +363,138 @@ export const MiReporteScreen = () => {
           variant="outline"
           size="md"
           fullWidth
-          disabled={sinDias || preparando || cargando}
+          disabled={sinDias || preparando || cargando || subiendo}
           onPress={compartirComoTexto}
           testID="reporte-compartir"
+        />
+        {errorNube !== null ? (
+          <Text
+            variant="bodySmall"
+            color="danger"
+            align="center"
+            accessibilityLiveRegion="polite"
+            testID="reporte-error-nube"
+          >
+            {errorNube}
+          </Text>
+        ) : null}
+        <Button
+          title={subiendo ? TEXTO_SUBIENDO : 'Crear enlace con QR'}
+          leftIcon={Link2}
+          variant="outline"
+          size="md"
+          fullWidth
+          disabled={sinDias || preparando || cargando || subiendo}
+          onPress={pedirEnlace}
+          testID="reporte-crear-enlace"
         />
         <Text variant="caption" color="textMuted" align="center" testID="reporte-ayuda-pdf">
           {TEXTO_AYUDA_PDF}
         </Text>
       </View>
+
+      <BottomSheet
+        visible={confirmando}
+        onClose={() => setConfirmando(false)}
+        accessibilityLabel="Confirmar la subida del reporte"
+        testID="reporte-confirmar-subida"
+        footer={
+          <>
+            <Button
+              title="Sí, subir y crear el enlace"
+              size="lg"
+              fullWidth
+              onPress={subirYCrearEnlace}
+              testID="reporte-confirmar-subir"
+            />
+            <Button
+              title="No, no subir nada"
+              variant="ghost"
+              fullWidth
+              onPress={() => setConfirmando(false)}
+              testID="reporte-confirmar-cancelar"
+            />
+          </>
+        }
+      >
+        <Text variant="h3">{TITULO_CONFIRMAR_SUBIDA}</Text>
+        <Text testID="reporte-confirmar-que-sube">{TEXTO_CONFIRMAR_QUE_SUBE}</Text>
+        <Text testID="reporte-confirmar-que-no">{TEXTO_CONFIRMAR_QUE_NO}</Text>
+        <Text variant="bodyStrong" testID="reporte-confirmar-publico">
+          {TEXTO_CONFIRMAR_PUBLICO}
+        </Text>
+      </BottomSheet>
+
+      <BottomSheet
+        visible={enlace !== null}
+        onClose={() => setEnlace(null)}
+        accessibilityLabel="Tu enlace con QR"
+        testID="reporte-enlace-hoja"
+        footer={
+          <Button
+            title="Listo"
+            size="lg"
+            fullWidth
+            onPress={() => setEnlace(null)}
+            testID="reporte-enlace-listo"
+          />
+        }
+      >
+        {enlace !== null && modulosEnlace !== null ? (
+          <View style={styles.enlaceContenido}>
+            <Text variant="h3">Tu enlace está listo</Text>
+            <CodigoQR
+              modulos={modulosEnlace}
+              codigo={enlace.id}
+              etiqueta="Código QR del enlace de tu reporte"
+              size={TAMANO_QR_ENLACE}
+              testID="reporte-enlace-qr"
+            />
+            <Text variant="bodySmall" selectable testID="reporte-enlace-url">
+              {enlace.url}
+            </Text>
+            <Text variant="bodyStrong" testID="reporte-enlace-caduca">
+              {textoCaduca(enlace.caduca)}
+            </Text>
+            <Text variant="bodySmall" color="textMuted">
+              Cualquiera que tenga este enlace puede ver y descargar el reporte hasta esa fecha.
+            </Text>
+            <Button
+              title="Copiar enlace"
+              leftIcon={Copy}
+              variant="outline"
+              fullWidth
+              onPress={copiar}
+              testID="reporte-enlace-copiar"
+            />
+            <Button
+              title="Compartir enlace"
+              leftIcon={Share2}
+              variant="outline"
+              fullWidth
+              onPress={compartirEnlace}
+              testID="reporte-enlace-compartir"
+            />
+            <Button
+              title="Descargar PDF"
+              leftIcon={Download}
+              variant="outline"
+              fullWidth
+              onPress={descargarPdf}
+              testID="reporte-enlace-descargar"
+            />
+            {avisoCopia !== null ? (
+              <Text
+                variant="bodySmall"
+                accessibilityLiveRegion="polite"
+                testID="reporte-enlace-aviso"
+              >
+                {avisoCopia}
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
+      </BottomSheet>
     </SafeAreaView>
   );
 };
@@ -539,6 +777,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 6,
     borderTopRightRadius: 6,
   },
+  enlaceContenido: { gap: spacing.md, alignItems: 'center' },
   pasaporte: { gap: spacing.md },
   bloque: { gap: spacing.xs },
   codigoFila: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
