@@ -13,12 +13,14 @@ export interface CodigoQRProps {
   modulos: boolean[][];
   /** El código en palabras ('CR-B2ED-AA41'): va en la etiqueta para el lector de pantalla. */
   codigo: string;
+  /** Etiqueta completa para el lector de pantalla; por defecto, la del código de constancia. */
+  etiqueta?: string;
   /** Lado en dp, margen blanco incluido. */
   size?: number;
   testID?: string;
 }
 
-export const CodigoQR = ({ modulos, codigo, size = 132, testID }: CodigoQRProps) => {
+export const CodigoQR = ({ modulos, codigo, etiqueta, size = 132, testID }: CodigoQRProps) => {
   const total = modulos.length + 2 * MARGEN_QR;
   const corridas = useMemo(() => corridasQR(modulos), [modulos]);
   return (
@@ -26,7 +28,7 @@ export const CodigoQR = ({ modulos, codigo, size = 132, testID }: CodigoQRProps)
       style={[styles.marco, { width: size, height: size }]}
       accessible
       accessibilityRole="image"
-      accessibilityLabel={`Código de constancia ${codigo}`}
+      accessibilityLabel={etiqueta ?? `Código de constancia ${codigo}`}
       testID={testID}
     >
       <Svg width={size} height={size} viewBox={`0 0 ${total} ${total}`}>

@@ -5,7 +5,14 @@ import { esEjemplo } from '@dominio/origen';
 import { diasEntre, restarDias } from '@dominio/fecha';
 import { formatoFechaCorta, formatoSoles, nombreMes, redondearSoles } from '@dominio/formato';
 import type { Cierre, FechaNegocio, MesCompleto, Perfil, Senales } from '@dominio/tipos';
-import { construirPasaporte, lineasTextoPasaporte } from './pasaporte';
+import {
+  construirPasaporte,
+  lineasTextoPasaporte,
+  textoCuota,
+  TITULO_CUOTA_BANCO,
+} from './pasaporte';
+import { diasCerradosTexto, lineasTextoInteligencia } from './frasesInteligencia';
+import type { ExtraReporte } from './inteligencia';
 
 /** Ventana de la constancia: 90 días contando hoy. */
 export const VENTANA_DIAS = 90;
@@ -63,6 +70,17 @@ export const totalesDelMes = (cierres: Cierre[], mes: string, hastaDia = 31): To
   };
 };
 
+/**
+ * Los cierres que cuentan para el reporte: los propios. Lo de ejemplo no es del negocio y queda
+ * fuera, salvo que sea lo único que hay (así la demostración sigue funcionando, con el aviso
+ * `soloEjemplo`). Una sola regla para las señales, el texto y la inteligencia del reporte.
+ */
+export const cierresDelReporte = (todos: Cierre[]): { cierres: Cierre[]; soloEjemplo: boolean } => {
+  const propios = todos.filter(c => !esEjemplo(c));
+  const soloEjemplo = propios.length === 0 && todos.length > 0;
+  return { cierres: soloEjemplo ? todos : propios, soloEjemplo };
+};
+
 const promedio = (valores: number[]): number =>
   valores.length === 0
     ? 0
@@ -98,11 +116,8 @@ const mesesCompletos = (
  * cuentan. No muta la entrada.
  */
 export const senalesBanco = (todos: Cierre[], hoy: FechaNegocio): Senales => {
-  // Lo de ejemplo no es del negocio: queda fuera del reporte. Salvo que sea lo único que hay,
-  // así la demostración sigue funcionando (con el aviso `soloEjemplo`).
-  const propios = todos.filter(c => !esEjemplo(c));
-  const soloEjemplo = propios.length === 0 && todos.length > 0;
-  const cierres = soloEjemplo ? todos : propios;
+  // Lo de ejemplo no es del negocio: queda fuera del reporte (salvo que sea lo único que hay).
+  const { cierres, soloEjemplo } = cierresDelReporte(todos);
   const hasta = cierres.filter(c => c.fecha <= hoy);
   const fechas = [...new Set(hasta.map(c => c.fecha))].sort();
   const registraDesde = fechas[0];
@@ -160,7 +175,12 @@ export const textoFaltan = (diasFaltantes: number): string =>
  * del perfil: nada del Yape, la ubicación ni de un cierre individual (RNF-08, regla 8). Con `hoy`
  * suma la cuota de referencia y el código de constancia (el pasaporte); sin él, el reporte de siempre.
  */
-export const textoReporte = (s: Senales, perfil: Perfil | null, hoy?: FechaNegocio): string => {
+export const textoReporte = (
+  s: Senales,
+  perfil: Perfil | null,
+  hoy?: FechaNegocio,
+  extra?: ExtraReporte,
+): string => {
   const quien = [perfil?.nombre, perfil?.negocio]
     .map(parte => (parte ?? '').trim().slice(0, MAX_ROTULO))
     .filter(parte => parte !== '')
@@ -169,7 +189,9 @@ export const textoReporte = (s: Senales, perfil: Perfil | null, hoy?: FechaNegoc
   const sinMes = 'aún no hay un mes completo';
   const hayMeses = s.mesesCompletos > 0;
   const periodo =
-    s.primerCierre !== undefined && s.ultimoCierre !== undefined
+    extra !== undefined
+      ? `Periodo: ${extra.etiquetaPeriodo} · ${diasCerradosTexto(extra.inteligencia.dias)}`
+      : s.primerCierre !== undefined && s.ultimoCierre !== undefined
       ? `Periodo: del ${formatoFechaCorta(s.primerCierre)} al ${formatoFechaCorta(
           s.ultimoCierre,
         )} · ${diasRegistradosTexto(s.diasRegistrados)}`
@@ -185,12 +207,19 @@ export const textoReporte = (s: Senales, perfil: Perfil | null, hoy?: FechaNegoc
           s.diasRegistrados,
         )})`;
 
-  const pasaporte = hoy === undefined ? null : construirPasaporte(s, hoy);
-  const lineas = [
+  const pasaporte = hoy === undefined ? null : construirPasaporte(s);
+  // Con inteligencia, la cuota dice con palabras por qué aún no hay cifra (no se inventa una).
+  const lineaSinCuota =
+    extra !== undefined && pasaporte !== null && !pasaporte.cuota.disponible
+      ? [`${TITULO_CUOTA_BANCO}: ${textoCuota(pasaporte.cuota)}`]
+      : [];
+
+  const armar = (inteligencia: string[]): string[] => [
     'Reporte de actividad del negocio',
     ...(s.soloEjemplo ? [AVISO_EJEMPLO] : []),
     ...(quien === '' ? [] : [quien]),
     periodo,
+    ...inteligencia,
     `Venta promedio mensual: ${hayMeses ? formatoSoles(s.ventaPromedioMensual) : sinMes}`,
     `Resultado registrado promedio mensual (ventas menos gastos): ${
       hayMeses ? formatoSoles(s.gananciaPromedioMensual) : sinMes
@@ -206,8 +235,26 @@ export const textoReporte = (s: Senales, perfil: Perfil | null, hoy?: FechaNegoc
       ? []
       : [`Registra desde el ${formatoFechaCorta(s.registraDesde)} (${dias(s.antiguedadDias)})`]),
     ...(s.enConstruccion ? [textoFaltan(s.diasFaltantes)] : []),
+    ...lineaSinCuota,
     ...(pasaporte === null ? [] : lineasTextoPasaporte(pasaporte)),
     'Son totales registrados por el propio negocio en la app Crecemos; incluyen pagos pendientes de recibir y no incluyen movimientos individuales.',
   ];
-  return lineas.join('\n');
+
+  if (extra === undefined) return armar([]).join('\n');
+  // El texto tiene un tope: primero se acortan la lista de meses y, al final, el detalle.
+  const intentos: [number, boolean][] = [
+    [12, true],
+    [6, true],
+    [4, true],
+    [3, true],
+    [2, true],
+    [1, true],
+    [0, true],
+    [0, false],
+  ];
+  for (const [meses, detalle] of intentos) {
+    const texto = armar(lineasTextoInteligencia(extra.inteligencia, meses, detalle)).join('\n');
+    if (texto.length <= MAX_CARACTERES_REPORTE) return texto;
+  }
+  return armar([]).join('\n');
 };

@@ -186,6 +186,13 @@ export const senalesDeJuicio = (
  */
 const SIN_CIFRAS_AL_SERVIDOR: readonly IntencionId[] = ['cuantoPorCobrar'];
 
+/**
+ * ¿La respuesta de esta intención lleva datos que nunca salen del teléfono (el Yape por cobrar)? Si
+ * es así, no se manda a redactar y su frase tampoco entra en el hilo que viaja.
+ */
+export const esReservada = (intencion: IntencionId): boolean =>
+  SIN_CIFRAS_AL_SERVIDOR.includes(intencion);
+
 /** La frase neutra que reemplaza a la real cuando la real traería montos o fechas de cobros. */
 export const FRASE_NEUTRA_COBROS = 'Tienes pagos por cobrar.';
 
@@ -196,7 +203,7 @@ export const FRASE_NEUTRA_COBROS = 'Tienes pagos por cobrar.';
  * una frase neutra, sin cifras, y las señales de vocabulario cerrado.
  */
 export const armarHechoParaJuicio = (hecho: Hecho, senales: SenalesJuicio): HechoJuicio => {
-  const reservado = SIN_CIFRAS_AL_SERVIDOR.includes(hecho.intencion);
+  const reservado = esReservada(hecho.intencion);
   return {
     intencion: hecho.intencion,
     frase: reservado ? FRASE_NEUTRA_COBROS : hecho.frase,

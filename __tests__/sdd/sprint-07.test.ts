@@ -23,6 +23,8 @@ import { materializarSemilla, validarSemilla } from '@dominio/semilla';
 import type { Cierre, FechaNegocio, Perfil, Senales } from '@dominio/tipos';
 import { htmlReporte, NOMBRE_ARCHIVO_PDF } from '@analisis/htmlReporte';
 import { cuotaReferencia } from '@analisis/pasaporte';
+import { FILTRO_TODO } from '@analisis/periodo';
+import { datosDelReporte } from '@analisis/reporteDelPeriodo';
 import { senalesBanco } from '@analisis/senales';
 import { guardarCierre, guardarPerfil, importarSemilla, obtenerPerfil } from '@storage/repositorio';
 
@@ -416,8 +418,14 @@ describe('SPEC-07: Foto de perfil y reporte en PDF', () => {
         expect(hoja.url?.endsWith('.pdf')).toBe(true);
         expect(hoja.type).toBe('application/pdf');
         // El documento que lo originó es el del reporte de hoy.
+        // Sprint-15: el documento lleva también la inteligencia del periodo (todo el historial).
         expect(generar.mock.calls[0][0].html).toBe(
-          htmlReporte(senalesBanco(cierres, HOY), perfilDe(), HOY),
+          htmlReporte(
+            senalesBanco(cierres, HOY),
+            perfilDe(),
+            HOY,
+            datosDelReporte(cierres, FILTRO_TODO, [], HOY).extra,
+          ),
         );
       } finally {
         jest.useRealTimers();
@@ -456,7 +464,7 @@ describe('SPEC-07: Foto de perfil y reporte en PDF', () => {
         await tocarBoton('resumen-mi-reporte');
 
         // Lo esperado sale del dominio, con la misma semilla y el mismo "hoy" que usa la app.
-        const { cierres } = materializarSemilla(validada.semilla, new Date());
+        const { cierres, productos } = materializarSemilla(validada.semilla, new Date());
         const hoy = fechaLocal(new Date());
         const senales = senalesBanco(cierres, hoy);
         expect(senales.ventaPromedioMensual).toBeGreaterThan(0);
@@ -477,7 +485,15 @@ describe('SPEC-07: Foto de perfil y reporte en PDF', () => {
         expect(documento.html).toContain('Venta promedio mensual');
         expect(documento.html).toContain(foto);
         expect(documento.html).toContain(formatoSoles(senales.ventaPromedioMensual));
-        expect(documento.html).toBe(htmlReporte(senales, perfilDe({ fotoUri: foto }), hoy));
+        // Sprint-15: el documento lleva también la inteligencia del periodo (todo el historial).
+        expect(documento.html).toBe(
+          htmlReporte(
+            senales,
+            perfilDe({ fotoUri: foto }),
+            hoy,
+            datosDelReporte(cierres, FILTRO_TODO, productos, hoy).extra,
+          ),
+        );
       } finally {
         global.fetch = fetchPorDefecto;
         await desmontarApp();

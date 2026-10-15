@@ -3,10 +3,12 @@
 Un Cloudflare Worker. **La app nunca habla con OpenRouter**: habla con este Worker, que guarda la
 clave como secreto y reenvía solo lo necesario.
 
-| La app manda                                                           | El Worker hace                                                                                                                                                                                                                           | Responde                                |
-| ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
-| `{ "tipo": "interpretar", "texto": "¿cuánto vendí ayer?" }`            | Pide a **Jev** (API tipada) que elija una de las 14 preguntas conocidas. Si Jev falla o responde algo inválido, lo hace **DeepSeek**. Si Jev contesta `noEntendi` o duda (menos de 0.6), **DeepSeek lo intenta una vez más** (ver abajo) | `{ intencion, dia, confianza, modelo }` |
-| `{ "tipo": "juzgar", "hecho": { intencion, frase, cifras, senales } }` | Pide **solo a Jev** que juzgue la respuesta ya calculada: `bien`, `ojo` o `urgente`. Sin respaldo: si Jev falla o duda, responde sin juicio                                                                                              | `{ semaforo, confianza, modelo }`       |
+| La app manda                                                                        | El Worker hace                                                                                                                                                                                                                           | Responde                                |
+| ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| `{ "tipo": "interpretar", "texto": "¿cuánto vendí ayer?" }`                         | Pide a **Jev** (API tipada) que elija una de las 14 preguntas conocidas. Si Jev falla o responde algo inválido, lo hace **DeepSeek**. Si Jev contesta `noEntendi` o duda (menos de 0.6), **DeepSeek lo intenta una vez más** (ver abajo) | `{ intencion, dia, confianza, modelo }` |
+| `{ "tipo": "juzgar", "hecho": { intencion, frase, cifras, senales } }`              | Pide **solo a Jev** que juzgue la respuesta ya calculada: `bien`, `ojo` o `urgente`. Sin respaldo: si Jev falla o duda, responde sin juicio                                                                                              | `{ semaforo, confianza, modelo }`       |
+| `{ "tipo": "redactar", "pregunta", "hilo", "hecho": { intencion, frase, cifras } }` | Pide a **DeepSeek** que reescriba con el tono de Freddy (1 a 3 frases) una respuesta **ya calculada**. La app revisa que no cambie, pierda ni invente ninguna cifra; si no, muestra la frase fija                                        | `{ texto }`                             |
+| `{ "tipo": "conversar", "texto", "hilo", "resumen" }`                               | Pide a **DeepSeek** que converse (2 a 4 frases) **solo sobre el negocio** y **solo con el `resumen` agregado** (totales por mes y por producto). La app revisa que toda cifra esté en el resumen                                         | `{ texto }`                             |
 
 Todo pasa por OpenRouter, con **la misma clave** (`OPENROUTER_API_KEY`) para las dos APIs:
 
@@ -18,9 +20,23 @@ Todo pasa por OpenRouter, con **la misma clave** (`OPENROUTER_API_KEY`) para las
   app (por ejemplo `tendencia: baja`, `magnitud: grande`). Solo se juzgan las respuestas que
   aceptan juicio (comparar ciclos, cobros, retiro para la casa, cuánto preparar, revisar un precio y el
   peor día).
-- **DeepSeek** (respaldo para clasificar) va por el chat,
-  `https://openrouter.ai/api/v1/chat/completions`, con salidas estructuradas (JSON con valores
-  permitidos).
+- **DeepSeek** (respaldo y segundo intento al clasificar, y quien **redacta** y **conversa**) va por el
+  chat, `https://openrouter.ai/api/v1/chat/completions`, con salidas estructuradas (JSON con valores
+  permitidos) y solo proveedores de EE. UU. sin retención de datos.
+
+### Redactar y conversar (Sprint-14)
+
+- **`redactar`** recibe la pregunta, el **hilo** (las últimas 4 intervenciones de la conversación, solo
+  texto, de a lo más 200 caracteres cada una) y el **hecho** que la app ya calculó. DeepSeek solo cambia
+  las palabras: debe conservar todas las cifras. El Worker **no** las revisa; la app sí (y descarta el
+  texto si una cifra cambia, falta o sobra).
+- **`conversar`** recibe el texto, el hilo y un **resumen agregado** (`meses`, `productos`,
+  `diasDeLaSemana`, `ciclo` y `hoy`; 1,500 caracteres como mucho). DeepSeek conversa solo del negocio,
+  con esos datos; si le preguntan otra cosa, responde con amabilidad que solo ayuda con el negocio.
+  La app descarta el texto si trae una cifra que no está en el resumen.
+- Ni el hilo ni el resumen viajan a **Jev**: a `interpretar` solo llega el texto de la pregunta.
+- Cada llamada tiene 7,5 s en el Worker y 8 s en la app. Una pregunta del chat hace hasta 3 llamadas
+  (interpretar y, a la vez, redactar y juzgar), por eso el límite por IP subió a 40 por minuto.
 
 ### Segundo intento con DeepSeek (Sprint-13)
 
@@ -137,14 +153,34 @@ Debe responder algo como:
   `revisarPrecio` y `peorDia`. Las señales son palabras en minúsculas (como mucho 6) y el
   `hecho` completo no puede pasar de 600 caracteres.
 
+Redactar una respuesta ya calculada (la app revisa las cifras de lo que vuelve):
+
+```sh
+curl -s -X POST https://crecemos-asistente.joaquiningsoft.workers.dev \
+  -H 'Content-Type: application/json' \
+  -d '{"tipo":"redactar","pregunta":"¿cuánto vendí ayer?","hilo":[],"hecho":{"intencion":"ventaDelDia","frase":"Ayer, martes 6 de octubre, vendiste S/ 205.00.","cifras":["6","205.00"]}}'
+```
+
+Debe responder `{ "texto": "…" }` con la misma información dicha de otra manera.
+
+Conversar (con un resumen mínimo):
+
+```sh
+curl -s -X POST https://crecemos-asistente.joaquiningsoft.workers.dev \
+  -H 'Content-Type: application/json' \
+  -d '{"tipo":"conversar","texto":"¿qué opinas de mi mes?","hilo":[],"resumen":{"meses":[{"mes":"octubre 2026","ventas":1800,"gastos":300,"resultado":1500,"dias":2,"enCurso":true}],"productos":[],"diasDeLaSemana":null,"ciclo":null,"hoy":{"ventas":0,"gastos":0,"resultado":0,"cerrado":false}}}'
+```
+
+Debe responder `{ "texto": "…" }` hablando solo de lo que trae el resumen.
+
 Si responde un error:
 
-| Respuesta                           | Qué significa                                                                                                                           |
-| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `{"error":"NO_CONFIGURADO"}`        | Falta el paso 3 (la clave)                                                                                                              |
-| `{"error":"NO_DISPONIBLE"}`         | Ningún modelo contestó a tiempo o con la forma pedida. Revisa el saldo y el tope de la clave en OpenRouter, y los proveedores (punto 8) |
-| `{"error":"DEMASIADAS_PETICIONES"}` | Pasaste las 20 peticiones por minuto de tu IP (una pregunta del chat gasta hasta 3); espera un minuto                                   |
-| `{"error":"SOLICITUD_INVALIDA"}`    | El cuerpo no tiene la forma pedida (texto de 1 a 200 caracteres, frase de hasta 300)                                                    |
+| Respuesta                           | Qué significa                                                                                                                                                             |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `{"error":"NO_CONFIGURADO"}`        | Falta el paso 3 (la clave)                                                                                                                                                |
+| `{"error":"NO_DISPONIBLE"}`         | Ningún modelo contestó a tiempo o con la forma pedida. Revisa el saldo y el tope de la clave en OpenRouter, y los proveedores (punto 8)                                   |
+| `{"error":"DEMASIADAS_PETICIONES"}` | Pasaste las 40 peticiones por minuto de tu IP (una pregunta del chat gasta hasta 3); espera un minuto                                                                     |
+| `{"error":"SOLICITUD_INVALIDA"}`    | El cuerpo no tiene la forma pedida (texto de 1 a 200 caracteres, frase de hasta 300 —400 al redactar—, hilo de hasta 4 intervenciones, resumen de hasta 1,500 caracteres) |
 
 ### 5. Saber quién respondió: Jev o DeepSeek
 
@@ -225,11 +261,11 @@ acaba, OpenRouter rechaza las peticiones de esa clave y el chat dice "Necesitas 
 
 - **El endpoint es público.** Cualquiera que conozca la dirección puede mandar peticiones y gastar
   los créditos de la clave hasta su tope. No hay inicio de sesión (Freddy no tiene cuenta).
-  Mitigaciones del MVP: texto de hasta 200 caracteres y cuerpo de hasta 2 KB, validación de todo lo
-  que entra y sale, un tope de gasto en la clave y un límite de 20 peticiones por minuto por IP en
+  Mitigaciones del MVP: texto de hasta 200 caracteres y cuerpo de hasta 2 KB (6 KB al redactar y conversar), validación de todo lo
+  que entra y sale, un tope de gasto en la clave y un límite de 40 peticiones por minuto por IP en
   cada ubicación de Cloudflare. El límite por IP es aproximado (muchas personas pueden compartir una
   IP en una red móvil) y no reemplaza a una autenticación real, que queda para después del MVP.
-- **Los totales los procesan terceros.** La pregunta y algunos totales (nunca el nombre, el Yape ni
+- **Los totales los procesan terceros.** La pregunta, lo último que se habló y algunos totales por mes y por producto (nunca el nombre, el Yape ni
   los movimientos) pasan por OpenRouter y por el proveedor que aloje el modelo. El Worker pide
   `data_collection: "deny"` (proveedores que no guardan ni entrenan con los datos) y, para DeepSeek,
   solo proveedores de EE. UU. Eso **reduce** el riesgo, no lo elimina. La llamada a Jev no restringe
@@ -241,3 +277,94 @@ acaba, OpenRouter rechaza las peticiones de esa clave y el chat dice "Necesitas 
   el respaldo DeepSeek, sin romper la app.
 - **Sin registros.** El Worker no escribe ningún log con la pregunta ni con la frase. Aun así,
   OpenRouter y el proveedor tienen sus propias políticas.
+
+---
+
+## Reportes en la nube con enlace que caduca (Sprint-16)
+
+El botón "Crear enlace con QR" de Mi reporte sube el PDF **solo cuando la persona lo confirma** y recibe un
+enlace público. Va al mismo Worker (misma dirección de red de la app) y se guarda en **Cloudflare R2**. No usa
+ninguna clave de OpenRouter. Como el PDF lleva impreso el QR de su propio enlace, la subida va en dos pasos:
+primero se **reserva** el id (y con él la dirección definitiva) y después se sube el PDF que ya la lleva.
+
+| Ruta | Qué hace |
+|---|---|
+| `POST /` con `{ "tipo": "reservarReporte" }` | Genera el id (128 bits aleatorios), guarda una reserva en R2 (`reservas/<id>`, vence en 15 minutos) y responde `{ id, url, caduca, token }`. `caduca` es la del enlace (30 días); `token` es el **token de borrado** (128 bits, distinto del id): se entrega **una sola vez**, aquí. |
+| `POST /` con `{ "tipo": "subirReporte", "id", "pdf": "<base64>" }` | Solo acepta un id con reserva vigente y aún no usada (una reserva sirve para UNA subida). Valida el PDF, lo guarda en `r/<id>` con la caducidad ya anunciada y borra la reserva. Responde `{ id, url, caduca }`. |
+| `POST /` con `{ "tipo": "borrarReporte", "id", "token" }` | Borra el PDF si el SHA-256 del token es el que se guardó al reservar (comparación en tiempo constante). **Responde siempre lo mismo** (`{"ok":true}`), haya o no algo que borrar y sea bueno o malo el token. |
+| `GET /r/<id>` | Sirve el PDF para VER (`application/pdf`, `inline`) mientras no haya caducado. Con `?descargar=1` lo sirve como descarga (`attachment; filename="reporte-crecemos.pdf"`); cualquier otro parámetro se ignora y el nombre lo fija el Worker. Lleva `Cache-Control: no-store`, `X-Robots-Tag: noindex`, `X-Content-Type-Options: nosniff` y `Content-Security-Policy: sandbox`. Vencido, borrado, inexistente o mal escrito: el mismo 404 "Este enlace ya no está disponible." (el vencido además se borra). |
+
+Reglas del Worker: el id son 32 hexadecimales; el PDF decodificado pesa **a lo más 400 KB** (`MAX_PDF_BYTES`; el real
+pesa de 50 a 150 KB), tiene que empezar por `%PDF-` y venir en base64 válido; el enlace dura 30 días
+(`DIAS_DE_VIDA_DEL_ENLACE`); una reserva que nadie usa vence a los 15 minutos; el nombre del archivo lo pone el
+Worker; el contenido nunca se escribe en un log. En R2 **no se guarda el token, solo su hash**.
+
+**Límites.**
+- **Por IP:** reservar y subir usan el binding estricto `LIMITE_SUBIDA` (5 por minuto por IP). **Borrar** usa su propio `LIMITE_BORRAR` (20 por minuto por IP, más holgado). Pedir un enlace (`GET`) usa `LIMITE`.
+- **Global por minuto:** además, reservar y subir pasan por `LIMITE_GLOBAL_SUBIDA` (10 por minuto EN TOTAL, con una clave fija `global`, no por IP). **Borrar y `GET` no pasan por el global ni por el tope diario**: así nadie puede impedir que el dueño revoque su enlace ni que un enlace vigente se abra. La única autorización para borrar es el token. Acota una ráfaga repartida entre muchas IP o ubicaciones. Si se supera: 429 `DEMASIADAS_PETICIONES`.
+- **Tope diario de RESERVAS:** `LIMITE_DIARIO_SUBIDAS` = 100 por día (fecha UTC). **Cada reserva consume un cupo al reservarse** (se cuenta al reservar, no al subir): una reserva usada y una vencida sin usar cuentan una sola vez, y subir no suma otra vez. La reserva 101 del día responde 503 `LIMITE_DIARIO` aunque no se haya subido nada, y la app dice "Hoy ya se subieron muchos reportes. Inténtalo mañana."
+- **Tope diario por IP:** una sola IP puede hacer a lo más `LIMITE_DIARIO_POR_IP` = 20 reservas al día (el 20 % del cupo). El contador vive en R2 bajo un **hash de la IP y la fecha** (`contadores/ip-<huella>`): la IP no se guarda en claro. Igual de aproximado que el global. Al llegar a su tope, esa IP recibe 503 `LIMITE_DIARIO`.
+- **El tope diario es APROXIMADO.** El contador es un objeto de R2 por día (`contadores/AAAA-MM-DD`) y R2 no ofrece incrementos atómicos: peticiones simultáneas pueden leer el mismo valor y contarse como una, así que una ráfaga puede pasarse un poco del tope. El límite global por minuto acota esa ráfaga. La solución estricta sería un **Durable Object** (con su clase, su binding y su migración): queda como mejora futura.
+
+### A. Crear el bucket (una sola vez, ANTES de publicar)
+
+```bash
+cd servidor
+npx wrangler r2 bucket create crecemos-reportes
+```
+
+`wrangler.toml` ya trae el binding `REPORTES` hacia ese bucket: si el bucket no existe, `wrangler deploy` falla.
+
+**Costo.** R2 puede pedir un método de pago en tu cuenta de Cloudflare **incluso para usar la capa gratuita**.
+No te doy cifras de precios porque no las verifiqué: míralas en la página oficial (Cloudflare R2 → Pricing).
+
+**Reglas de ciclo de vida (recomendadas).** R2 no borra solo. El Worker borra el vencido cuando alguien lo pide, pero
+un objeto que nadie vuelve a abrir se queda, y las reservas que nadie usó también. En el panel de Cloudflare
+(R2 → `crecemos-reportes` → Settings → reglas de ciclo de vida / "object lifecycle") crea: (1) borrar todo a los
+**31 días**; (2) borrar lo que empiece por `reservas/` a **1 día**. No te escribo la sintaxis exacta de `wrangler`
+porque no la verifiqué: revisa la documentación oficial de R2 antes de usarla.
+
+### B. Publicar otra vez
+
+```bash
+npx wrangler deploy
+```
+
+### C. Probar con `curl`
+
+Un PDF mínimo de prueba (no es el reporte real):
+
+```bash
+printf "%%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%%%EOF\n" > prueba.pdf
+PDF=$(base64 < prueba.pdf | tr -d '\n')
+W=https://crecemos-asistente.TU-CUENTA.workers.dev
+# 1) reservar -> guarda el id y el token
+curl -s -X POST $W -H 'Content-Type: application/json' -d '{"tipo":"reservarReporte"}'
+# -> {"id":"...32...","url":"https://.../r/<id>","caduca":"2026-...","token":"...32..."}
+# 2) subir a ese id
+curl -s -X POST $W -H 'Content-Type: application/json' \
+  -d "{\"tipo\":\"subirReporte\",\"id\":\"<id>\",\"pdf\":\"$PDF\"}"
+# -> {"id":"...","url":"...","caduca":"..."}   (sin token)
+# 3) ver, descargar y probar un enlace que no existe
+curl -s -D - -o /dev/null $W/r/<id>                    # 200, content-disposition: inline
+curl -s -D - -o /dev/null "$W/r/<id>?descargar=1"      # 200, content-disposition: attachment; filename="reporte-crecemos.pdf"
+curl -s -i $W/r/00000000000000000000000000000000        # 404 "Este enlace ya no está disponible."
+# 4) borrar con el token; un token malo responde exactamente igual y NO borra
+curl -s -X POST $W -H 'Content-Type: application/json' -d '{"tipo":"borrarReporte","id":"<id>","token":"<token>"}'
+# -> {"ok":true}   y ahora  GET /r/<id>  da el 404 amable
+```
+
+Pruebas que deben dar error: un archivo que no empiece por `%PDF-` (415), base64 roto (400), uno de más de 400 KB
+(413), subir a un id sin reserva, vencida o ya usada (404 amable) y la reserva 101 del día (503 `LIMITE_DIARIO`).
+
+### D. Riesgos dichos de frente
+
+- **El enlace es público.** Quien lo tenga puede ver y descargar el PDF hasta que caduque (30 días) o hasta que se
+  borre; el PDF lleva nombre, negocio, foto (si la hay), ventas, resultado y constancia del periodo. No lleva Yape,
+  ubicación ni cierres sueltos.
+- **Sin autenticación de usuario.** La app no tiene cuentas. Lo que protege el endpoint de subida es el tope de
+  400 KB, la validación `%PDF-`, la reserva de un solo uso, el límite por IP, el límite global por minuto, el tope diario (aproximado) y la caducidad.
+- **El token de borrado vive solo en el teléfono.** Si se pierde el teléfono (o se desinstala la app), ese enlace ya
+  no se puede revocar: solo caduca. Mejora futura: una marca de origen dentro del PDF.
+- **Cualquiera puede agotar los topes de CREAR (denegación de servicio).** Sin autenticación de usuario, quien conozca la dirección del Worker puede gastar el límite global por minuto o el tope diario de reservas y bloquear la **creación** de enlaces nuevos para todos. Es una consecuencia aceptada de poner topes globales sin cuentas. Afecta **solo a crear enlaces nuevos**: compartir el PDF y el texto, ver enlaces existentes (`GET`) y **borrarlos** siguen funcionando. Mitigación barata incluida: el tope diario por IP (una sola IP no gasta todo el cupo; no ayuda contra muchas IP). La solución de fondo sería autenticar a quien crea (una cuenta, un token del dispositivo o un secreto por instalación) o un Durable Object con topes por instalación. **Si ocurre:** sube `limit` del binding `LIMITE_GLOBAL_SUBIDA` en `wrangler.toml` o `LIMITE_DIARIO_SUBIDAS` en `worker.js`, vuelve a publicar con `npx wrangler deploy` y revisa el bucket en el panel de R2.
+- **Costo.** El almacenamiento crece si nadie borra: pon las reglas de ciclo de vida de arriba.

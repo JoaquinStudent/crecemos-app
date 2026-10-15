@@ -17,7 +17,8 @@ import { restarDias } from '@dominio/fecha';
 import { formatoFechaCorta, formatoSoles } from '@dominio/formato';
 import type { Cierre, FechaNegocio, Perfil } from '@dominio/tipos';
 import { htmlReporte, NOMBRE_ARCHIVO_PDF } from '@analisis/htmlReporte';
-import { construirPasaporte } from '@analisis/pasaporte';
+import { FILTRO_TODO } from '@analisis/periodo';
+import { datosDelReporte } from '@analisis/reporteDelPeriodo';
 import { senalesBanco, textoReporte } from '@analisis/senales';
 import { compartirReporte } from '@services/compartir';
 import { guardarCierre, guardarPerfil } from '@storage/repositorio';
@@ -47,6 +48,10 @@ const SIN_FALSEAR = [
   'setTimeout',
   'clearTimeout',
 ] as const;
+
+// Sprint-15: el texto y el documento llevan también la inteligencia del periodo (por defecto, todo el
+// historial hasta hoy). Lo que la pantalla comparte es exactamente esto.
+const extraDe = (cierres: Cierre[]) => datosDelReporte(cierres, FILTRO_TODO, [], HOY).extra;
 
 const compartir = compartirReporte as jest.MockedFunction<typeof compartirReporte>;
 const generar = jest.mocked(generatePDF);
@@ -452,7 +457,7 @@ describe('Mi reporte', () => {
 
     await app.tocar('reporte-compartir');
     const enviado = compartir.mock.calls[0][0];
-    expect(enviado).toBe(textoReporte(s, FREDDY, HOY));
+    expect(enviado).toBe(textoReporte(s, FREDDY, HOY, extraDe(cierres)));
     expect(enviado).toContain('Venta promedio mensual: S/ 5,120.00');
     expect(enviado).toContain(
       'Resultado registrado promedio mensual (ventas menos gastos): S/ 2,180.00',
@@ -556,11 +561,19 @@ describe('Mi reporte', () => {
       await abrirReporte(app);
 
       // El 30 % de la cuota de referencia no es la constancia: es otra cuenta, con su propia frase.
+      // Sprint-15: el porcentaje del producto estrella lleva su monto en soles en la misma frase, y
+      // el de cada porción de la torta lo lleva en la fila de al lado (regla 7 de UX).
       const conPorcentaje = app
         .textosDeLaPantalla()
-        .filter(t => t.includes('%') && !t.includes('de tu resultado registrado'));
+        .filter(
+          t =>
+            t.includes('%') &&
+            !t.includes('de tu resultado registrado') &&
+            !t.endsWith('de lo que vendiste'),
+        );
       expect(conPorcentaje.length).toBeGreaterThan(0);
-      for (const texto of conPorcentaje) expect(texto).toMatch(/\d+ días? registrados?/);
+      for (const texto of conPorcentaje)
+        expect(texto).toMatch(/\d+ días? registrados?|\(S\/ [\d,.]+\)/);
       await act(async () => montada?.unmount());
       montada = null;
     }
@@ -605,7 +618,9 @@ describe('Mi reporte', () => {
 
     await app.tocar('reporte-compartir');
     expect(compartir).toHaveBeenCalledTimes(1);
-    expect(compartir).toHaveBeenCalledWith(textoReporte(senalesBanco(tresMeses(), HOY), FREDDY, HOY));
+    expect(compartir).toHaveBeenCalledWith(
+      textoReporte(senalesBanco(tresMeses(), HOY), FREDDY, HOY, extraDe(tresMeses())),
+    );
     expect(app.existe('reporte-error-compartir')).toBe(false);
   });
 
@@ -727,7 +742,9 @@ describe('Mi reporte', () => {
 
       expect(generar).toHaveBeenCalledTimes(1);
       const opciones = generar.mock.calls[0][0];
-      expect(opciones.html).toBe(htmlReporte(senalesDeTresMeses(), FREDDY, HOY));
+      expect(opciones.html).toBe(
+        htmlReporte(senalesDeTresMeses(), FREDDY, HOY, extraDe(tresMeses())),
+      );
       expect(opciones.fileName).toBe(NOMBRE_ARCHIVO_PDF(HOY));
       expect(opciones.fileName).toBe('Reporte-Crecemos-2026-10-07');
       expect(abrirHoja).toHaveBeenCalledTimes(1);
@@ -890,7 +907,9 @@ describe('Mi reporte', () => {
       await app.tocar('reporte-compartir');
 
       expect(compartir).toHaveBeenCalledTimes(1);
-      expect(compartir).toHaveBeenCalledWith(textoReporte(senalesDeTresMeses(), FREDDY, HOY));
+      expect(compartir).toHaveBeenCalledWith(
+        textoReporte(senalesDeTresMeses(), FREDDY, HOY, extraDe(tresMeses())),
+      );
       expect(generar).not.toHaveBeenCalled();
       expect(abrirHoja).not.toHaveBeenCalled();
     });
@@ -1036,8 +1055,6 @@ describe('Mi reporte · pasaporte para el banco', () => {
     if (app) await act(async () => app.unmount());
   });
 
-  const pasaporteDe = (cierres: Cierre[]) => construirPasaporte(senalesBanco(cierres, HOY), HOY);
-
   it('la vista previa muestra la cuota de referencia con su aclaración', async () => {
     await sembrar(tresMeses(), FREDDY);
     const app = await montarApp();
@@ -1060,34 +1077,34 @@ describe('Mi reporte · pasaporte para el banco', () => {
     await abrirReporte(app);
 
     expect(app.textoDe('reporte-constancia-mes-2026-07')).toBe('Registraste 2 de 31 días en julio');
-    expect(app.textoDe('reporte-constancia-mes-2026-08')).toBe('Registraste 2 de 31 días en agosto');
+    expect(app.textoDe('reporte-constancia-mes-2026-08')).toBe(
+      'Registraste 2 de 31 días en agosto',
+    );
     expect(app.textoDe('reporte-constancia-mes-2026-09')).toBe(
       'Registraste 2 de 30 días en septiembre',
     );
   });
 
-  it('el código y el QR: "Código de constancia", CR-XXXX-XXXX y la aclaración honesta', async () => {
+  it('el código y el QR: sin enlace no hay ni código ni QR, solo un aviso', async () => {
     const cierres = tresMeses();
     await sembrar(cierres, FREDDY);
     const app = await montarApp();
     await abrirReporte(app);
 
-    const codigo = pasaporteDe(cierres)?.codigo ?? '';
-    expect(codigo).toMatch(/^CR-[0-9A-F]{4}-[0-9A-F]{4}$/);
-    expect(app.textosDeLaPantalla()).toContain('Código de constancia');
-    expect(app.textoDe('reporte-codigo')).toBe(codigo);
-    expect(app.textoDe('reporte-codigo-nota')).toBe(
-      'Se generó en el teléfono con tus registros; sirve para comparar con los números del reporte. No reemplaza una verificación de la entidad.',
+    // Sprint-16: el QR de "constancia" no abría nada y se quitó; el código y el QR llegan con el enlace.
+    expect(app.existe('reporte-qr')).toBe(false);
+    expect(app.existe('reporte-codigo')).toBe(false);
+    expect(app.textosDeLaPantalla()).not.toContain('Código de constancia');
+    expect(app.textoDe('reporte-qr-aviso')).toBe(
+      'El código y el QR aparecerán cuando crees el enlace.',
     );
-    const qr = montada?.root.findAll(n => n.props.testID === 'reporte-qr' && n.props.accessible)[0];
-    expect(qr?.props.accessibilityLabel).toBe(`Código de constancia ${codigo}`);
     // Y no promete lo que no es.
     for (const t of app.textosDeLaPantalla()) {
       expect(t).not.toMatch(/certific|garant|aprobad|criptogr|prueba de/i);
     }
   });
 
-  it('el texto compartido lleva la cuota y el mismo código que la pantalla', async () => {
+  it('el texto compartido lleva la cuota y ningún código (sin enlace no hay código)', async () => {
     const cierres = tresMeses();
     await sembrar(cierres, FREDDY);
     const app = await montarApp();
@@ -1096,11 +1113,11 @@ describe('Mi reporte · pasaporte para el banco', () => {
     await app.tocar('reporte-compartir');
     const enviado = compartir.mock.calls[0][0];
     expect(enviado).toContain('Cuota mensual de referencia: S/ 650.00 al mes');
-    expect(enviado).toContain(`Código de constancia: ${app.textoDe('reporte-codigo')}`);
+    expect(enviado).not.toContain('Código de constancia');
     expect(enviado.length).toBeLessThan(2000);
   });
 
-  it('el PDF lleva el mismo código y el QR en línea', async () => {
+  it('el PDF, sin enlace, no lleva ni código ni QR', async () => {
     const cierres = tresMeses();
     await sembrar(cierres, FREDDY);
     const app = await montarApp();
@@ -1109,8 +1126,10 @@ describe('Mi reporte · pasaporte para el banco', () => {
 
     expect(generar).toHaveBeenCalledTimes(1);
     const html = String(generar.mock.calls[0][0].html);
-    expect(html).toContain(app.textoDe('reporte-codigo'));
-    expect(html).toContain('<svg');
+    expect(html).not.toMatch(/CR-[0-9A-F]{4}/);
+    expect(html).not.toContain('numero-codigo"');
+    // (Con la inteligencia hay gráficos <svg>; lo que no hay es el QR del enlace.)
+    expect(html).not.toContain('Código QR del enlace');
   });
 
   it('con pocos días registrados y sin mes completo: sin cifra de cuota, pero con su explicación', async () => {
@@ -1122,8 +1141,10 @@ describe('Mi reporte · pasaporte para el banco', () => {
       'Aún no hay un mes completo para calcular una referencia.',
     );
     expect(app.existe('reporte-cuota-explicacion')).toBe(false);
-    expect(app.textoDe('reporte-constancia-sin-mes')).toBe('Aún no hay un mes completo registrado.');
-    expect(app.existe('reporte-codigo')).toBe(true);
+    expect(app.textoDe('reporte-constancia-sin-mes')).toBe(
+      'Aún no hay un mes completo registrado.',
+    );
+    expect(app.existe('reporte-qr-aviso')).toBe(true);
   });
 
   it('sin ningún día cerrado no hay pasaporte', async () => {
@@ -1135,12 +1156,16 @@ describe('Mi reporte · pasaporte para el banco', () => {
   });
 
   it('solo datos de ejemplo: cada sección nueva lleva "Datos de ejemplo"', async () => {
-    await sembrar(tresMeses().map(c => ({ ...c, origen: 'ejemplo' as const })), FREDDY);
+    await sembrar(
+      tresMeses().map(c => ({ ...c, origen: 'ejemplo' as const })),
+      FREDDY,
+    );
     const app = await montarApp();
     await abrirReporte(app);
 
     const marcas = app.textosDeLaPantalla().filter(t => t === 'Datos de ejemplo');
-    // El aviso del reporte (título) y una marca por cada una de las tres secciones nuevas.
-    expect(marcas.length).toBeGreaterThanOrEqual(4);
+    // El aviso del reporte (título) y una marca por cada sección nueva que hay sin enlace: la cuota y la
+    // constancia. La del código llega con el enlace en la nube (Sprint-16).
+    expect(marcas.length).toBeGreaterThanOrEqual(3);
   });
 });

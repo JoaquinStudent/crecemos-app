@@ -11,6 +11,7 @@ import {
   BellRing,
   ChevronLeft,
   CircleHelp,
+  FolderOpen,
   Package,
   SlidersHorizontal,
   Trash2,
@@ -129,6 +130,13 @@ export const PerfilScreen = () => {
             summary={resumenConfiguracion(perfil)}
             onPress={ir('PerfilConfiguracion')}
             testID="perfil-opcion-configuracion"
+          />
+          <OpcionPerfil
+            icon={FolderOpen}
+            title="Mis reportes"
+            summary="Los enlaces que guardaste"
+            onPress={() => navigation.navigate('MisReportes')}
+            testID="perfil-opcion-reportes"
           />
           <OpcionPerfil
             icon={Trash2}

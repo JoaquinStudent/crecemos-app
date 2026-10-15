@@ -17,6 +17,8 @@ import { fechaLocal, restarDias } from '@dominio/fecha';
 import { formatoSoles } from '@dominio/formato';
 import { materializarSemilla, validarSemilla } from '@dominio/semilla';
 import type { Cierre, FechaNegocio, Perfil } from '@dominio/tipos';
+import { FILTRO_TODO } from '@analisis/periodo';
+import { datosDelReporte } from '@analisis/reporteDelPeriodo';
 import { senalesBanco, textoReporte } from '@analisis/senales';
 import { compartirReporte } from '@services/compartir';
 import { guardarCierre, guardarPerfil, importarSemilla } from '@storage/repositorio';
@@ -235,7 +237,9 @@ describe('SPEC-06: Reporte para el banco y cierre de entrega', () => {
           actualizadoEn: INSTANTE,
         };
         await guardarPerfil(perfil);
-        const esperado = textoReporte(senalesBanco(cierres, HOY), perfil, HOY);
+        // Sprint-15: el texto lleva también la inteligencia del periodo (todo el historial hasta hoy).
+        const extra = datosDelReporte(cierres, FILTRO_TODO, [], HOY).extra;
+        const esperado = textoReporte(senalesBanco(cierres, HOY), perfil, HOY, extra);
         expect(esperado).toContain('Venta promedio mensual: S/ 5,120.00');
 
         await montarApp();

@@ -20,13 +20,7 @@
 // El botón de enviar es solo un ícono (avión de papel): excepción pedida por el usuario a la regla de
 // "ícono siempre con texto visible"; su etiqueta de accesibilidad es "Preguntar".
 import React, { useEffect, useRef, useState } from 'react';
-import {
-  KeyboardAvoidingView,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  View,
-} from 'react-native';
+import { KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
@@ -38,25 +32,29 @@ import { Icon } from '@components/atoms/Icon';
 import { Chip } from '@components/molecules/Chip';
 import { Input } from '@components/atoms/Input';
 import { BurbujaChat, BurbujaPensando } from '@components/molecules/BurbujaChat';
-import { responderCharla } from '@analisis/charla';
+import type { MensajeHilo } from '@analisis/hilo';
 import { PREGUNTAS_SUGERIDAS } from '@analisis/intenciones';
+import { esReservada } from '@analisis/semaforo';
 import { fechaLocal } from '@dominio/fecha';
 import type { Consulta, Semaforo } from '@dominio/tipos';
 import { useCrecemos } from '@context/CrecemosProvider';
-import { consultar, MAX_CARACTERES_PREGUNTA } from '@services/jev';
+import { consultar, MAX_CARACTERES_PREGUNTA, TEXTO_NO_ENTENDI } from '@services/jev';
 import { useMedidasBarra } from '@hooks/useMedidasBarra';
 import { useTecladoVisible } from '@hooks/useTecladoVisible';
 import type { TabsParamList } from '@navigation/Tabs';
 import { JEV_URL } from '../config';
 
 const TEXTO_PRIVACIDAD =
-  'Tu pregunta se envía a un servicio de inteligencia artificial para entenderla. Algunas respuestas se envían ya calculadas (por ejemplo, cuánto te queda en el ciclo) para valorar cómo va el negocio. Nunca van tu nombre, tu Yape, lo que te deben por cobrar ni tus días uno por uno. Si no hay internet, la pregunta se entiende en tu teléfono y no se envía nada.';
+  'Tu pregunta y lo último que hablaron se envían a un servicio de inteligencia artificial para entenderla y escribirte la respuesta. Algunas respuestas se envían ya calculadas (por ejemplo, cuánto te queda en el ciclo), y si conversan, viajan unos totales por mes y por producto. Nunca van tu nombre, tu Yape, lo que te deben por cobrar ni la lista de tus días. Si no hay internet, solo respondo las preguntas sugeridas y no se envía nada.';
 const TEXTO_AVISO_CORTO = 'Tu pregunta se envía a una IA';
 const TEXTO_INVITACION =
   'Pregúntame lo que quieras de tus ventas. Toca una pregunta o escribe la tuya:';
-/** Cuando no se entendió la pregunta: dice con qué sí puede ayudar y manda a las sugeridas. */
-const TEXTO_NO_ENTENDI =
-  'No entendí la pregunta. Puedo ayudarte con tus ventas, cobros pendientes y productos. Prueba con una de estas:';
+/** Lo que se ve mientras la respuesta tarda más de lo normal (pueden ser dos o tres llamadas seguidas). */
+const TEXTO_SIGUE_PENSANDO = 'Sigo revisando tus datos, un momento…';
+/** Pasado este tiempo esperando, la burbuja de "pensando" dice que sigue trabajando. */
+const ESPERA_LARGA_MS = 3500;
+/** Encima de las sugeridas del aviso sin internet. */
+const TEXTO_SIN_INTERNET_SUGERIDAS = 'Sin internet puedo responder estas:';
 
 /** Una burbuja del historial. */
 interface Mensaje {
@@ -68,10 +66,14 @@ interface Mensaje {
   error?: boolean;
   /** Se respondió sin red, con la clasificación del teléfono. */
   sinInternet?: boolean;
+  /** Preguntas tocables debajo de la burbuja mientras sea el último mensaje (el aviso sin internet). */
+  sugeridas?: string[];
+  /** No entra al hilo que viaja: avisos, "no entendí" y lo que lleva datos que no salen del teléfono. */
+  fueraDelHilo?: boolean;
 }
 
 export const PreguntarScreen = () => {
-  const { cierres, productos, perfil } = useCrecemos();
+  const { cierres, productos } = useCrecemos();
   const navigation = useNavigation<BottomTabNavigationProp<TabsParamList, 'Asistente'>>();
   const route = useRoute<RouteProp<TabsParamList, 'Asistente'>>();
   const { alturaTotal } = useMedidasBarra();
@@ -80,6 +82,8 @@ export const PreguntarScreen = () => {
   const [mensajes, setMensajes] = useState<Mensaje[]>([]);
   const [texto, setTexto] = useState('');
   const [pensando, setPensando] = useState(false);
+  // Una espera larga no debe parecer un cuelgue: pasados unos segundos la burbuja lo dice.
+  const [esperaLarga, setEsperaLarga] = useState(false);
   // El aviso de privacidad va plegado hasta que Freddy lo abre.
   const [avisoAbierto, setAvisoAbierto] = useState(false);
   // Un toque, una pregunta: mientras una espera, otro toque no hace nada (el estado llega tarde).
@@ -89,6 +93,9 @@ export const PreguntarScreen = () => {
   // La última consulta resuelta del hilo, solo en el teléfono: completa los seguimientos ("¿y de la
   // pancita?"). Nunca viaja a Jev y se va con la pantalla, igual que el historial.
   const previa = useRef<Consulta | null>(null);
+  // Lo que se habló en la pantalla, solo texto: `consultar` envía las últimas 4 intervenciones a la
+  // redacción y a la conversación (nunca a Jev, que solo recibe la pregunta actual).
+  const hilo = useRef<MensajeHilo[]>([]);
   const scroll = useRef<React.ComponentRef<typeof ScrollView>>(null);
   // Dónde empieza (de arriba hacia abajo) la última pregunta de Freddy, para dejarla a la vista.
   const alturaUltimaPregunta = useRef<number | null>(null);
@@ -100,8 +107,24 @@ export const PreguntarScreen = () => {
     };
   }, []);
 
+  // Si la espera se alarga, la burbuja de "pensando" lo dice. El temporizador se limpia al responder.
+  useEffect(() => {
+    if (!pensando) {
+      setEsperaLarga(false);
+      return undefined;
+    }
+    const temporizador = setTimeout(() => setEsperaLarga(true), ESPERA_LARGA_MS);
+    return () => clearTimeout(temporizador);
+  }, [pensando]);
+
   const agregar = (mensaje: Omit<Mensaje, 'id'>) => {
     if (!montado.current) return;
+    if (!mensaje.error && !mensaje.fueraDelHilo) {
+      hilo.current.push({
+        rol: mensaje.autor === 'freddy' ? 'freddy' : 'asistente',
+        texto: mensaje.texto,
+      });
+    }
     // El id se toma ya: el actualizador de estado corre después y vería un contador más adelantado.
     siguienteId.current += 1;
     const id = siguienteId.current;
@@ -115,18 +138,12 @@ export const PreguntarScreen = () => {
     ocupado.current = true;
     setPensando(true);
     setTexto('');
+    // Lo hablado ANTES de esta pregunta: la pregunta de ahora viaja aparte, en `texto`.
+    const hiloPrevio = [...hilo.current];
     agregar({ autor: 'freddy', texto: limpia });
-    // La charla corta (hola, gracias…) se contesta aquí, al instante y sin red. El nombre del perfil
-    // solo arma la frase en el teléfono: nunca viaja.
-    const charla = responderCharla(limpia, perfil.nombre);
-    if (charla !== null) {
-      agregar({ autor: 'jev', texto: charla.texto });
-      ocupado.current = false;
-      setPensando(false);
-      return;
-    }
     try {
       // El fetch se toma al momento de usarlo y se inyecta: aquí no hay ninguna llamada de red propia.
+      // El nombre del perfil no sale del teléfono: ni siquiera se pasa al servicio.
       const respuesta = await consultar(
         globalThis.fetch,
         JEV_URL,
@@ -137,15 +154,24 @@ export const PreguntarScreen = () => {
           hoy: fechaLocal(new Date()),
         },
         previa.current,
+        hiloPrevio,
       ).catch(() => null);
-      if (respuesta === null || respuesta.tipo === 'noEntendi') {
-        agregar({ autor: 'jev', texto: TEXTO_NO_ENTENDI });
+      if (respuesta === null) {
+        agregar({ autor: 'jev', texto: TEXTO_NO_ENTENDI, fueraDelHilo: true });
+      } else if (respuesta.tipo === 'noEntendi') {
+        agregar({ autor: 'jev', texto: respuesta.texto, fueraDelHilo: true });
       } else if (respuesta.tipo === 'sinInternet') {
-        // Sin red y sin entender: el aviso trae tres preguntas que sí se pueden responder sin internet.
-        const sugeridas = (respuesta.sugeridas ?? []).map(p => `• ${p}`);
-        agregar({ autor: 'jev', texto: [respuesta.texto, ...sugeridas].join('\n'), error: true });
+        // Sin red y sin ser una pregunta predefinida: el aviso y tres preguntas que sí se responden sin internet.
+        agregar({
+          autor: 'jev',
+          texto: respuesta.texto,
+          error: true,
+          sugeridas: respuesta.sugeridas,
+        });
       } else if (respuesta.tipo === 'error') {
         agregar({ autor: 'jev', texto: respuesta.texto, error: true });
+      } else if (respuesta.tipo === 'conversacion') {
+        agregar({ autor: 'jev', texto: respuesta.texto });
       } else {
         previa.current = respuesta.consulta;
         agregar({
@@ -153,6 +179,8 @@ export const PreguntarScreen = () => {
           texto: respuesta.texto,
           semaforo: respuesta.semaforo,
           sinInternet: respuesta.sinInternet,
+          // Lo que te deben (monto y fecha del Yape) nunca sale del teléfono, ni siquiera en el hilo.
+          fueraDelHilo: esReservada(respuesta.hecho.intencion),
         });
       }
     } finally {
@@ -197,11 +225,7 @@ export const PreguntarScreen = () => {
 
   return (
     <SafeAreaView style={styles.pantalla} edges={['top']} testID="preguntar-pantalla">
-      <KeyboardAvoidingView
-        style={styles.pantalla}
-        behavior="padding"
-        keyboardVerticalOffset={0}
-      >
+      <KeyboardAvoidingView style={styles.pantalla} behavior="padding" keyboardVerticalOffset={0}>
         <View style={styles.cabecera}>
           {/* Es una pestaña: no lleva "Atrás". Una sola línea, para dejarle sitio al chat. */}
           <Text variant="h2" accessibilityRole="header" numberOfLines={1} testID="preguntar-titulo">
@@ -276,16 +300,43 @@ export const PreguntarScreen = () => {
                 sinInternet={m.sinInternet}
                 testID={`chat-burbuja-${i}`}
               />
+              {/* Las preguntas que sí se responden sin internet, a un toque, mientras sea lo último que se dijo. */}
+              {m.sugeridas && i === mensajes.length - 1 && !pensando ? (
+                <View style={styles.sugeridasAviso} testID={`chat-sugeridas-${i}`}>
+                  <Text variant="bodySmall" color="textMuted">
+                    {TEXTO_SIN_INTERNET_SUGERIDAS}
+                  </Text>
+                  <View style={styles.sugeridasChips}>
+                    {m.sugeridas.map((pregunta, k) => (
+                      <Chip
+                        key={pregunta}
+                        label={pregunta}
+                        role="button"
+                        onPress={() => preguntar(pregunta)}
+                        testID={`chat-sugerida-${i}-${k}`}
+                      />
+                    ))}
+                  </View>
+                </View>
+              ) : null}
             </View>
           ))}
-          {pensando ? <BurbujaPensando testID="chat-pensando" /> : null}
+          {pensando ? (
+            <BurbujaPensando
+              testID="chat-pensando"
+              texto={esperaLarga ? TEXTO_SIGUE_PENSANDO : undefined}
+            />
+          ) : null}
         </ScrollView>
 
         {/* Las sugeridas, el campo y el botón viven FUERA del scroll, en un pie fijo: siempre a la mano. */}
         {/* La barra es una capa encima: el pie se sube lo que ella ocupa (con su círculo). */}
         {/* Con el teclado abierto la barra no está: el pie se apoya directamente sobre el teclado. */}
         <View
-          style={[styles.pie, { paddingBottom: teclado.visible ? spacing.sm : alturaTotal + spacing.sm }]}
+          style={[
+            styles.pie,
+            { paddingBottom: teclado.visible ? spacing.sm : alturaTotal + spacing.sm },
+          ]}
           testID="preguntar-pie"
         >
           <ScrollView
@@ -362,6 +413,8 @@ const styles = StyleSheet.create({
     borderTopColor: colors.border,
     backgroundColor: colors.background,
   },
+  sugeridasAviso: { gap: spacing.xs, marginTop: spacing.sm },
+  sugeridasChips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   filaCampo: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   // El campo toma todo lo que sobra; el botón de enviar es un círculo fijo de 48 dp.
   campo: { flex: 1, minWidth: 0 },

@@ -10,17 +10,60 @@ workers_dev = true
 # Jev, por la API tipada de OpenRouter (/api/v1/systemone). `jev-latest` es el alias del Jev más nuevo;
 # `jev-1.13` fija una versión. Si Jev falla o responde algo inválido, clasifica DeepSeek.
 JEV_MODELO = "jev-latest"
-# Respaldo para clasificar (chat de OpenRouter) y único que redacta.
+# Respaldo y segundo intento al clasificar (chat de OpenRouter), y el que redacta las respuestas
+# (`redactar`) y conversa (`conversar`).
 DEEPSEEK_MODELO = "deepseek/deepseek-v4-flash"
 # Proveedores de EE. UU. permitidos para DeepSeek (nombres de OpenRouter, separados por comas).
 DEEPSEEK_PROVEEDORES = "deepinfra,parasail,cloudflare,digitalocean"
 
-# Límite por IP: 20 peticiones por minuto en cada ubicación de Cloudflare (period solo admite 10 o 60).
+# Límite por IP: 40 peticiones por minuto en cada ubicación de Cloudflare (period solo admite 10 o 60).
+# Una pregunta del chat gasta hasta 3 peticiones (interpretar, y a la vez redactar y juzgar): unas 13
+# preguntas por minuto por IP. Antes eran 20 por minuto, cuando una pregunta gastaba 1 o 2.
 # Requiere Wrangler 4.36.0 o más nuevo. `namespace_id` es un número que elegimos y debe ser único en la cuenta.
 [[ratelimits]]
 name = "LIMITE"
 namespace_id = "48210"
 
   [ratelimits.simple]
+  limit = 40
+  period = 60
+
+# Límite por IP, MÁS ESTRICTO, solo para reservar y subir un reporte: 5 por minuto por IP en
+# cada ubicación. Es un binding aparte del de arriba para que las subidas (que cuestan almacenamiento) no
+# gasten las preguntas del chat ni al revés. `namespace_id` debe ser único en la cuenta.
+[[ratelimits]]
+name = "LIMITE_SUBIDA"
+namespace_id = "48211"
+
+  [ratelimits.simple]
+  limit = 5
+  period = 60
+
+# Límite por IP SOLO para borrar un reporte (20 por minuto por IP), más holgado que el de crear. Borrar no pasa por
+# el límite global ni por el tope diario: así nadie puede impedir que el dueño revoque su enlace. El token de
+# borrado es la única autorización. `namespace_id` debe ser único en la cuenta.
+[[ratelimits]]
+name = "LIMITE_BORRAR"
+namespace_id = "48213"
+
+  [ratelimits.simple]
   limit = 20
   period = 60
+
+# Límite GLOBAL (no por IP) para reservar y subir un reporte (no para borrar): 10 por minuto en total, con una clave
+# fija ('global'). Acota una ráfaga repartida entre muchas IP; el tope diario de reservas, que no es atómico,
+# solo es aproximado. `namespace_id` debe ser único en la cuenta. Sin este binding no hay límite global.
+[[ratelimits]]
+name = "LIMITE_GLOBAL_SUBIDA"
+namespace_id = "48212"
+
+  [ratelimits.simple]
+  limit = 10
+  period = 60
+
+# Reportes en PDF que la persona decide subir para compartir un enlace que caduca (30 días). El bucket se
+# crea una sola vez con `npx wrangler r2 bucket create crecemos-reportes` (ver README.md). Sin este
+# binding, `subirReporte` responde NO_CONFIGURADO y el resto del Worker sigue igual.
+[[r2_buckets]]
+binding = "REPORTES"
+bucket_name = "crecemos-reportes"

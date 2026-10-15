@@ -200,8 +200,10 @@ describe('servidor: validación de lo que llega', () => {
     conOpenRouter();
     const grande = JSON.stringify(interpretar('a'.repeat(3000)));
     const porLargo = await llamar(grande);
+    // Sprint-14: `redactar` y `conversar` llevan hilo y resumen, así que el tope de lectura es de 6 KB;
+    // el de 2 KB sigue valiendo para los demás tipos (el `interpretar` de 3000 caracteres de arriba).
     const porEncabezado = await llamar(interpretar(), ENV, {
-      headers: { 'Content-Type': 'application/json', 'Content-Length': '5000' },
+      headers: { 'Content-Type': 'application/json', 'Content-Length': '9000' },
     });
 
     for (const r of [porLargo, porEncabezado]) {
@@ -290,7 +292,6 @@ describe('servidor: validación de lo que llega', () => {
     }
     expect(openrouter).not.toHaveBeenCalled();
   });
-
 });
 
 describe('servidor: interpretar', () => {

@@ -1,6 +1,11 @@
 // Pruebas del clasificador local: las doce intenciones sin red, con frases de vendedor peruano,
 // sin tildes, con mayúsculas y con faltas comunes.
-import { clasificarLocal, extraerDia } from '@analisis/clasificadorLocal';
+import {
+  CONFIANZA_PREDEFINIDA,
+  clasificarLocal,
+  clasificarPredefinida,
+  extraerDia,
+} from '@analisis/clasificadorLocal';
 import { INTENCIONES, PREGUNTAS_SUGERIDAS, UMBRAL_CONFIANZA } from '@analisis/intenciones';
 import { normalizarTexto } from '@analisis/texto';
 import type { IntencionId } from '@dominio/tipos';
@@ -285,5 +290,37 @@ describe('normalizarTexto (compartido con la charla y el seguimiento)', () => {
     expect(normalizarTexto('¡¿Cuánto   VENDÍ?!')).toBe('cuanto vendi');
     expect(normalizarTexto('holaaaa')).toBe('hola');
     expect(normalizarTexto('mañana')).toBe('manana');
+  });
+});
+
+describe('clasificarPredefinida (Sprint-14): sin internet solo las preguntas claras', () => {
+  it('una pregunta clara conserva su intención y su día', () => {
+    expect(clasificarPredefinida('¿Cuánto vendí ayer?', '2026-10-14')).toMatchObject({
+      intencion: 'ventaDelDia',
+      dia: 'ayer',
+    });
+    expect(clasificarPredefinida('¿Cómo me fue el mes pasado?', '2026-10-14').intencion).toBe(
+      'resumenMesPasado',
+    );
+  });
+
+  it('una pista suelta, la charla y las preguntas raras son noEntendi', () => {
+    for (const texto of [
+      'hola',
+      'gracias',
+      'cobros',
+      'ciclo',
+      '¿qué opinas de mi mes?',
+      '¿y ayer?',
+    ]) {
+      expect(clasificarPredefinida(texto, '2026-10-14').intencion).toBe('noEntendi');
+    }
+  });
+
+  it('exige más confianza que el clasificador general', () => {
+    expect(CONFIANZA_PREDEFINIDA).toBeGreaterThan(0.6);
+    const suelta = clasificarLocal('cobros');
+    expect(suelta.intencion).not.toBe('noEntendi'); // el general la acepta (0,65)…
+    expect(clasificarPredefinida('cobros').intencion).toBe('noEntendi'); // …la predefinida no.
   });
 });

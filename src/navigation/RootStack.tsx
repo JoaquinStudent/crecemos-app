@@ -11,6 +11,7 @@ import { PerfilScreen } from '@screens/PerfilScreen';
 import { PerfilDatosScreen } from '@screens/PerfilDatosScreen';
 import { PerfilPagosScreen } from '@screens/PerfilPagosScreen';
 import { PerfilAyudaScreen } from '@screens/PerfilAyudaScreen';
+import { MisReportesScreen } from '@screens/MisReportesScreen';
 import { PerfilBorrarDatosScreen } from '@screens/PerfilBorrarDatosScreen';
 import { PerfilProductosScreen } from '@screens/PerfilProductosScreen';
 import { PerfilRecordatorioScreen } from '@screens/PerfilRecordatorioScreen';
@@ -19,6 +20,7 @@ import { CerrarDiaScreen } from '@screens/CerrarDiaScreen';
 import { MiMetaScreen } from '@screens/MiMetaScreen';
 import { MiReporteScreen } from '@screens/MiReporteScreen';
 import { QueMeDejaScreen } from '@screens/QueMeDejaScreen';
+import type { FiltroPeriodo } from '@analisis/periodo';
 import type { FechaNegocio } from '@dominio/tipos';
 import { Tabs, TabsParamList } from './Tabs';
 
@@ -36,9 +38,12 @@ export type RootStackParamList = {
   PerfilBorrarDatos: undefined;
   PerfilAyuda: undefined;
   QueMeDeja: undefined;
-  MiReporte: undefined;
+  /** Con `filtro`, el reporte abre en el periodo que se estaba mirando en Resumen. */
+  MiReporte: { filtro?: FiltroPeriodo } | undefined;
   /** La alcancía de la cuota del préstamo. */
   MiMeta: undefined;
+  /** Los enlaces de reporte que la persona guardó. */
+  MisReportes: undefined;
 };
 
 /** Las pantallas que se abren desde las opciones del menú de Perfil. */
@@ -49,7 +54,11 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 export const RootStack = () => (
   <Stack.Navigator screenOptions={{ headerShown: false }}>
     <Stack.Screen name="Tabs" component={Tabs} />
-    <Stack.Screen name="CerrarDia" component={CerrarDiaScreen} options={{ presentation: 'modal' }} />
+    <Stack.Screen
+      name="CerrarDia"
+      component={CerrarDiaScreen}
+      options={{ presentation: 'modal' }}
+    />
     <Stack.Screen name="Perfil" component={PerfilScreen} />
     <Stack.Screen name="PerfilDatos" component={PerfilDatosScreen} />
     <Stack.Screen name="PerfilPagos" component={PerfilPagosScreen} />
@@ -61,5 +70,6 @@ export const RootStack = () => (
     <Stack.Screen name="QueMeDeja" component={QueMeDejaScreen} />
     <Stack.Screen name="MiReporte" component={MiReporteScreen} />
     <Stack.Screen name="MiMeta" component={MiMetaScreen} />
+    <Stack.Screen name="MisReportes" component={MisReportesScreen} />
   </Stack.Navigator>
 );

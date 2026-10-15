@@ -7,17 +7,32 @@ import { formatoFecha, formatoFechaCorta, formatoSoles, nombreMes } from '@domin
 import type { FechaNegocio, MesCompleto, Perfil, Senales } from '@dominio/tipos';
 import {
   AVISO_EJEMPLO_SECCION,
+  codigoDeEnlace,
   construirPasaporte,
   explicacionCuota,
   modulosQR,
   NOTA_CODIGO,
   NOTA_CUOTA,
   svgQR,
+  textoCaduca,
   textoCuota,
   TITULO_CODIGO,
+  TITULO_CONSTANCIA,
   TITULO_CUOTA_BANCO,
+  type EnlaceQR,
   type Pasaporte,
 } from './pasaporte';
+import {
+  diasCerradosTexto,
+  fraseDiaMasVentas,
+  fraseDiaQueMasDeja,
+  fraseDiaQueMenosDeja,
+  fraseMesFuerte,
+  fraseProductoEstrella,
+  NOTA_SIN_DIAS_SEMANA,
+} from './frasesInteligencia';
+import { ESTILOS_TORTA, etiquetaTorta, textoPorcion, type PorcionTorta } from './graficos';
+import type { ExtraReporte, MesNegocio } from './inteligencia';
 import { AVISO_EJEMPLO, diasRegistradosTexto, textoFaltan, VENTANA_DIAS } from './senales';
 
 /** Alto de la barra del mes mayor, en pt; las demás son proporcionales. */
@@ -115,6 +130,7 @@ td.num { text-align: right; font-weight: 700 }
 .constancia-mes { margin-top: 5pt }
 .codigo { flex: 1.1; min-width: 0; display: flex; align-items: flex-start }
 .codigo svg { flex-shrink: 0; margin-right: 10pt; border: 1pt solid #E4D7DE }
+.enlace-reporte { font-size: 11pt; margin-top: 2pt; color: #6B5A62; overflow-wrap: anywhere; font-family: Menlo, Courier, monospace }
 .numero-codigo { font-size: 14pt; font-weight: 700; letter-spacing: 0.5pt; font-family: Menlo, Courier, monospace }
 .ejemplo { font-size: 11pt; font-weight: 700; color: #CD0157 }
 .pie { margin-top: auto; display: flex; justify-content: space-between; align-items: flex-start; padding: 8pt 36pt; border-top: 1pt solid #E4D7DE; color: #6B5A62; page-break-inside: avoid; break-inside: avoid }
@@ -256,7 +272,7 @@ const marcaEjemplo = (p: Pasaporte): string =>
  * izquierda; el código de constancia con su QR, los días del último mes y lo que ES (y no es) el
  * código a la derecha.
  */
-const pasaporte = (p: Pasaporte | null): string => {
+const pasaporte = (p: Pasaporte | null, enlace?: EnlaceQR): string => {
   if (p === null) return '';
   const ultimoMes = p.constanciaMensual[p.constanciaMensual.length - 1];
   const cuota =
@@ -266,15 +282,26 @@ const pasaporte = (p: Pasaporte | null): string => {
       ? `<div class="detalle">${escaparHtml(explicacionCuota(p.cuota))}</div>`
       : '') +
     `<div class="detalle">${NOTA_CUOTA}</div></div>`;
+  // Sin enlace no hay ni QR ni código: solo la constancia del último mes, en palabras. Con enlace: el QR de SU
+  // dirección, el código que sale de su id, la fecha en que deja de funcionar y la dirección en texto pequeño.
   const codigo =
-    `<div class="codigo">${svgQR(modulosQR(p.textoQR), LADO_QR_PT)}` +
-    `<div><div class="subtitulo">${TITULO_CODIGO}${marcaEjemplo(p)}</div>` +
-    `<div class="numero-codigo">${p.codigo}</div>` +
+    `<div class="codigo">${enlace === undefined ? '' : svgQR(modulosQR(enlace.url), LADO_QR_PT)}` +
+    `<div><div class="subtitulo">${
+      enlace === undefined ? TITULO_CONSTANCIA : TITULO_CODIGO
+    }${marcaEjemplo(p)}</div>` +
+    (enlace === undefined ? '' : `<div class="numero-codigo">${codigoDeEnlace(enlace.id)}</div>`) +
     (ultimoMes === undefined
       ? ''
       : `<div class="constancia-mes">${escaparHtml(ultimoMes.frase)}</div>`) +
+    (enlace === undefined
+      ? ''
+      : `<div class="constancia-mes"><strong>${escaparHtml(
+          textoCaduca(enlace.caduca),
+        )}</strong></div>` + `<div class="enlace-reporte">${escaparHtml(enlace.url)}</div>`) +
     '</div></div>';
-  return `<div class="seccion pasaporte">${cuota}${codigo}<div class="nota-codigo">${NOTA_CODIGO}</div></div>`;
+  return `<div class="seccion pasaporte">${cuota}${codigo}${
+    enlace === undefined ? '' : `<div class="nota-codigo">${NOTA_CODIGO}</div>`
+  }</div>`;
 };
 
 const comoLeer = (): string => {
@@ -295,17 +322,282 @@ const fechaEnFrase = (hoy: FechaNegocio): string => {
   return `${f.charAt(0).toLowerCase()}${f.slice(1)} de ${hoy.slice(0, 4)}`;
 };
 
+// --- Las páginas de inteligencia de negocio (solo cuando se pide) ---------------------------------
+
+/** Estilos de las páginas de inteligencia. Aparte, para que el documento sin ellas sea el de siempre. */
+const ESTILO_EXTRA = `
+.pagina { width: 595pt; page-break-before: always; break-before: page }
+.pagina .contenido { padding: 14pt 36pt 0 }
+h2 { font-size: 20pt; line-height: 1.15; margin: 0 0 3pt }
+.valor-chico { font-size: 15pt; line-height: 1.15; font-weight: 700; margin-top: 3pt }
+.linea { margin-bottom: 4pt }
+th { text-align: left; padding: 4pt 0; border-bottom: 1pt solid #1A1016; color: #6B5A62 }
+th.num { text-align: right }
+tr { page-break-inside: avoid; break-inside: avoid }
+.torta { display: flex; align-items: flex-start }
+.torta > svg { flex-shrink: 0; margin-right: 18pt }
+.leyenda-torta { flex: 1; min-width: 0 }
+.ley { display: flex; align-items: center; margin-bottom: 6pt; page-break-inside: avoid; break-inside: avoid }
+.ley svg { flex-shrink: 0; margin-right: 8pt; border: 1pt solid #1A1016 }
+.ley-monto { color: #6B5A62 }
+.pie-extra { margin-top: 12pt; padding: 8pt 0 14pt; border-top: 1pt solid #E4D7DE; color: #6B5A62 }
+`;
+
+/** Cuántos meses dibuja el gráfico y cuántos lista la tabla. */
+const MESES_EN_GRAFICO = 12;
+const MESES_EN_TABLA = 24;
+const ALTO_FILA_MES_PT = 40;
+const X_BARRAS_PT = 74;
+const ANCHO_MAXIMO_BARRA_PT = 250;
+const ANCHO_SVG_PT = 523;
+const LADO_TORTA_PT = 160;
+const NO_HAY_COMPARACION = 'No hay dos meses seguidos con días cerrados para comparar.';
+const SIN_VENTAS = 'Aún no hay ventas en este periodo.';
+
+const COLOR_RESULTADO = '#0F7A4F';
+const COLOR_NEGATIVO = '#B3261E';
+
+const banda = (hoy: FechaNegocio): string =>
+  `<div class="banda"><div class="marca">Crecemos</div><div class="fecha">${formatoFecha(
+    hoy,
+  )}</div></div>`;
+
+const textoSvg = (x: number, y: number, texto: string, extra = ''): string =>
+  `<text x="${x}" y="${y}" font-size="11" fill="#1A1016"${extra}>${escaparHtml(texto)}</text>`;
+
+/** Barras horizontales: por mes, la de ventas y la del resultado registrado, con su monto escrito. */
+const svgBarrasMeses = (meses: MesNegocio[]): string => {
+  const mayor = Math.max(0, ...meses.flatMap(m => [Math.abs(m.venta), Math.abs(m.resultado)]));
+  const largo = (valor: number): number =>
+    valor === 0 || mayor === 0
+      ? 0
+      : Math.max(2, Math.round((Math.abs(valor) / mayor) * ANCHO_MAXIMO_BARRA_PT));
+  const filas = meses
+    .map((m, i) => {
+      const y = i * ALTO_FILA_MES_PT;
+      const lv = largo(m.venta);
+      const lr = largo(m.resultado);
+      return (
+        textoSvg(0, y + 13, m.etiquetaCorta, ' font-weight="700"') +
+        (m.enCurso ? textoSvg(0, y + 29, 'en curso') : '') +
+        `<rect x="${X_BARRAS_PT}" y="${y + 3}" width="${lv}" height="12" fill="#CD0157"/>` +
+        textoSvg(X_BARRAS_PT + lv + 6, y + 13, `Ventas ${formatoSoles(m.venta)}`) +
+        `<rect x="${X_BARRAS_PT}" y="${y + 21}" width="${lr}" height="12" fill="${
+          m.resultado < 0 ? COLOR_NEGATIVO : COLOR_RESULTADO
+        }"/>` +
+        textoSvg(X_BARRAS_PT + lr + 6, y + 31, `Resultado registrado ${formatoSoles(m.resultado)}`)
+      );
+    })
+    .join('');
+  const alto = meses.length * ALTO_FILA_MES_PT;
+  return (
+    `<svg width="${ANCHO_SVG_PT}pt" height="${alto}pt" viewBox="0 0 ${ANCHO_SVG_PT} ${alto}" role="img" ` +
+    `aria-label="Barras de ventas y resultado registrado por mes">${filas}</svg>`
+  );
+};
+
+/** El relleno de una porción: su color y una marca distinta, para que el color no vaya solo. */
+const patron = (id: string, indice: number): string => {
+  const e = ESTILOS_TORTA[indice % ESTILOS_TORTA.length];
+  const marcas: Record<(typeof ESTILOS_TORTA)[number]['patron'], string> = {
+    liso: '',
+    rayas: `<path d="M0 8L8 0M-2 2L2 -2M6 10L10 6" stroke="${e.marca}" stroke-width="1.6"/>`,
+    puntos: `<circle cx="4" cy="4" r="1.7" fill="${e.marca}"/>`,
+    cuadrícula: `<path d="M0 4H8M4 0V8" stroke="${e.marca}" stroke-width="1.2"/>`,
+    líneas: `<path d="M0 2H8M0 6H8" stroke="${e.marca}" stroke-width="1.4"/>`,
+  };
+  return (
+    `<pattern id="${id}" width="8" height="8" patternUnits="userSpaceOnUse">` +
+    `<rect width="8" height="8" fill="${e.relleno}"/>${marcas[e.patron]}</pattern>`
+  );
+};
+
+/** La torta: una porción por producto (hasta 5), con su patrón, sin JavaScript. */
+const svgTorta = (porciones: PorcionTorta[]): string => {
+  const centro = LADO_TORTA_PT / 2;
+  const radio = centro - 4;
+  const total = porciones.reduce((suma, p) => suma + p.venta, 0);
+  const defs = porciones.map((_, i) => patron(`tp-${i}`, i)).join('');
+  let angulo = -Math.PI / 2;
+  const trozos = porciones.map((p, i) => {
+    const relleno = `url(#tp-${i})`;
+    if (porciones.length === 1) {
+      return `<circle cx="${centro}" cy="${centro}" r="${radio}" fill="${relleno}" stroke="#fff" stroke-width="2"/>`;
+    }
+    const barrido = (p.venta / total) * 2 * Math.PI;
+    const x0 = centro + radio * Math.cos(angulo);
+    const y0 = centro + radio * Math.sin(angulo);
+    angulo += barrido;
+    const x1 = centro + radio * Math.cos(angulo);
+    const y1 = centro + radio * Math.sin(angulo);
+    const grande = barrido > Math.PI ? 1 : 0;
+    return (
+      `<path d="M${centro} ${centro}L${x0.toFixed(2)} ${y0.toFixed(
+        2,
+      )}A${radio} ${radio} 0 ${grande} 1 ` +
+      `${x1.toFixed(2)} ${y1.toFixed(2)}Z" fill="${relleno}" stroke="#fff" stroke-width="2"/>`
+    );
+  });
+  return (
+    `<svg width="${LADO_TORTA_PT}pt" height="${LADO_TORTA_PT}pt" viewBox="0 0 ${LADO_TORTA_PT} ${LADO_TORTA_PT}" ` +
+    `role="img" aria-label="${escaparHtml(
+      etiquetaTorta(porciones),
+    )}"><defs>${defs}</defs>${trozos.join('')}</svg>`
+  );
+};
+
+/** La leyenda: la misma marca de cada porción, su nombre con el porcentaje en palabras y su monto. */
+const leyendaTorta = (porciones: PorcionTorta[]): string =>
+  '<div class="leyenda-torta">' +
+  porciones
+    .map((p, i) => {
+      const e = ESTILOS_TORTA[i % ESTILOS_TORTA.length];
+      return (
+        `<div class="ley"><svg width="16pt" height="16pt" viewBox="0 0 16 16" role="img" aria-label="Marca: ${e.patron}">` +
+        `<defs>${patron(
+          `tl-${i}`,
+          i,
+        )}</defs><rect width="16" height="16" fill="url(#tl-${i})"/></svg>` +
+        `<div><div>${escaparHtml(textoPorcion(p))}</div><div class="ley-monto">${formatoSoles(
+          p.venta,
+        )}</div></div></div>`
+      );
+    })
+    .join('') +
+  '</div>';
+
+const tablaMeses = (meses: MesNegocio[]): string =>
+  '<table><thead><tr><th>Mes</th><th class="num">Ventas</th><th class="num">Gastos</th>' +
+  '<th class="num">Resultado registrado</th><th class="num">Días cerrados</th></tr></thead><tbody>' +
+  meses
+    .map(
+      m =>
+        `<tr><td>${escaparHtml(m.etiqueta)}</td><td class="num">${formatoSoles(
+          m.venta,
+        )}</td><td class="num">${formatoSoles(m.gastos)}</td><td class="num">${formatoSoles(
+          m.resultado,
+        )}</td><td class="num">${m.dias}</td></tr>`,
+    )
+    .join('') +
+  '</tbody></table>';
+
+const linea = (rotulo: string, texto: string): string =>
+  `<div class="linea"><strong>${rotulo}:</strong> ${escaparHtml(texto)}</div>`;
+
+const seccion = (titulo: string, contenido: string): string =>
+  `<div class="seccion"><div class="subtitulo">${titulo}</div>${contenido}</div>`;
+
+/** Las páginas A4 que siguen a la hoja del banco: cada una empieza en hoja nueva con su banda. */
+const paginasInteligencia = (s: Senales, extra: ExtraReporte, hoy: FechaNegocio): string => {
+  const i = extra.inteligencia;
+  const cabecera =
+    `<h2>Inteligencia de negocio</h2><div class="periodo"><strong>Periodo:</strong> ${escaparHtml(
+      extra.etiquetaPeriodo,
+    )} · ${diasCerradosTexto(i.dias)}</div>` +
+    (s.soloEjemplo
+      ? `<div class="aviso"><strong>Datos de ejemplo.</strong> ${escaparHtml(AVISO_EJEMPLO)}</div>`
+      : '');
+  const pie = `<div class="pie-extra"><div>${FRASE_PIE}</div><div>Generado el ${fechaEnFrase(
+    hoy,
+  )}</div></div>`;
+  const pagina = (contenido: string): string =>
+    `<div class="pagina">${banda(hoy)}<div class="contenido">${contenido}</div></div>`;
+
+  if (!i.hayDatos) {
+    return pagina(`${cabecera}<div class="sinmes">Sin días cerrados en este periodo.</div>${pie}`);
+  }
+
+  const tarjeta = (etiqueta: string, valor: string, detalle = ''): string =>
+    `<div class="tarjeta"><div class="etiqueta">${etiqueta}</div><div class="valor-chico">${valor}</div>${
+      detalle === '' ? '' : `<div class="detalle">${detalle}</div>`
+    }</div>`;
+  const cifras =
+    '<div class="tarjetas">' +
+    tarjeta('Ventas del periodo', formatoSoles(i.venta)) +
+    tarjeta('Gastos del periodo', formatoSoles(i.gastos)) +
+    tarjeta('Resultado registrado', formatoSoles(i.resultado)) +
+    tarjeta(
+      'Promedio por día cerrado',
+      formatoSoles(i.promedioVentaDia),
+      `resultado registrado ${formatoSoles(i.promedioResultadoDia)}`,
+    ) +
+    '</div>';
+
+  const nota =
+    i.meses.length > MESES_EN_GRAFICO
+      ? `<div class="detalle">El gráfico muestra los últimos ${MESES_EN_GRAFICO} meses.</div>`
+      : '';
+  const porMes = seccion(
+    'Ventas, gastos y resultado registrado por mes',
+    svgBarrasMeses(i.meses.slice(-MESES_EN_GRAFICO)) +
+      nota +
+      tablaMeses(i.meses.slice(-MESES_EN_TABLA)),
+  );
+
+  const fuerteDebil = seccion(
+    'Mes más fuerte y mes más débil',
+    i.mesMasFuerte && i.mesMasDebil
+      ? linea('Mes más fuerte', fraseMesFuerte(i.mesMasFuerte)) +
+          linea('Mes más débil', fraseMesFuerte(i.mesMasDebil))
+      : `<div class="detalle">${escaparHtml(i.notaMeses ?? '')}</div>`,
+  );
+  const comparacion = seccion(
+    'Comparación entre meses',
+    i.comparaciones.length > 0
+      ? i.comparaciones
+          .slice(-6)
+          .map(c => `<div class="linea">${escaparHtml(c.frase)}</div>`)
+          .join('')
+      : `<div class="detalle">${NO_HAY_COMPARACION}</div>`,
+  );
+  const semana = seccion(
+    'Días de la semana',
+    (i.diaMasVentas ? linea('Día que más vendes', fraseDiaMasVentas(i.diaMasVentas)) : '') +
+      (i.diaQueMasDeja ? linea('Día que más deja', fraseDiaQueMasDeja(i.diaQueMasDeja)) : '') +
+      (i.diaQueMenosDeja
+        ? linea('Día que menos deja', fraseDiaQueMenosDeja(i.diaQueMenosDeja))
+        : '') +
+      (i.diaMasVentas || i.diaQueMasDeja || i.diaQueMenosDeja
+        ? ''
+        : `<div class="detalle">${NOTA_SIN_DIAS_SEMANA}</div>`),
+  );
+  const estrella = fraseProductoEstrella(i);
+  const productos = seccion(
+    'Producto estrella',
+    estrella === null
+      ? `<div class="detalle">${SIN_VENTAS}</div>`
+      : linea('Producto estrella', estrella),
+  );
+  const torta = seccion(
+    'Venta por producto',
+    i.torta.length === 0
+      ? `<div class="detalle">${SIN_VENTAS}</div>`
+      : `<div class="torta">${svgTorta(i.torta)}${leyendaTorta(i.torta)}</div>`,
+  );
+
+  return (
+    pagina(cabecera + cifras + porMes) +
+    pagina(fuerteDebil + comparacion + semana + productos + torta + pie)
+  );
+};
+
 /**
  * El documento HTML del reporte, completo y sin dependencias, para `react-native-html-to-pdf`.
  * Dice lo mismo que `textoReporte` (reutiliza sus textos y constantes). No muta la entrada.
  */
-export const htmlReporte = (s: Senales, perfil: Perfil | null, hoy: FechaNegocio): string => {
+export const htmlReporte = (
+  s: Senales,
+  perfil: Perfil | null,
+  hoy: FechaNegocio,
+  extra?: ExtraReporte,
+  enlace?: EnlaceQR,
+): string => {
   const estilo = s.enConstruccion ? ` style="opacity: ${OPACIDAD_EN_CONSTRUCCION}"` : '';
   return (
     '<!doctype html><html lang="es"><head><meta charset="utf-8">' +
     '<meta name="viewport" content="width=device-width, initial-scale=1">' +
     '<title>Reporte de actividad del negocio</title>' +
-    `<style>${ESTILO}</style></head><body>` +
+    `<style>${ESTILO}${extra === undefined ? '' : ESTILO_EXTRA}</style></head><body>` +
     `<div class="hoja"${estilo}>` +
     `<div class="banda"><div class="marca">Crecemos</div><div class="fecha">${formatoFecha(
       hoy,
@@ -314,6 +606,11 @@ export const htmlReporte = (s: Senales, perfil: Perfil | null, hoy: FechaNegocio
     identidad(perfil) +
     '<h1>Reporte de actividad del negocio</h1>' +
     `<div class="periodo">${periodo(s)}</div>` +
+    (extra === undefined
+      ? ''
+      : `<div class="periodo"><strong>Periodo del reporte:</strong> ${escaparHtml(
+          extra.etiquetaPeriodo,
+        )} · ${diasCerradosTexto(extra.inteligencia.dias)}</div>`) +
     (s.soloEjemplo
       ? `<div class="aviso"><strong>Datos de ejemplo.</strong> ${escaparHtml(AVISO_EJEMPLO)}</div>`
       : '') +
@@ -322,12 +619,14 @@ export const htmlReporte = (s: Senales, perfil: Perfil | null, hoy: FechaNegocio
       : '') +
     tarjetas(s) +
     graficoYTabla(s) +
-    pasaporte(construirPasaporte(s, hoy)) +
+    pasaporte(construirPasaporte(s), enlace) +
     comoLeer() +
     '</div>' +
     `<div class="pie"><div class="privacidad">${FRASE_PIE}</div><div class="generado">Generado el ${fechaEnFrase(
       hoy,
     )}</div></div>` +
-    '</div></body></html>'
+    '</div>' +
+    (extra === undefined ? '' : paginasInteligencia(s, extra, hoy)) +
+    '</body></html>'
   );
 };

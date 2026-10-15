@@ -234,7 +234,7 @@ export interface DiaMedido {
  * menos 2 cierres de ese día y un promedio general positivo; si no, `null`. La comparten la regla
  * `diaFlojo` y el chat ("¿qué día me va peor?").
  */
-const medirDias = (ctx: ContextoAnalisis): { general: number; dias: DiaMedido[] } | null => {
+export const medirDias = (ctx: ContextoAnalisis): { general: number; dias: DiaMedido[] } | null => {
   if (ctx.cierres.length === 0) return null;
   const fechas = ctx.cierres.map(c => c.fecha).sort();
   if (diasEntre(fechas[0], fechas[fechas.length - 1]) < DIAS_MINIMOS_DIA_FLOJO) return null;
