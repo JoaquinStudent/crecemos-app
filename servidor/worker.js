@@ -71,8 +71,9 @@ const MAX_CONVERSACION = 600;
 const MAX_HILO = 4;
 const MAX_TEXTO_HILO = 200;
 const ROLES_HILO = ['freddy', 'asistente'];
-// El resumen agregado del negocio, serializado.
-const MAX_RESUMEN = 1500;
+// El resumen agregado del negocio, serializado. Era 1500; subió a 2800 en el Sprint-17 por las cantidades
+// y los textos de monto. La app usa el mismo número (`MAX_CARACTERES_RESUMEN`): una prueba los iguala.
+const MAX_RESUMEN = 2800;
 const MAX_MESES = 6;
 const MAX_PRODUCTOS = 12;
 const MAX_NOMBRE_PRODUCTO = 30;
@@ -276,6 +277,7 @@ export const PROMPT_REDACTAR = [
   '- De 1 a 3 frases cortas.',
   '- Usa SOLO las cifras, los montos y las fechas de la respuesta calculada, tal cual, sin redondear ni cambiar nada. Todas deben aparecer en tu texto. No calcules nada ni agregues ninguna cifra, porcentaje ni fecha nueva.',
   '- No inventes datos. Puedes sumar un comentario útil o un ánimo corto, siempre sin cifras nuevas y sin prometer nada.',
+  '- Si te aviso que la respuesta usa datos de ejemplo, puedes mencionarlo con naturalidad en una frase breve (por ejemplo: "ojo, esto sale de los datos de ejemplo"). Nunca digas que son datos reales ni lo ocultes: si la persona pregunta "¿esto es real?", responde que son datos de ejemplo. La app ya muestra una etiqueta aparte; tú no la reemplazas.',
   '- Sin emojis, sin enlaces, sin listas, sin comillas.',
   'Responde solo el JSON pedido.',
 ].join('\n');
@@ -283,12 +285,15 @@ export const PROMPT_REDACTAR = [
 export const PROMPT_CONVERSAR = [
   'Eres el asistente de Crecemos, una app para pequeños negocios en Perú. Conversas con el dueño de un negocio (por ejemplo, un vendedor ambulante). Solo ayudas con SU negocio y solo sabes lo que dice el RESUMEN que te doy: no tienes nada más.',
   '',
-  'Qué trae el resumen: "meses" (ventas, gastos, resultado y días cerrados de cada mes; el mes "enCurso" va hasta hoy), "productos" (porciones y venta de los últimos 90 días), "diasDeLaSemana" (el mejor y el peor día, con lo que deja en promedio), "ciclo" (el ciclo de compra actual) y "hoy". El "resultado" es ventas menos gastos.',
+  'Qué trae el resumen: "meses" (de cada mes: "ventas", "gastos" y "resultado" en soles; "porciones", que es la CANTIDAD de productos vendidos ese mes; los días cerrados; el mes "enCurso" va hasta hoy; y "ejemplo" si ese mes tiene días de ejemplo), "productos" (porciones y venta de los últimos 90 días), "diasDeLaSemana" (el mejor y el peor día, con lo que deja en promedio), "ciclo" (el ciclo de compra actual), "hoy", e "incluyeEjemplo" con "diasDeEjemplo" (si el resumen usa datos de ejemplo). Al lado de cada monto en soles viene su texto ya escrito ("ventasTexto", "gastosTexto", "resultadoTexto", "ventaTexto", "gananciaPromedioTexto"). El "resultado" es ventas menos gastos.',
   '',
   'Reglas:',
   '- Español de Perú, tuteando, cercano y sencillo. Nada de tecnicismos: di "resultado registrado", nunca "balance", "margen neto" ni "utilidad".',
   '- Responde en 2 a 4 frases cortas.',
-  '- Usa SOLO cifras que estén escritas en el resumen, tal cual (los montos en soles con S/). No sumes, restes, promedies ni calcules nada nuevo, no redondees y no uses porcentajes. Si necesitas una cifra que no está, dilo con palabras y sin cifras.',
+  '- Usa SOLO cifras que estén escritas en el resumen, tal cual (los montos en soles con S/). No sumes, restes, promedies ni calcules nada nuevo, no redondees y no uses porcentajes. Si necesitas una cifra que no está, dilo con palabras y sin cifras. Decir cuál de varias cifras es la mayor sí está permitido.',
+  '- Cantidad o dinero: si la pregunta es por cantidad ("en qué mes vendí más productos", "más porciones", "cuántas unidades", "qué mes se vendió más en cantidad"), usa "porciones" y no hables de soles. Si es por dinero ("cuánto vendí", "qué mes gané más", "ventas"), usa "ventas" (y "resultado" para lo que quedó). Si es ambigua ("en qué mes vendí más"), da los dos (el mes con más "porciones" y el mes con más "ventas") o aclara cuál usaste.',
+  '- Los montos en soles cópialos tal cual del texto que trae el resumen (por ejemplo "ventasTexto": "S/ 8,726.00"), con su coma y sus dos decimales; nunca los reescribas como "S/8726" ni "8726 soles". Las porciones son números enteros.',
+  '- Datos de ejemplo: si "incluyeEjemplo" es true (o el mes dice "ejemplo"), puedes decir con naturalidad y en una frase breve que incluye datos de ejemplo. Nunca digas que son datos reales ni lo ocultes: si la persona pregunta "¿esto es real?" o "¿son mis datos?", responde que incluyen datos de ejemplo. La app ya muestra una etiqueta aparte; tú no la reemplazas.',
   '- Puedes opinar y aconsejar sobre cómo va el negocio (qué mes fue mejor, qué producto se vende más, qué día va flojo), apoyándote siempre en el resumen. Los consejos son sugerencias, no seguridades.',
   '- Si el resumen no tiene datos para lo que piden, dilo con amabilidad y sugiere cerrar más días en la app.',
   '- Si la persona saluda o agradece, responde con calidez y dile en una frase qué le puedes contar de su negocio.',
@@ -405,41 +410,72 @@ const hiloValido = x => {
 const montoValido = x => typeof x === 'number' && Number.isFinite(x) && Math.abs(x) <= 1e9;
 const enteroValido = x => Number.isInteger(x) && x >= 0 && x <= 1e6;
 
-const totalesValidos = x =>
-  llavesExactas(x, ['ventas', 'gastos', 'resultado']) &&
+// Los textos de monto del resumen: el monto ya escrito como en la app, `[-]S/ 1,234.56`.
+const CLAVES_TEXTO_MONTO = ['ventasTexto', 'gastosTexto', 'resultadoTexto'];
+const TEXTO_MONTO = /^-?S\/ \d{1,3}(,\d{3})*\.\d{2}$/;
+const textoMontoValido = x => typeof x === 'string' && x.length <= 20 && TEXTO_MONTO.test(x);
+
+/** Los tres montos y, si vienen, sus textos formateados (las llaves nuevas son opcionales). */
+const montosValidos = x =>
   montoValido(x.ventas) &&
   montoValido(x.gastos) &&
-  montoValido(x.resultado);
+  montoValido(x.resultado) &&
+  CLAVES_TEXTO_MONTO.every(k => !(k in x) || textoMontoValido(x[k]));
+
+const totalesValidos = x =>
+  llavesExactas(x, ['ventas', 'gastos', 'resultado'], CLAVES_TEXTO_MONTO) && montosValidos(x);
 
 const diaValido = x =>
   x === null ||
-  (llavesExactas(x, ['dia', 'gananciaPromedio']) &&
+  (llavesExactas(x, ['dia', 'gananciaPromedio'], ['gananciaPromedioTexto']) &&
     DIAS_RESUMEN.includes(x.dia) &&
-    montoValido(x.gananciaPromedio));
+    montoValido(x.gananciaPromedio) &&
+    (!('gananciaPromedioTexto' in x) || textoMontoValido(x.gananciaPromedioTexto)));
 
 /**
  * El resumen agregado del negocio: totales por mes y por producto, el mejor y el peor día de la
  * semana, el ciclo actual y hoy. Solo estas llaves, solo números y palabras de listas cerradas
- * (el nombre de un producto es lo único libre: letras, números y pocos signos). Serializado, 1,500
- * caracteres como mucho. `null` si algo no cumple.
+ * (el nombre de un producto es lo único libre: letras, números y pocos signos). Desde el Sprint-17
+ * trae además, todas OPCIONALES para que una app anterior siga funcionando: `porciones` por mes (la
+ * cantidad), los textos de monto ya formateados, `ejemplo: true` por mes y `incluyeEjemplo` y
+ * `diasDeEjemplo` en la raíz. Serializado, 2,800 caracteres como mucho. `null` si algo no cumple.
  */
 const resumenValido = x => {
-  if (!llavesExactas(x, ['meses', 'productos', 'diasDeLaSemana', 'ciclo', 'hoy'])) return null;
+  if (
+    !llavesExactas(
+      x,
+      ['meses', 'productos', 'diasDeLaSemana', 'ciclo', 'hoy'],
+      ['incluyeEjemplo', 'diasDeEjemplo'],
+    )
+  ) {
+    return null;
+  }
+  if ('incluyeEjemplo' in x && typeof x.incluyeEjemplo !== 'boolean') return null;
+  if ('diasDeEjemplo' in x && !enteroValido(x.diasDeEjemplo)) return null;
   if (!Array.isArray(x.meses) || x.meses.length > MAX_MESES) return null;
   if (!Array.isArray(x.productos) || x.productos.length > MAX_PRODUCTOS) return null;
   const mes = /^[a-z]{3,12} \d{4}$/;
   const nombre = /^[\w áéíóúüñÁÉÍÓÚÜÑ.'-]+$/;
   for (const m of x.meses) {
-    if (!llavesExactas(m, ['mes', 'ventas', 'gastos', 'resultado', 'dias'], ['enCurso']))
+    if (
+      !llavesExactas(
+        m,
+        ['mes', 'ventas', 'gastos', 'resultado', 'dias'],
+        ['enCurso', 'ejemplo', 'porciones', ...CLAVES_TEXTO_MONTO],
+      )
+    ) {
       return null;
+    }
     if (typeof m.mes !== 'string' || !mes.test(m.mes)) return null;
-    if (!totalesValidos({ ventas: m.ventas, gastos: m.gastos, resultado: m.resultado }))
-      return null;
+    if (!montosValidos(m)) return null;
     if (!enteroValido(m.dias) || m.dias > 31) return null;
     if ('enCurso' in m && m.enCurso !== true) return null;
+    if ('ejemplo' in m && m.ejemplo !== true) return null;
+    if ('porciones' in m && !enteroValido(m.porciones)) return null;
   }
   for (const p of x.productos) {
-    if (!llavesExactas(p, ['nombre', 'porciones', 'venta'])) return null;
+    if (!llavesExactas(p, ['nombre', 'porciones', 'venta'], ['ventaTexto'])) return null;
+    if ('ventaTexto' in p && !textoMontoValido(p.ventaTexto)) return null;
     if (
       typeof p.nombre !== 'string' ||
       p.nombre.length < 1 ||
@@ -458,8 +494,8 @@ const resumenValido = x => {
   }
   if (x.ciclo !== null && !totalesValidos(x.ciclo)) return null;
   if (
-    !llavesExactas(x.hoy, ['ventas', 'gastos', 'resultado', 'cerrado']) ||
-    !totalesValidos({ ventas: x.hoy.ventas, gastos: x.hoy.gastos, resultado: x.hoy.resultado }) ||
+    !llavesExactas(x.hoy, ['ventas', 'gastos', 'resultado', 'cerrado'], CLAVES_TEXTO_MONTO) ||
+    !montosValidos(x.hoy) ||
     typeof x.hoy.cerrado !== 'boolean'
   ) {
     return null;
@@ -775,6 +811,9 @@ const redactar = async (env, solicitud) => {
   if (pregunta === null || hilo === null || hecho === null || hecho.intencion === 'noEntendi') {
     return error('SOLICITUD_INVALIDA', 400);
   }
+  // Sprint-17: `ejemplo` es opcional y solo vale `true` (la respuesta usó datos de ejemplo).
+  const ejemploCrudo = solicitud.hecho.ejemplo;
+  if (ejemploCrudo !== undefined && ejemploCrudo !== true) return error('SOLICITUD_INVALIDA', 400);
 
   const redaccion = textoDeModeloValido(
     await llamarModelo(env, {
@@ -790,6 +829,9 @@ const redactar = async (env, solicitud) => {
             `Cifras que debes conservar: ${
               hecho.cifras.length > 0 ? hecho.cifras.join(', ') : 'ninguna'
             }`,
+            ...(ejemploCrudo === true
+              ? ['Aviso: esta respuesta usa datos de ejemplo, no son registros reales del negocio.']
+              : []),
           ].join('\n\n'),
         },
       ],

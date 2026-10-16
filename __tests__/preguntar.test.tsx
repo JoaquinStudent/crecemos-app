@@ -22,7 +22,7 @@ import { importarSemilla } from '@storage/repositorio';
 import { JEV_URL, SEED_URL } from '../src/config';
 
 const TEXTO_PRIVACIDAD =
-  'Tu pregunta y lo último que hablaron se envían a un servicio de inteligencia artificial para entenderla y escribirte la respuesta. Algunas respuestas se envían ya calculadas (por ejemplo, cuánto te queda en el ciclo), y si conversan, viajan unos totales por mes y por producto. Nunca van tu nombre, tu Yape, lo que te deben por cobrar ni la lista de tus días. Si no hay internet, solo respondo las preguntas sugeridas y no se envía nada.';
+  'Tu pregunta y lo último que hablaron se envían a un servicio de inteligencia artificial para entenderla y escribirte la respuesta. Algunas respuestas se envían ya calculadas (por ejemplo, cuánto te queda en el ciclo), y si conversan, viajan unos totales por mes y por producto. Nunca van tu nombre, tu Yape, los montos ni las fechas de lo que te deben, ni la lista de tus días. Para opinar sobre tus cobros solo viaja una señal como «alto» o «vencido». Si no hay internet, solo respondo las preguntas sugeridas y no se envía nada.';
 const RUTA_SEMILLA = join(__dirname, '..', 'seed', 'semilla.json');
 const SEMILLA = readFileSync(RUTA_SEMILLA, 'utf8');
 const prepararDemostracion = async () => {
@@ -443,7 +443,10 @@ describe('Chat "Preguntarle a mis datos": lo que se ve', () => {
     const burbuja = p.app.root.findAll(
       n => esHost(n, 'View') && n.props.testID === 'chat-burbuja-1',
     )[0];
-    expect(burbuja.props.accessibilityLabel).toMatch(/^Respuesta, Urgente: /);
+    // Sprint-17: la demostración usa datos de ejemplo, y el lector de pantalla también lo dice.
+    expect(burbuja.props.accessibilityLabel).toMatch(
+      /^Respuesta, Urgente, incluye datos de ejemplo: /,
+    );
   });
 
   it('todas las letras del chat miden 14 o más y ninguna es naranja', async () => {

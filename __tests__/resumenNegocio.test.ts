@@ -42,7 +42,18 @@ describe('armarResumenNegocio', () => {
       productos: [],
       diasDeLaSemana: null,
       ciclo: null,
-      hoy: { ventas: 0, gastos: 0, resultado: 0, cerrado: false },
+      hoy: {
+        ventas: 0,
+        ventasTexto: 'S/ 0.00',
+        gastos: 0,
+        gastosTexto: 'S/ 0.00',
+        resultado: 0,
+        resultadoTexto: 'S/ 0.00',
+        cerrado: false,
+      },
+      // Sprint-17: el aviso de ejemplo vive en la raíz.
+      incluyeEjemplo: false,
+      diasDeEjemplo: 0,
     });
   });
 
@@ -56,12 +67,22 @@ describe('armarResumenNegocio', () => {
       hoy: HOY,
     };
     const r = armarResumenNegocio(ctx);
-    expect(r.hoy).toEqual({ ventas: 100, gastos: 30, resultado: 70, cerrado: true });
+    const montos = {
+      ventas: 100,
+      ventasTexto: 'S/ 100.00',
+      gastos: 30,
+      gastosTexto: 'S/ 30.00',
+      resultado: 70,
+      resultadoTexto: 'S/ 70.00',
+    };
+    expect(r.hoy).toEqual({ ...montos, cerrado: true });
     expect(r.meses).toEqual([
-      { mes: 'octubre 2026', ventas: 100, gastos: 30, resultado: 70, dias: 1, enCurso: true },
+      { mes: 'octubre 2026', ...montos, porciones: 10, dias: 1, enCurso: true },
     ]);
-    expect(r.productos).toEqual([{ nombre: 'Pancita', porciones: 10, venta: 100 }]);
-    expect(r.ciclo).toEqual({ ventas: 100, gastos: 30, resultado: 70 });
+    expect(r.productos).toEqual([
+      { nombre: 'Pancita', porciones: 10, venta: 100, ventaTexto: 'S/ 100.00' },
+    ]);
+    expect(r.ciclo).toEqual(montos);
   });
 
   it('los meses son los últimos 6, del más antiguo al actual, y salta los que no tienen días', () => {
@@ -89,8 +110,8 @@ describe('armarResumenNegocio', () => {
       hoy: HOY,
     };
     expect(armarResumenNegocio(ctx).productos).toEqual([
-      { nombre: 'Rachi', porciones: 20, venta: 180 },
-      { nombre: 'Chicha', porciones: 3, venta: 6 },
+      { nombre: 'Rachi', porciones: 20, venta: 180, ventaTexto: 'S/ 180.00' },
+      { nombre: 'Chicha', porciones: 3, venta: 6, ventaTexto: 'S/ 6.00' },
     ]);
   });
 

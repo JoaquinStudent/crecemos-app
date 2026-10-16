@@ -226,6 +226,11 @@ export interface Hecho {
   frase: string;
   /** Todas las cifras de `frase`, normalizadas (`extraerCifras`): '205.00', '6', '1.80'. */
   cifras: string[];
+  /**
+   * Solo si es verdad: la respuesta se calculó con algún cierre de ejemplo (D121). La burbuja lo etiqueta
+   * y a la redacción viaja un booleano; las cifras no cambian por esto.
+   */
+  ejemplo?: true;
 }
 
 /** El juicio de Jev sobre una respuesta ya calculada (solo en el chat). */

@@ -516,13 +516,26 @@ describe('SPEC-14: El agente piensa: Jev clasifica, el código calcula y DeepSee
     const resumen = armarResumenNegocio(ctx);
     const texto = JSON.stringify(resumen);
 
-    expect(Object.keys(resumen).sort()).toEqual(['ciclo', 'diasDeLaSemana', 'hoy', 'meses', 'productos']);
+    // Sprint-17: la raíz suma `incluyeEjemplo` y `diasDeEjemplo`.
+    expect(Object.keys(resumen).sort()).toEqual([
+      'ciclo',
+      'diasDeEjemplo',
+      'diasDeLaSemana',
+      'hoy',
+      'incluyeEjemplo',
+      'meses',
+      'productos',
+    ]);
     expect(texto.length).toBeLessThanOrEqual(MAX_CARACTERES_RESUMEN);
     expect(resumen.meses.length).toBeGreaterThan(0);
     expect(resumen.meses.length).toBeLessThanOrEqual(6);
     for (const m of resumen.meses) {
+      // Sprint-17: cada mes suma `porciones`, los tres textos de monto y, si tiene ejemplo, `ejemplo`.
       expect(Object.keys(m).sort()).toEqual(
-        ['dias', 'gastos', 'mes', 'resultado', 'ventas'].concat(m.enCurso ? ['enCurso'] : []).sort(),
+        ['dias', 'gastos', 'gastosTexto', 'mes', 'porciones', 'resultado', 'resultadoTexto', 'ventas', 'ventasTexto']
+          .concat(m.enCurso ? ['enCurso'] : [])
+          .concat(m.ejemplo ? ['ejemplo'] : [])
+          .sort(),
       );
       expect(m.mes).toMatch(/^[a-z]+ \d{4}$/);
     }
@@ -562,7 +575,7 @@ describe('SPEC-14: El agente piensa: Jev clasifica, el código calcula y DeepSee
     }
     const ciclos = agruparCiclos(cierres);
     const ultimo = resumirCiclo(ciclos[ciclos.length - 1]);
-    expect(resumen.ciclo).toEqual({
+    expect(resumen.ciclo).toMatchObject({
       ventas: ultimo.venta,
       gastos: ultimo.capital,
       resultado: ultimo.teQueda,
@@ -576,7 +589,7 @@ describe('SPEC-14: El agente piensa: Jev clasifica, el código calcula y DeepSee
       peor === null ? undefined : ['domingos', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábados'][peor.dia],
     );
     // Hoy no tiene cierre en la semilla: ceros y "cerrado: false".
-    expect(resumen.hoy).toEqual({ ventas: 0, gastos: 0, resultado: 0, cerrado: false });
+    expect(resumen.hoy).toMatchObject({ ventas: 0, gastos: 0, resultado: 0, cerrado: false });
 
     // El Worker acepta tal cual lo que la app arma.
     const aceptado = jest.fn().mockResolvedValue(new Response(JSON.stringify({ choices: [{ message: { content: '{"texto":"Vas bien."}' } }] })));
@@ -898,6 +911,31 @@ describe('SPEC-14: El agente piensa: Jev clasifica, el código calcula y DeepSee
     it('entradas inválidas: 400 sin llamar a nadie', async () => {
       conOpenRouter([]);
       const largo = (n: number) => 'a'.repeat(n);
+      // Sprint-17: el tope subió a 2,800; este resumen (6 meses y 12 productos, todo en su máximo) lo pasa
+      // y el cuerpo sigue cabiendo en los 6 KB que se leen.
+      const resumenQuePasaDelTope = {
+        ...resumen,
+        productos: Array.from({ length: 12 }, (_, i) => ({
+          nombre: `Producto con nombre largo ${i}`,
+          porciones: 123456,
+          venta: 1234567.89,
+          ventaTexto: 'S/ 1,234,567.89',
+        })),
+        meses: Array.from({ length: 6 }, () => ({
+          mes: 'septiembre 2026',
+          ventas: 1234567.89,
+          ventasTexto: 'S/ 1,234,567.89',
+          gastos: 1234567.89,
+          gastosTexto: 'S/ 1,234,567.89',
+          resultado: 1234567.89,
+          resultadoTexto: 'S/ 1,234,567.89',
+          porciones: 123456,
+          dias: 30,
+          ejemplo: true,
+        })),
+      };
+      expect(JSON.stringify(resumenQuePasaDelTope).length).toBeGreaterThan(MAX_CARACTERES_RESUMEN);
+      expect(JSON.stringify(conversar({ resumen: resumenQuePasaDelTope })).length).toBeLessThan(6144);
       const malas: unknown[] = [
         // redactar
         redactar({ pregunta: '' }),
@@ -939,18 +977,8 @@ describe('SPEC-14: El agente piensa: Jev clasifica, el código calcula y DeepSee
         conversar({ resumen: { ...resumen, productos: Array.from({ length: 13 }, () => ({ nombre: 'Pan', porciones: 1, venta: 1 })) } }),
         conversar({ resumen: { ...resumen, hoy: { ...resumen.hoy, cerrado: 'sí' } } }),
         conversar({ resumen: { ...resumen, diasDeLaSemana: { mejor: { dia: 'lunes', gananciaPromedio: 1 }, peor: { dia: 'feriado', gananciaPromedio: 1 } } } }),
-        // pasa de 1,500 caracteres serializado
-        conversar({
-          resumen: {
-            ...resumen,
-            productos: Array.from({ length: 12 }, (_, i) => ({
-              nombre: `Producto con nombre largo ${i}`,
-              porciones: 123456,
-              venta: 1234567.89,
-            })),
-            meses: Array.from({ length: 6 }, () => ({ ...resumen.meses[0], mes: 'septiembre 2026' })),
-          },
-        }),
+        // pasa del tope de caracteres serializado (2,800 desde el Sprint-17; antes 1,500)
+        conversar({ resumen: resumenQuePasaDelTope }),
         // los dos juntos
         { tipo: 'redactar', pregunta: 'x', hecho, texto: 'x' , hilo: 'no' },
       ];

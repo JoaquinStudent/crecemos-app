@@ -9,7 +9,8 @@ import type {
   ResumenCiclo,
 } from '@dominio/tipos';
 
-const vendidas = (preparadas: number, sobrantes: number): number => preparadas - sobrantes;
+/** Lo que se vendió de una línea: preparadas menos sobrantes. La única definición de "vendidas". */
+export const vendidas = (preparadas: number, sobrantes: number): number => preparadas - sobrantes;
 
 /** Ganancia de un día: Σ vendidas × (precio − costo) de sus líneas copiadas (D2). No es "te queda". */
 export const gananciaDelDia = (c: Cierre): number =>

@@ -45,7 +45,7 @@ import type { TabsParamList } from '@navigation/Tabs';
 import { JEV_URL } from '../config';
 
 const TEXTO_PRIVACIDAD =
-  'Tu pregunta y lo último que hablaron se envían a un servicio de inteligencia artificial para entenderla y escribirte la respuesta. Algunas respuestas se envían ya calculadas (por ejemplo, cuánto te queda en el ciclo), y si conversan, viajan unos totales por mes y por producto. Nunca van tu nombre, tu Yape, lo que te deben por cobrar ni la lista de tus días. Si no hay internet, solo respondo las preguntas sugeridas y no se envía nada.';
+  'Tu pregunta y lo último que hablaron se envían a un servicio de inteligencia artificial para entenderla y escribirte la respuesta. Algunas respuestas se envían ya calculadas (por ejemplo, cuánto te queda en el ciclo), y si conversan, viajan unos totales por mes y por producto. Nunca van tu nombre, tu Yape, los montos ni las fechas de lo que te deben, ni la lista de tus días. Para opinar sobre tus cobros solo viaja una señal como «alto» o «vencido». Si no hay internet, solo respondo las preguntas sugeridas y no se envía nada.';
 const TEXTO_AVISO_CORTO = 'Tu pregunta se envía a una IA';
 const TEXTO_INVITACION =
   'Pregúntame lo que quieras de tus ventas. Toca una pregunta o escribe la tuya:';
@@ -66,6 +66,8 @@ interface Mensaje {
   error?: boolean;
   /** Se respondió sin red, con la clasificación del teléfono. */
   sinInternet?: boolean;
+  /** La respuesta se calculó con cierres de ejemplo: la burbuja lleva "Incluye datos de ejemplo". */
+  ejemplo?: boolean;
   /** Preguntas tocables debajo de la burbuja mientras sea el último mensaje (el aviso sin internet). */
   sugeridas?: string[];
   /** No entra al hilo que viaja: avisos, "no entendí" y lo que lleva datos que no salen del teléfono. */
@@ -171,7 +173,7 @@ export const PreguntarScreen = () => {
       } else if (respuesta.tipo === 'error') {
         agregar({ autor: 'jev', texto: respuesta.texto, error: true });
       } else if (respuesta.tipo === 'conversacion') {
-        agregar({ autor: 'jev', texto: respuesta.texto });
+        agregar({ autor: 'jev', texto: respuesta.texto, ejemplo: respuesta.ejemplo });
       } else {
         previa.current = respuesta.consulta;
         agregar({
@@ -179,6 +181,7 @@ export const PreguntarScreen = () => {
           texto: respuesta.texto,
           semaforo: respuesta.semaforo,
           sinInternet: respuesta.sinInternet,
+          ejemplo: respuesta.hecho.ejemplo,
           // Lo que te deben (monto y fecha del Yape) nunca sale del teléfono, ni siquiera en el hilo.
           fueraDelHilo: esReservada(respuesta.hecho.intencion),
         });
@@ -298,6 +301,7 @@ export const PreguntarScreen = () => {
                 semaforo={m.semaforo}
                 error={m.error}
                 sinInternet={m.sinInternet}
+                ejemplo={m.ejemplo}
                 testID={`chat-burbuja-${i}`}
               />
               {/* Las preguntas que sí se responden sin internet, a un toque, mientras sea lo último que se dijo. */}

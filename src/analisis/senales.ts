@@ -11,6 +11,7 @@ import {
   textoCuota,
   TITULO_CUOTA_BANCO,
 } from './pasaporte';
+import { vendidas } from './metricas';
 import { diasCerradosTexto, lineasTextoInteligencia } from './frasesInteligencia';
 import type { ExtraReporte } from './inteligencia';
 
@@ -69,6 +70,19 @@ export const totalesDelMes = (cierres: Cierre[], mes: string, hastaDia = 31): To
     dias: new Set(delMes.map(c => c.fecha)).size,
   };
 };
+
+/**
+ * Las unidades vendidas de un mes ('YYYY-MM'): preparadas menos sobrantes, de todos los productos y de
+ * todos los cierres del mes (o de los días 1 a `hastaDia`). Usa `vendidas` de metricas.ts, la misma cuenta
+ * de siempre, y es la cantidad que el chat contesta cuando preguntan por productos y no por soles.
+ */
+export const porcionesDelMes = (cierres: Cierre[], mes: string, hastaDia = 31): number =>
+  cierres
+    .filter(c => c.fecha.startsWith(mes) && Number(c.fecha.slice(8, 10)) <= hastaDia)
+    .reduce(
+      (total, c) => total + c.lineas.reduce((s, l) => s + vendidas(l.preparadas, l.sobrantes), 0),
+      0,
+    );
 
 /**
  * Los cierres que cuentan para el reporte: los propios. Lo de ejemplo no es del negocio y queda
