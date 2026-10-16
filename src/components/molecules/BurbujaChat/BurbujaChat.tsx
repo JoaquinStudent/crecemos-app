@@ -6,7 +6,14 @@
 // oscuro sobre ese fondo: el naranja nunca es color de texto (UX, regla 5).
 import React, { useEffect, useRef } from 'react';
 import { Animated, StyleSheet, View } from 'react-native';
-import { CircleCheck, Siren, TriangleAlert, WifiOff, type LucideIcon } from 'lucide-react-native';
+import {
+  CircleCheck,
+  FlaskConical,
+  Siren,
+  TriangleAlert,
+  WifiOff,
+  type LucideIcon,
+} from 'lucide-react-native';
 import { colors, radius, spacing } from '@theme';
 import { Text } from '@components/atoms/Text';
 import { Icon } from '@components/atoms/Icon';
@@ -44,12 +51,20 @@ export interface BurbujaChatProps {
   error?: boolean;
   /** Se respondió en el teléfono, sin red: lleva la etiqueta "Sin internet" (palabra, ícono y borde punteado). */
   sinInternet?: boolean;
+  /**
+   * La respuesta se calculó con cierres de ejemplo (D121): lleva la etiqueta "Incluye datos de ejemplo"
+   * (palabra, ícono de matraz y borde azul; el color nunca va solo). Es la garantía de que se avisa, aunque
+   * el texto del modelo no lo mencione.
+   */
+  ejemplo?: boolean;
   /** El de la burbuja; el texto, la palabra y el símbolo llevan este mismo con un sufijo. */
   testID: string;
 }
 
 /** La etiqueta de una respuesta dada sin internet. */
 export const TEXTO_SIN_INTERNET_NOTA = 'Sin internet';
+/** La etiqueta de una respuesta que usó datos de ejemplo (la misma frase que dice Resumen). */
+export const TEXTO_EJEMPLO_NOTA = 'Incluye datos de ejemplo';
 
 export const BurbujaChat = ({
   autor,
@@ -57,19 +72,25 @@ export const BurbujaChat = ({
   semaforo,
   error,
   sinInternet,
+  ejemplo,
   testID,
 }: BurbujaChatProps) => {
   const esPregunta = autor === 'freddy';
   const estilo = semaforo ? ESTILO_SEMAFORO[semaforo] : null;
   const palabra = semaforo ? ETIQUETA_SEMAFORO[semaforo] : null;
+  const conEjemplo = ejemplo === true && !esPregunta && !error;
+  // "Respuesta, Bien, sin internet, incluye datos de ejemplo: …": cada marca que tenga, con palabras.
+  const marcas = [
+    palabra,
+    sinInternet ? TEXTO_SIN_INTERNET_NOTA.toLowerCase() : null,
+    conEjemplo ? TEXTO_EJEMPLO_NOTA.toLowerCase() : null,
+  ].filter(Boolean);
   const etiqueta = esPregunta
     ? `Tu pregunta: ${texto}`
     : error
     ? `Aviso: ${texto}`
-    : palabra
-    ? `Respuesta, ${palabra}: ${texto}`
-    : sinInternet
-    ? `Respuesta, ${TEXTO_SIN_INTERNET_NOTA.toLowerCase()}: ${texto}`
+    : marcas.length > 0
+    ? `Respuesta, ${marcas.join(', ')}: ${texto}`
     : `Respuesta: ${texto}`;
 
   return (
@@ -81,6 +102,7 @@ export const BurbujaChat = ({
         esPregunta ? styles.pregunta : styles.respuesta,
         (estilo || error) && styles.conSemaforo,
         sinInternet && !esPregunta && styles.respuestaSinInternet,
+        conEjemplo && styles.respuestaConEjemplo,
         error && styles.error,
         estilo && { backgroundColor: estilo.fondo, borderLeftColor: colors[estilo.fuerte] },
       ]}
@@ -112,6 +134,14 @@ export const BurbujaChat = ({
           <Icon icon={WifiOff} color="text" size="md" />
           <Text variant="bodySmall" testID={`${testID}-sin-internet`}>
             {TEXTO_SIN_INTERNET_NOTA}
+          </Text>
+        </View>
+      ) : null}
+      {conEjemplo ? (
+        <View style={styles.etiquetaEjemplo} testID={`${testID}-etiqueta-ejemplo`}>
+          <Icon icon={FlaskConical} color="info" size="md" />
+          <Text variant="bodySmall" testID={`${testID}-ejemplo`}>
+            {TEXTO_EJEMPLO_NOTA}
           </Text>
         </View>
       ) : null}
@@ -150,6 +180,20 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
     borderWidth: 1,
     borderColor: colors.textMuted,
+    borderRadius: radius.full,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  // Con datos de ejemplo: borde azul y una etiqueta con relleno suave, palabra e ícono propios (distinta de "Sin internet").
+  respuestaConEjemplo: { borderColor: colors.info },
+  etiquetaEjemplo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: spacing.xs,
+    backgroundColor: colors.infoSoft,
+    borderWidth: 1,
+    borderColor: colors.info,
     borderRadius: radius.full,
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,

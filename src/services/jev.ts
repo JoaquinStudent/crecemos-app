@@ -82,8 +82,11 @@ export type RespuestaChat =
       /** Se reconoció en el teléfono porque no hubo red: frase fija, sin juicio, y la burbuja lo marca. */
       sinInternet?: boolean;
     }
-  /** Conversación libre pero acotada al negocio: DeepSeek escribió el texto y todas sus cifras están en el resumen. */
-  | { tipo: 'conversacion'; texto: string }
+  /**
+   * Conversación libre pero acotada al negocio: DeepSeek escribió el texto y todas sus cifras están en el
+   * resumen. `ejemplo` (solo si es verdad): el resumen incluía datos de ejemplo y la burbuja lo etiqueta.
+   */
+  | { tipo: 'conversacion'; texto: string; ejemplo?: true }
   /** No se entendió y no hubo con quién conversar; `texto` dice qué sí se puede preguntar. */
   | { tipo: 'noEntendi'; texto: string }
   /** Sin red y la pregunta no es una predefinida: `texto` es "Necesitas internet…" y `sugeridas` sí se responden sin red. */
@@ -263,8 +266,9 @@ const textoDe = (json: unknown): string | null => {
 
 /**
  * Le pide a DeepSeek que diga con el tono de Freddy una respuesta YA calculada. Viaja SOLO
- * `{ tipo: 'redactar', pregunta, hilo, hecho: { intencion, frase, cifras } }`: la pregunta, el hilo
- * reciente (texto) y el hecho; nada del perfil, del Yape ni de los cierres. El texto se acepta
+ * `{ tipo: 'redactar', pregunta, hilo, hecho: { intencion, frase, cifras, ejemplo? } }`: la pregunta, el
+ * hilo reciente (texto) y el hecho (`ejemplo: true` solo si usó datos de ejemplo); nada del perfil, del Yape
+ * ni de los cierres. El texto se acepta
  * únicamente si `validarRedaccion` confirma que trae exactamente las cifras del hecho; si no,
  * `REDACCION_DESCARTADA`. Nunca lanza: ante cualquier falla `consultar` muestra la frase fija.
  */
@@ -279,7 +283,13 @@ export const redactarRespuesta = async (
     tipo: 'redactar',
     pregunta: textoEnUnaLinea(pregunta),
     hilo: hiloQueViaja(hilo),
-    hecho: { intencion: hecho.intencion, frase: hecho.frase, cifras: hecho.cifras },
+    hecho: {
+      intencion: hecho.intencion,
+      frase: hecho.frase,
+      cifras: hecho.cifras,
+      // Solo un booleano: que la respuesta usó datos de ejemplo, para que el modelo lo diga con naturalidad.
+      ...(hecho.ejemplo ? { ejemplo: true } : {}),
+    },
   });
   if (!publicada.ok) return publicada;
   const texto = textoDe(publicada.json);
@@ -323,8 +333,14 @@ const conversar = async (
   }
   const texto = textoDe(publicada.json);
   const validada = texto === null ? null : validarConversacion(texto, cifrasDelResumen(resumen));
+  // Un saludo no se apoya en cifras: solo lo demás lleva el aviso de ejemplo.
+  const ejemplo = resumen.incluyeEjemplo && responderCharla(pregunta) === null;
   return validada?.ok
-    ? { tipo: 'conversacion', texto: validada.texto }
+    ? {
+        tipo: 'conversacion',
+        texto: validada.texto,
+        ...(ejemplo ? { ejemplo: true as const } : {}),
+      }
     : { tipo: 'noEntendi', texto: TEXTO_CONVERSACION_NO_DISPONIBLE };
 };
 

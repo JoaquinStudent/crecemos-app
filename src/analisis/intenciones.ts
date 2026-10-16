@@ -8,6 +8,7 @@ import { agruparCiclos, resumirCiclo, textoCapital } from '@dominio/ciclo';
 import { totalPorCobrar } from '@dominio/cobro';
 import { diaSemana, restarDias } from '@dominio/fecha';
 import { formatoFecha, formatoSoles, nombreMes, redondearSoles } from '@dominio/formato';
+import { esEjemplo } from '@dominio/origen';
 import { teDeja } from '@dominio/producto';
 import { singularUnidad, unidadSegunCantidad } from '@dominio/unidades';
 import type {
@@ -262,16 +263,20 @@ const ultimoCierre = (
       undefined,
     );
 
+/** El cierre del que habla "¿cuánto vendí…?": hoy, ayer, el último de un día de la semana o el último que haya. */
+const cierreDelDia = (consulta: Consulta, ctx: ContextoAnalisis): Cierre | undefined => {
+  const dia = consulta.dia ?? 'ninguno';
+  const detalle = NOMBRES_DIA[dia];
+  if (dia === 'hoy') return ctx.cierres.find(c => c.fecha === ctx.hoy);
+  if (dia === 'ayer') return ctx.cierres.find(c => c.fecha === restarDias(ctx.hoy, 1));
+  if (detalle) return ultimoCierre(ctx, c => diaSemana(c.fecha) === detalle.numero);
+  return ultimoCierre(ctx);
+};
+
 const ventaDelDia = (consulta: Consulta, ctx: ContextoAnalisis): Hecho => {
   const dia = consulta.dia ?? 'ninguno';
-  const ayer = restarDias(ctx.hoy, 1);
   const detalle = NOMBRES_DIA[dia];
-
-  let cierre: Cierre | undefined;
-  if (dia === 'hoy') cierre = ctx.cierres.find(c => c.fecha === ctx.hoy);
-  else if (dia === 'ayer') cierre = ctx.cierres.find(c => c.fecha === ayer);
-  else if (detalle) cierre = ultimoCierre(ctx, c => diaSemana(c.fecha) === detalle.numero);
-  else cierre = ultimoCierre(ctx);
+  const cierre = cierreDelDia(consulta, ctx);
 
   if (cierre === undefined) {
     if (dia === 'hoy') return hecho('ventaDelDia', 'Hoy todavía no cerraste tu día.');
@@ -491,12 +496,58 @@ const resumenDelMes = (
   return hecho(intencion, `${inicio} ${comparacion}`);
 };
 
+// --- Qué cierres usó cada respuesta (para avisar los datos de ejemplo) ------------------------------
+
+/** Hasta dónde mira "cuánto preparar": el mismo día de las 8 semanas anteriores a mañana (mañana − 56 = hoy − 55). */
+const DIAS_PLAN = 55;
+
+/**
+ * Los cierres con que se calculó la respuesta de cada intención, para saber si alguno es de ejemplo
+ * (Sprint-17, D121). Es la misma ventana que usa su cálculo: el cierre del día en `ventaDelDia`, los
+ * últimos `DIAS_PRODUCTOS` días en los productos, el mes y el anterior en `resumenMes*`, los cobros
+ * pendientes en `cuantoPorCobrar`, las ocho semanas de `cuantoPreparar` y todo el historial hasta hoy en
+ * lo demás (días de la semana, ciclos, capital, precio). Los cierres posteriores a hoy no cuentan.
+ */
+const cierresUsados = (consulta: Consulta, ctx: ContextoAnalisis): Cierre[] => {
+  const hasta = ctx.cierres.filter(c => c.fecha <= ctx.hoy);
+  switch (consulta.intencion) {
+    case 'ventaDelDia': {
+      const cierre = cierreDelDia(consulta, ctx);
+      return cierre === undefined ? [] : [cierre];
+    }
+    case 'productoQueMasDeja':
+    case 'productoQueMasSeVende':
+      return hasta.filter(c => c.fecha >= restarDias(ctx.hoy, DIAS_PRODUCTOS));
+    case 'cuantoPorCobrar':
+      return hasta.filter(c => c.yapePendiente && !c.cobradoEn);
+    case 'cuantoPreparar':
+      return hasta.filter(c => c.fecha >= restarDias(ctx.hoy, DIAS_PLAN));
+    case 'resumenMesPasado':
+    case 'resumenMesActual': {
+      const mes = consulta.intencion === 'resumenMesActual' ? ctx.hoy.slice(0, 7) : null;
+      const actual = mes ?? mesAnterior(ctx.hoy.slice(0, 7));
+      const previo = mesAnterior(actual);
+      return hasta.filter(c => c.fecha.startsWith(actual) || c.fecha.startsWith(previo));
+    }
+    case 'noEntendi':
+      return [];
+    default:
+      return hasta;
+  }
+};
+
 /**
  * La respuesta a la pregunta de Freddy: la cifra sale de las mismas funciones del resto de la app y
  * la frase es una plantilla fija. `cifras` sale de la propia frase (`extraerCifras`), la misma
- * función con que se vigila la redacción. No lanza ni muta lo que recibe.
+ * función con que se vigila la redacción. Si algún cierre que usó es de ejemplo, el hecho lleva
+ * `ejemplo: true` (`cierresUsados`); sin cierres usados no hay aviso. No lanza ni muta lo que recibe.
  */
 export const responderConsulta = (consulta: Consulta, ctx: ContextoAnalisis): Hecho => {
+  const calculado = calcularHecho(consulta, ctx);
+  return cierresUsados(consulta, ctx).some(esEjemplo) ? { ...calculado, ejemplo: true } : calculado;
+};
+
+const calcularHecho = (consulta: Consulta, ctx: ContextoAnalisis): Hecho => {
   switch (consulta.intencion) {
     case 'ventaDelDia':
       return ventaDelDia(consulta, ctx);

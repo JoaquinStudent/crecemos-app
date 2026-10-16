@@ -6,6 +6,7 @@
 //  - `validarConversacion`: DeepSeek conversa con el resumen del negocio; toda cifra del texto debe
 //    estar en el resumen. No se exige nombrarlas todas ("cifra falta" no aplica).
 // Puro: sin red, sin reloj (AGENTS.md, regla 3).
+import { formatoSoles } from '@dominio/formato';
 import type { Hecho } from '@dominio/tipos';
 import { extraerCifras } from './cifras';
 
@@ -56,12 +57,32 @@ const revisar = (
 export const validarRedaccion = (redaccion: string, hecho: Hecho): ResultadoRedaccion =>
   revisar(redaccion, MAX_CARACTERES_REDACCION, hecho.cifras, true);
 
+// Un monto en soles: `S/` y un número con o sin comas de miles y con o sin decimales ("S/20918",
+// "S/ 8,726.00", "-S/ 30"). No es un monto la cantidad seguida de "mil", "millones" o "k" ("S/ 20 mil").
+const MONTO =
+  /(-?)S\/\.?\s*(\d{1,3}(?:,\d{3})+|\d+)(\.\d+)?(?![\d,]|\.\d|\s?(?:mil|millones?|k)\b)/g;
+
+/**
+ * Reescribe cada monto en soles con el formato de la app (`formatoSoles`: "S/ 20,918.00"): el modelo a
+ * veces escribe "S/20918". El VALOR no cambia, así que la validación de cifras da lo mismo antes y
+ * después. No toca años, días, porcentajes ni montos dichos con palabras.
+ */
+export const normalizarMontos = (texto: string): string =>
+  texto.replace(MONTO, (original, signo: string, entero: string, decimales?: string) => {
+    const valor = Number(`${entero.replace(/,/g, '')}${decimales ?? ''}`);
+    return Number.isFinite(valor) ? formatoSoles(signo === '-' ? -valor : valor) : original;
+  });
+
 /**
  * Acepta la conversación solo si no está vacía, mide ≤ 600 caracteres, no lleva enlaces y toda cifra
  * que escribe está entre `cifrasPermitidas` (las del resumen del negocio). No exige nombrarlas
- * todas. Motivos: `VACIA`, `LARGA`, `ENLACE`, `CIFRA_NUEVA`.
+ * todas. Motivos: `VACIA`, `LARGA`, `ENLACE`, `CIFRA_NUEVA`. El texto aceptado sale con los montos en el
+ * formato de la app (`normalizarMontos`).
  */
 export const validarConversacion = (
   respuesta: string,
   cifrasPermitidas: string[],
-): ResultadoRedaccion => revisar(respuesta, MAX_CARACTERES_CONVERSACION, cifrasPermitidas, false);
+): ResultadoRedaccion => {
+  const revisada = revisar(respuesta, MAX_CARACTERES_CONVERSACION, cifrasPermitidas, false);
+  return revisada.ok ? { ok: true, texto: normalizarMontos(revisada.texto) } : revisada;
+};
